@@ -70,3 +70,11 @@ overlay 构建只声明运行时挂载文件名，不读取插件源码或 jar�
 已核对交付顺序：宿主镜像 CI 38353758690 于 2026-10-13 06:09:18 UTC
 完成；插件最终镜像消费 CI 38361859429 于 07:18:42 UTC 开始、07:20:38 UTC
 完成。插件使用的是前者已推广的固定 digest。
+
+边界修正提交 `f020541` 删除 overlay 从环境变量或扩展目录读取 jar 的旧路径，
+并拒绝构建目录中的外部插件 jar。6 项脚本测试及结构检查通过；
+[overlay CI 38362772725](https://github.com/ai-specs/kestra-overlay/actions/runs/38362772725)
+的 patch、镜像构建、bean 探针、MCP、OIDC、浏览器及推广检查全部通过。
+插件独立边界规则提交 `242921e` 的
+[CI 38362803243](https://github.com/ai-specs/kestra-plugin-rbac/actions/runs/38362803243)
+通过。本轮未改变 monorepo 已通过组合验收的部署 digest。
