@@ -42,7 +42,10 @@ Compose 将可信 OIDC `admin` 映射到 `deployment-admin`，并通过
 
 可信 `reader`、`writer` 分别映射到普通部署角色，其权限域为
 `KESTRA_RBAC_NAMESPACE`（默认 `examples`）及其子 namespace。
-reader 可读 flow，writer 可创建、更新和执行。普通角色未支持的 API 返回 403。
+reader 配置 Flow、Execution、Namespace、Log、Metric、Trigger、KV 和 Namespace File
+的只读权限。writer 配置 Flow 创建、更新、执行、删除，以及 KV/file 写入权限。
+Compose 同时启用 typed 宿主适配配置；实际 RBAC 总开关仍由 `KESTRA_RBAC_ENABLED` 控制。
+普通角色未支持的 API 返回 403。完整普通角色 UI 验收尚未通过，不能将配置存在视为交付证明。
 修改角色或权限配置后运行 `docker compose up -d` 更新容器配置。
 
 上游版本未更新时，`v2.0.5-no-plugins` 会被后续 overlay 构建复用。
@@ -52,8 +55,9 @@ reader 可读 flow，writer 可创建、更新和执行。普通角色未支持�
 OIDC/MCP 接入说明见 [镜像说明](kestra-overlay/README.md)。RBAC 安装与权限模型见
 [授权插件说明](kestra-plugin-rbac/README.md)。
 
-本次测试使用的镜像、插件 commit、jar hash 和结果见
-[RBAC 验收记录](docs/rbac-acceptance.md)。`.env.example` 已固定该镜像 digest。
+历史测试使用的镜像、插件 commit、jar hash 和结果见
+[RBAC 验收记录](docs/rbac-acceptance.md)。该记录不验证当前 `.env.example` 的组合。
+当前 typed 组合必须重新通过本地真实浏览器和 Compose CI，才能作为完整 UI 交付。
 
 构建插件并安装到部署目录：
 

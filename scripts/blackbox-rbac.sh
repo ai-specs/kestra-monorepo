@@ -129,6 +129,7 @@ policies=[line.removeprefix('  rbac: ') for line in text.splitlines() if line.st
 assert len(policies)==1 and 'kestra.rbac.' not in text, 'Ambiguous nested/flat RBAC policies'
 policy=json.loads(policies[0])
 assert policy['subjects']=={} and policy['role-mapping']=={'reader':['reader'],'writer':['writer']}
+assert policy['typed']['enabled'] is True, 'Typed host adapter must be active'
 assert set(policy['roles'])=={'reader','writer'}
 assert all(g['namespace']=='rbac.allowed' for grants in policy['roles'].values() for g in grants)
 assert not any(name in text for name in ('deployment-admin','deployment-reader','deployment-writer'))
