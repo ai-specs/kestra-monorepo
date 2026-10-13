@@ -119,13 +119,19 @@ export async function runNamespaceUi(browser, base, fixture, record) {
                 await page.click('button:has-text("Save")');
             };
             const persisted = async description => {
-                const result = await page.evaluate(async ({endpoint, description}) => {
-                    const result = await fetch(endpoint);
-                    if (!result.ok) return false;
-                    const flow = await result.json();
-                    return flow.description === description;
-                }, {endpoint, description});
-                if (!result) throw new Error('Browser mutation is not persisted');
+                const deadline = Date.now() + 30000;
+                let observed;
+                while (Date.now() < deadline) {
+                    observed = await page.evaluate(async endpoint => {
+                        const result = await fetch(endpoint, {cache: 'no-store'});
+                        if (!result.ok) return {status: result.status};
+                        const flow = await result.json();
+                        return {status: result.status, description: flow.description, id: flow.id, namespace: flow.namespace};
+                    }, endpoint);
+                    if (observed.status === 200 && observed.description === description && observed.id === flowId && observed.namespace === user.namespace) return;
+                    await new Promise(resolve => setTimeout(resolve, 200));
+                }
+                throw new Error(`Browser mutation is not persisted: ${JSON.stringify(observed)}`);
             };
             await verify(user, 'action:flow-create', async row => {
                 await page.goto(`${base}/ui/main/flows`);
@@ -139,10 +145,6 @@ export async function runNamespaceUi(browser, base, fixture, record) {
             await verify(user, 'action:flow-update', async row => {
                 await page.goto(`${base}/ui/main/flows/edit/${user.namespace}/${flowId}/edit`);
                 await editor(yaml('browser-updated'));
-                await page.waitForFunction(async ({endpoint}) => {
-                    const result = await fetch(endpoint);
-                    return result.ok && (await result.json()).description === 'browser-updated';
-                }, {endpoint});
                 await persisted('browser-updated');
                 row.persistenceVerified = true;
             });
