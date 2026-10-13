@@ -137,6 +137,13 @@ jobs:
           hash=$(cut -d ' ' -f 1 .work/ci/plugin.sha256)
           sha256sum --check .work/ci/plugin.sha256
           bash scripts/blackbox-admin.sh "$image" "$jar" "$hash" "$GITHUB_WORKSPACE/kestra-plugin-rbac" 2>&1 | python3 -u -c 'import re,sys; [print("[redacted credential-bearing line]" if re.search(r"token|password|secret|cookie|authorization|Bearer|eyJ[A-Za-z0-9_-]+\.|Passw0rd|ReaderPass|WriterPass|BlockedPass", line, re.I) else line, end="" if line.endswith("\n") else "\n") for line in sys.stdin]' | tee .work/ci/admin.log
+      - name: Execute typed namespace role matrix with real browser pages
+        run: |
+          set -euo pipefail
+          image=$(cat .work/ci/image)
+          jar="$GITHUB_WORKSPACE/kestra-plugin-rbac/build/libs/kestra-rbac-authorizer.jar"
+          hash=$(cut -d ' ' -f 1 .work/ci/plugin.sha256)
+          BB_BROWSER_DRIVER=ci bash scripts/blackbox-namespace.sh "$image" "$jar" "$hash" "$GITHUB_WORKSPACE/kestra-plugin-rbac" 2>&1 | python3 -u -c 'import re,sys; [print("[redacted credential-bearing line]" if re.search(r"token|password|secret|cookie|authorization|Bearer|eyJ[A-Za-z0-9_-]+\.|Passw0rd|ReaderPass|WriterPass|MultiPass|ExactPass", line, re.I) else line, end="" if line.endswith("\n") else "\n") for line in sys.stdin]' | tee .work/ci/namespace.log
       - name: Collect diagnostics and forcibly remove acceptance resources
         if: always()
         run: |
