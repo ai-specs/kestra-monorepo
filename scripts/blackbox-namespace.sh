@@ -199,7 +199,15 @@ if [ "${BB_BROWSER_DRIVER:-ego}" = ci ]; then
 else
   export NAMESPACE_UI_SPACE="${BB_RBAC_EGO_SPACE:?Reuse the goal TaskSpace}"
   export NAMESPACE_UI_MODULE="file://$REPO/scripts/blackbox-namespace-ui.mjs"
-  ego-browser nodejs < "$REPO/scripts/blackbox-namespace-ego.mjs"
+  python3 - "$REPO/scripts/blackbox-namespace-ego.mjs" "$REPO/scripts/blackbox-namespace-ui.mjs" "$BASE" "$NAMESPACE_UI_FIXTURE" "$NAMESPACE_UI_REPORT" "$NAMESPACE_UI_SPACE" <<'PYBROWSER' | ego-browser nodejs
+import json, pathlib, sys
+source, module, base, fixture, report, space = sys.argv[1:]
+text = pathlib.Path(source).read_text()
+text = text.replace('pathToFileURL(`${process.cwd()}/scripts/blackbox-namespace-ui.mjs`)', json.dumps(pathlib.Path(module).resolve().as_uri()))
+for key, value in {'NAMESPACE_UI_BASE': base, 'NAMESPACE_UI_FIXTURE': fixture, 'NAMESPACE_UI_REPORT': report, 'NAMESPACE_UI_SPACE': space}.items():
+    text = text.replace('process.env.' + key, json.dumps(value))
+print(text)
+PYBROWSER
 fi
 python3 - "$TEMP_DIR/ui.json" <<'PYREPORT'
 import json,sys
