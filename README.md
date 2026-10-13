@@ -47,7 +47,7 @@ reader 可读 flow，writer 可创建、更新和执行；admin 另可删除 flo
 OIDC/MCP 接入说明见 [镜像说明](kestra-overlay/README.md)。RBAC 安装与权限模型见
 [授权插件说明](kestra-plugin-rbac/README.md)。
 
-本次已验收的镜像、插件 commit 与 jar hash 见 [版本组合](deployment/versions.env) 和
+本次测试使用的镜像、插件 commit、jar hash 和结果见
 [RBAC 验收记录](docs/rbac-acceptance.md)。`.env.example` 已固定该镜像 digest。
 
 构建插件并安装到部署目录：

@@ -1,7 +1,7 @@
 # RBAC 组合验收（2026-10-13）
 
 本次组合严格按 overlay 独立镜像就绪、插件独立 jar 构建、monorepo Compose 集成的顺序交付。
-固定版本见 [deployment/versions.env](../deployment/versions.env)。
+以下版本与结果记录本次测试，不作为后续部署的版本锁。
 
 | 交付物 | 固定版本 / 证据 |
 |---|---|
@@ -34,9 +34,10 @@ fixture 未跳过。全部阶段结束后执行 down -v，未启动主部署项�
 复现：
 
 ```bash
-source deployment/versions.env
-./scripts/blackbox-rbac.sh "$KESTRA_IMAGE" \
-  kestra-plugin-rbac/build/libs/kestra-rbac-authorizer.jar "$RBAC_JAR_SHA256"
+./scripts/blackbox-rbac.sh \
+  ghcr.io/ai-specs/kestra-overlay@sha256:10788da0c2e470561921177f183f8f3ea290f4a261603f69957c34fb97ff2a00 \
+  deployment/libs/kestra-rbac-authorizer.jar \
+  3e364257b17f7a2ee6ded20554350d18b0b216fb5c1a4457f8ecd13998148856
 ```
 
 插件的支持路径是明确有限的；其他 REST 路由失败关闭，不代表已实现全部 Kestra API 的
