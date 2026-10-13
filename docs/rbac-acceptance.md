@@ -1,5 +1,41 @@
 # RBAC 组合验收（2026-10-13）
 
+## Typed 普通角色本地验收（2026-10-13 18:54 UTC）
+
+本节记录实际检查版本，不作为部署版本锁。宿主 `253e4bab7b6d552b65034aa7c0e88a28abcb6573`
+通过 [overlay CI 38445443619](https://github.com/ai-specs/kestra-overlay/actions/runs/38445443619)，
+发布镜像 `ghcr.io/ai-specs/kestra-overlay@sha256:211746d77e747cc0f4303fa9a5bd3676e419344eafd520c5b7c59877432da9bd`。
+插件 `d08276d01ee1da9b34d57832283f548f204d32ae` 通过
+[插件 CI 38448117403](https://github.com/ai-specs/kestra-plugin-rbac/actions/runs/38448117403)。
+实际下载的插件 artifact SHA-256 为
+`20642bc0ca05c0cbc56a3d6ef61bcd118b51bc8a63cf638377599743fdf2dc0f`。
+
+本地 `scripts/blackbox-namespace.sh` 使用上述镜像和 jar 执行隔离 Compose 验收。
+真实 ego Chromium 浏览器报告包含 170 个检查，全部通过：reader 41、writer 44、
+multi 44、exact 41。每个用户检查生产密码登录、7 个菜单、29 个页面、Flow/Namespace
+数据范围和列表到详情导航。writer/multi 使用真实 UI 按钮创建、更新、执行和删除 Flow，
+并核对持久化结果。reader/exact 使用保存按钮验证拒绝和无持久化变更。
+
+API 检查包括 exact/child/前缀碰撞、分页与 total、KV 范围、Dashboard aggregate 与
+global filter 交集、越权创建/执行无数据库和队列副作用、未知 datasource 拒绝。
+missing jar 失败关闭和关闭 RBAC 后的正常读取/写入回归通过。
+本地日志终止标志为 `NAMESPACE COMPOSE BLACKBOX ALL GREEN`。报告保留在忽略目录
+`.work/namespace/namespace-bb-20261013185232-12262/ui.json`，日志为
+`.work/namespace-output-local-5.log`。
+
+同一组合的管理员本地验收随后通过：seed、enabled、disabled 各执行 11 个真实 UI 操作
+和 67 个页面检查，无失败。操作包含 Flow 创建/更新/执行/删除、KV 写入/更新/删除、
+namespace file 上传/读取/删除及 MCP 保存；核对持久化结果。missing jar 和 CSRF 拒绝
+通过。日志 `.work/output-admin-local-2.log` 终止标志为 `ADMIN COMPOSE BLACKBOX ALL GREEN`，
+报告保留在 `.work/admin-ui/{seed,enabled,disabled}.json`。
+插件在独立克隆 `.work/output-independent` 执行 README 构建命令通过；生成 jar hash
+与实际下载 CI artifact 一致。此结果不证明当前根仓 CI 已通过。
+
+根仓 workflow 已固定同一浏览器用例与矩阵报告断言。根仓 CI 最终结果仍须核对，
+不得将本节本地结果替代 CI 通过证据。
+
+## 历史基础授权验收
+
 本次组合严格按 overlay 镜像 CI 通过、插件独立 jar 构建、monorepo Compose 集成的顺序交付。
 以下版本与结果记录本次测试，不作为后续部署的版本锁。
 

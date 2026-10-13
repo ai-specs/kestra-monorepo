@@ -78,6 +78,11 @@ async function main() {
         return response;
     };
     const navigate = async route => {
+        current.step = 'unload-previous-page';
+        await page.goto('about:blank');
+        current.transitionErrors = current.errors;
+        current.errors = [];
+        current.step = 'load-target-page';
         await page.goto(`${base}/ui/main/${route}`, {waitUntil: 'networkidle'});
     };
     const confirm = async () => {
