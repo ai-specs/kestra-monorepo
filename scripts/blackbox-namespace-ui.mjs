@@ -30,13 +30,13 @@ export async function runNamespaceUi(browser, base, fixture, record) {
                 await page.goto(`${base}/ui/main/flows`);
                 await page.waitForFunction(() => document.querySelectorAll('a[href]').length > 3);
                 if (['namespaces', 'plugins'].includes(menu)) {
-                    const expanded = await page.evaluate(() => [...document.querySelectorAll('a[href]')]
-                        .some(link => link.getAttribute('href') === '/ui/main/namespaces' && link.checkVisibility({checkVisibilityCSS: true})));
+                    const expanded = await page.evaluate(() => [...document.querySelectorAll('button[aria-expanded]')]
+                        .some(button => button.textContent.includes('Resources') && button.getAttribute('aria-expanded') === 'true'));
                     if (!expanded) await page.click('button:has-text("Resources")');
                 }
                 if (menu === 'kv') {
-                    const expanded = await page.evaluate(() => [...document.querySelectorAll('a[href]')]
-                        .some(link => link.getAttribute('href') === '/ui/main/kv' && link.checkVisibility({checkVisibilityCSS: true})));
+                    const expanded = await page.evaluate(() => [...document.querySelectorAll('button[aria-expanded]')]
+                        .some(button => button.textContent.includes('Tenant') && button.getAttribute('aria-expanded') === 'true'));
                     if (!expanded) await page.click('button:has-text("Tenant")');
                 }
                 const links = await page.evaluate(target => [...document.querySelectorAll('a[href]')]
@@ -54,7 +54,8 @@ export async function runNamespaceUi(browser, base, fixture, record) {
                 await page.waitForFunction(pattern => {
                     const content = [...document.querySelectorAll('main, [role=main], section.full-container, section.main-container, section.empty, .settings-wrapper')]
                         .filter(element => element.getClientRects().length).map(element => element.innerText).join('\n');
-                    return content.length > 25 && new RegExp(pattern, 'i').test(content);
+                    const title = [...document.querySelectorAll('h1')].map(element => element.innerText).join('\n');
+                    return content.length > 25 && new RegExp(pattern, 'i').test(`${title}\n${content}`);
                 }, testCase.content);
                 const result = await page.evaluate(() => ({path: location.pathname,
                     denied: performance.getEntriesByType('resource').filter(entry => [401, 403].includes(entry.responseStatus))
