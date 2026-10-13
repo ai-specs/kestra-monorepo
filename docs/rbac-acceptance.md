@@ -1,6 +1,6 @@
 # RBAC 组合验收（2026-10-13）
 
-本次组合严格按 overlay 独立镜像就绪、插件独立 jar 构建、monorepo Compose 集成的顺序交付。
+本次组合严格按 overlay 镜像 CI 通过、插件独立 jar 构建、monorepo Compose 集成的顺序交付。
 以下版本与结果记录本次测试，不作为后续部署的版本锁。
 
 | 交付物 | 固定版本 / 证据 |
@@ -44,3 +44,18 @@ fixture 未跳过。全部阶段结束后执行 down -v，未启动主部署项�
 可授权正向操作。列表只支持完整授权域的精确 namespace 查询，批量/导入导出等未解析路径
 拒绝。输入、变量、checks、labels 为 literal，输出支持受限 task output 引用；复杂额外资源
 读取表达式拒绝。任务内部引擎权限不属于本请求授权沙箱。具体范围见插件 README。
+
+## 交付流程修正复验（2026-10-13）
+
+插件构建已改为消费已发布镜像，`prepare-host.sh` 不再需要 overlay 源码或重编译宿主。
+独立克隆插件仓后执行 README 的镜像提取与 `clean check` 成功；
+[插件 CI 38361438281](https://github.com/ai-specs/kestra-plugin-rbac/actions/runs/38361438281)
+使用本仓 GITHUB_TOKEN 读取私有镜像并构建成功。该独立 checkout 产出的 jar 与原 hash 一致，
+已复制到本地 `deployment/libs/` 保留，并再次完整通过四阶段 Compose 黑盒。
+原 `.work` 工作目录和 overlay checkout 均不作为插件构建依赖。
+正常部署使用已发布镜像；替换 jar 后只重启容器 JVM，不构建或发布 overlay 镜像。
+
+最终插件构建流程与产物上传由
+[CI 38361859429](https://github.com/ai-specs/kestra-plugin-rbac/actions/runs/38361859429)
+验证通过。已实际下载该 run 的 artifact，确认包含 jar 与宿主镜像 provenance，
+jar hash 与上述测试产物一致；本地部署目录保留下载后的 jar。

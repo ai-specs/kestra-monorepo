@@ -42,7 +42,7 @@ reader 可读 flow，writer 可创建、更新和执行；admin 另可删除 flo
 
 上游版本未更新时，`v2.0.5-no-plugins` 会被后续 overlay 构建复用。
 本仓组合部署固定 commit hash 标签或 digest，避免本地旧镜像缓存造成版本混淆。
-交付顺序为 overlay 镜像与契约就绪、插件独立构建 jar、本仓 Compose 组合验收。
+交付顺序为 overlay 镜像 CI 与扩展契约检查通过、插件独立构建 jar、本仓 Compose 组合验收。
 
 OIDC/MCP 接入说明见 [镜像说明](kestra-overlay/README.md)。RBAC 安装与权限模型见
 [授权插件说明](kestra-plugin-rbac/README.md)。
@@ -54,11 +54,25 @@ OIDC/MCP 接入说明见 [镜像说明](kestra-overlay/README.md)。RBAC 安装�
 
 ```bash
 cd kestra-plugin-rbac
-./scripts/prepare-host.sh ../kestra-overlay
+./scripts/prepare-host.sh
 ./gradlew clean check
 cd ..
 cp kestra-plugin-rbac/build/libs/kestra-rbac-authorizer.jar deployment/libs/
 ```
 
 将 `.env` 中 `KESTRA_RBAC_ENABLED` 设为 `true`，确认 namespace 与权限配置后运行
-`docker compose up -d`。插件不支持的业务路径会返回 403，具体限制见插件 README。
+`docker compose up -d`。这使用已经发布的镜像启动容器，不构建镜像。插件不支持的业务路径会返回 403，具体限制见插件 README。
+
+也可以直接下载插件 CI 的构建产物，解压后将 `kestra-rbac-authorizer.jar` 放入
+`deployment/libs/`，无需本地安装 JDK 或编译：
+
+```bash
+gh run download -R ai-specs/kestra-plugin-rbac <成功构建的 run-id> \
+  --name kestra-rbac-authorizer --dir /tmp/kestra-rbac-artifact
+cp /tmp/kestra-rbac-artifact/build/libs/kestra-rbac-authorizer.jar deployment/libs/
+```
+
+下载目录包含 jar、编译契约 provenance 与测试报告；取其中的 jar 放入部署目录。
+选择的插件构建须声明兼容 `.env` 所指定镜像，查看该构建对应的 `host-contract.properties`。
+仅替换 jar、没有修改配置时，执行 `docker compose restart kestra` 重启容器中的 JVM，
+让它装载新 jar。这不会重新编译 Kestra，也不会构建或发布 overlay 镜像。
