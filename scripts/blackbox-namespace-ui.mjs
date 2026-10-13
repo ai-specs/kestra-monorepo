@@ -60,7 +60,8 @@ export async function runNamespaceUi(browser, base, fixture, record) {
                 const result = await page.evaluate(() => ({path: location.pathname,
                     denied: performance.getEntriesByType('resource').filter(entry => [401, 403].includes(entry.responseStatus))
                         .map(entry => ({path: new URL(entry.name).pathname, status: entry.responseStatus}))}));
-                if (result.path !== `/ui/main/${testCase.path}` || result.denied.length) throw new Error(`Page authorization failed ${testCase.path}`);
+                row.observed = result;
+                if (result.path !== `/ui/main/${testCase.path}` || result.denied.length) throw new Error(`Page authorization failed ${testCase.path}: ${JSON.stringify(result)}`);
                 row.path = result.path;
                 row.contentVerified = true;
                 row.authorizationVerified = true;
