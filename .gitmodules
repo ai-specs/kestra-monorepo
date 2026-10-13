@@ -1,3 +1,6 @@
 [submodule "kestra-overlay"]
 	path = kestra-overlay
 	url = git@github.com:ai-specs/kestra-overlay.git
+[submodule "kestra-plugin-rbac"]
+	path = kestra-plugin-rbac
+	url = git@github.com:ai-specs/kestra-plugin-rbac.git

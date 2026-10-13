@@ -1,0 +1,5 @@
+.DS_Store
+.env
+.work/
+deployment/libs/*.jar
+deployment/plugins/*.jar

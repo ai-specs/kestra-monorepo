@@ -1,0 +1,147 @@
+services:
+  postgres:
+    image: postgres:18
+    environment:
+      POSTGRES_DB: kestra
+      POSTGRES_USER: kestra
+      POSTGRES_PASSWORD: "${POSTGRES_PASSWORD:?Set a database password}"
+    volumes:
+      - postgres-data:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -d kestra -U kestra"]
+      interval: 10s
+      retries: 10
+
+  kestra:
+    image: ${KESTRA_IMAGE:?Set the verified overlay commit tag or digest}
+    command: server standalone
+    depends_on:
+      postgres:
+        condition: service_healthy
+    volumes:
+      - kestra-data:/app/storage
+      - ./deployment/libs:/app/libs:ro
+      - ./deployment/plugins:/app/plugins
+    environment:
+      KESTRA_OIDC_UI_CLIENT_SECRET: "${KESTRA_OIDC_UI_CLIENT_SECRET:?Set a UI client secret}"
+      KESTRA_OIDC_BOOTSTRAP_USERNAME: "${KESTRA_OIDC_BOOTSTRAP_USERNAME:-}"
+      KESTRA_OIDC_BOOTSTRAP_PASSWORD: "${KESTRA_OIDC_BOOTSTRAP_PASSWORD:-}"
+      KESTRA_OIDC_BOOTSTRAP_EMAIL: "${KESTRA_OIDC_BOOTSTRAP_EMAIL:-}"
+      KESTRA_OIDC_BOOTSTRAP_NAME: "${KESTRA_OIDC_BOOTSTRAP_NAME:-}"
+      KESTRA_OIDC_SETUP_ALLOWED: "${KESTRA_OIDC_SETUP_ALLOWED:-true}"
+      KESTRA_CONFIGURATION: |
+        datasources:
+          postgres:
+            url: jdbc:postgresql://postgres:5432/kestra
+            driverClassName: org.postgresql.Driver
+            username: kestra
+            password: ${POSTGRES_PASSWORD:?Set a database password}
+        kestra:
+          repository:
+            type: postgres
+          storage:
+            type: local
+            local:
+              base-path: "/app/storage"
+          queue:
+            type: postgres
+          url: http://localhost:8080/
+          plugins:
+            auto-install:
+              enabled: false   # 加固基线：静态插件集
+          rbac:
+            enabled: ${KESTRA_RBAC_ENABLED:-false}
+            role-mapping:
+              admin: [deployment-admin]
+              reader: [deployment-reader]
+              writer: [deployment-writer]
+            roles:
+              deployment-reader:
+                - scope: NAMESPACE
+                  tenant: main
+                  namespace: ${KESTRA_RBAC_NAMESPACE:-examples}
+                  descendants: true
+                  resource: FLOW
+                  actions: [READ, LIST]
+                  all-ids: true
+              deployment-writer:
+                - scope: NAMESPACE
+                  tenant: main
+                  namespace: ${KESTRA_RBAC_NAMESPACE:-examples}
+                  descendants: true
+                  resource: FLOW
+                  actions: [READ, LIST, CREATE, UPDATE, EXECUTE]
+                  all-ids: true
+                - scope: NAMESPACE
+                  tenant: main
+                  namespace: ${KESTRA_RBAC_NAMESPACE:-examples}
+                  descendants: true
+                  resource: EXECUTION
+                  actions: [READ, CREATE, ACCESS_OUTPUTS]
+                  all-ids: true
+              deployment-admin:
+                - scope: NAMESPACE
+                  tenant: main
+                  namespace: ${KESTRA_RBAC_NAMESPACE:-examples}
+                  descendants: true
+                  resource: FLOW
+                  actions: [READ, LIST, CREATE, UPDATE, DELETE, EXECUTE]
+                  all-ids: true
+                - scope: NAMESPACE
+                  tenant: main
+                  namespace: ${KESTRA_RBAC_NAMESPACE:-examples}
+                  descendants: true
+                  resource: EXECUTION
+                  actions: [READ, CREATE, ACCESS_OUTPUTS]
+                  all-ids: true
+                - scope: TENANT
+                  tenant: main
+                  resource: MCP_SERVER
+                  actions: [READ, LIST, CREATE, UPDATE]
+                  all-ids: true
+          oidc:
+            enabled: true
+            issuer: http://localhost:8080
+        micronaut:
+          security:
+            enabled: true
+            authentication: idtoken
+            filter:
+              enabled: true
+            redirect:
+              login-success: /ui/
+              login-failure: /oidc/login?error=1
+              unauthorized:
+                url: /oauth/login/kestra
+            intercept-url-map:
+              - pattern: /oidc/**
+                access: [isAnonymous()]
+              - pattern: /.well-known/**
+                access: [isAnonymous()]
+              - pattern: /oauth/**
+                access: [isAnonymous()]
+              - pattern: /ping
+                access: [isAnonymous()]
+              - pattern: /api/v1/configs/login
+                access: [isAnonymous()]
+              - pattern: /**
+                access: [isAuthenticated()]
+            oauth2:
+              clients:
+                kestra:
+                  client-id: kestra-ui
+                  client-secret: $${KESTRA_OIDC_UI_CLIENT_SECRET}
+                  scopes: [openid, profile, email]
+                  openid:
+                    issuer: http://localhost:8080
+                    token:
+                      url: http://localhost:8080/oidc/token
+                    jwks-uri: http://localhost:8080/oidc/jwks
+                    end-session:
+                      enabled: false
+    ports:
+      - "8080:8080"
+
+volumes:
+  kestra-data:
+  postgres-data:
