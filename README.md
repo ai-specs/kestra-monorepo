@@ -33,12 +33,17 @@ docker compose up -d
 jar 与配置变更需要重启。授权扩展的文件名和镜像兼容版本以插件项目说明为准。
 `KESTRA_RBAC_ENABLED` 默认关闭，启用前需部署完整授权组件和权限配置。
 
-Compose 提供显式的示例权限：可信 OIDC `admin`、`reader`、`writer` 角色分别映射到
-部署角色，权限域为 `KESTRA_RBAC_NAMESPACE`（默认 `examples`）及其子 namespace。
-reader 可读 flow，writer 可创建、更新和执行；admin 另可删除 flow 和管理 MCP server。
-这些部署角色由 Compose 定义，首装 `admin` 声明只按这份配置取得权限。
-其他 namespace 不自动开放；修改 `kestra.rbac` 配置后重启生效。
-具体支持的 REST 路径、受限查询格式和输入/输出表达式范围以插件说明为准。
+Compose 将可信 OIDC `admin` 映射到 `deployment-admin`，并通过
+`instance-admin-roles: [deployment-admin]` 授予实例管理员权限。首次安装创建的用户
+具有可信 `admin` 角色。RBAC 开启后，该用户可以访问宿主已有的全部业务 API，
+不受 namespace 范围、普通角色 API 白名单和保守表达式策略限制。
+实例管理员仍须通过认证、CSRF 与独立的 MCP OAuth scope 检查；授权 jar 缺失时仍失败关闭。
+这项授权不会增加宿主没有实现的 EE 功能，也不会改变 OIDC client 的用户归属。
+
+可信 `reader`、`writer` 分别映射到普通部署角色，其权限域为
+`KESTRA_RBAC_NAMESPACE`（默认 `examples`）及其子 namespace。
+reader 可读 flow，writer 可创建、更新和执行。普通角色未支持的 API 返回 403。
+修改角色或权限配置后运行 `docker compose up -d` 更新容器配置。
 
 上游版本未更新时，`v2.0.5-no-plugins` 会被后续 overlay 构建复用。
 本仓组合部署固定 commit hash 标签或 digest，避免本地旧镜像缓存造成版本混淆。
@@ -61,7 +66,7 @@ cp kestra-plugin-rbac/build/libs/kestra-rbac-authorizer.jar deployment/libs/
 ```
 
 将 `.env` 中 `KESTRA_RBAC_ENABLED` 设为 `true`，确认 namespace 与权限配置后运行
-`docker compose up -d`。这使用已经发布的镜像启动容器，不构建镜像。插件不支持的业务路径会返回 403，具体限制见插件 README。
+`docker compose up -d`。这使用已经发布的镜像启动容器，不构建镜像。普通角色未支持的业务路径会返回 403；实例管理员可访问宿主已有业务 API，具体规则见插件 README。
 
 也可以直接下载插件 CI 的构建产物，解压后将 `kestra-rbac-authorizer.jar` 放入
 `deployment/libs/`，无需本地安装 JDK 或编译：

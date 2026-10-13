@@ -169,7 +169,15 @@ if(phase==='seed') {
     check(search.status===200,'reader authorized-domain search 200');
     const results=await search.json(), rows=Array.isArray(results)?results:results.results;
     check(Array.isArray(rows) && rows.some(f=>f.id==='rbac-mcp') && rows.every(f=>f.namespace==='rbac.allowed' || f.namespace?.startsWith('rbac.allowed.')),'search returns fixture and only authorized domain');
-    for(const path of ['/api/v1/main/flows/rbac.denied/rbac-mcp','/api/v1/main/flows/search?filters%5Bnamespace%5D%5BEQUALS%5D=rbac.denied','/api/v1/main/flows/search']) await denied(await request('reader',path),`cross-domain/unbounded ${path}`);
+    await denied(await request('reader','/api/v1/main/flows/rbac.denied/rbac-mcp'),'cross-domain flow detail');
+    const forbiddenSearch=await request('reader','/api/v1/main/flows/search?filters%5Bnamespace%5D%5BEQUALS%5D=rbac.denied');
+    check(forbiddenSearch.ok,'cross-domain search uses authorized query scope');
+    const forbiddenResults=await forbiddenSearch.json();
+    check(forbiddenResults.total===0 && forbiddenResults.results?.length===0,'cross-domain search reveals no rows or counts');
+    const unrestrictedSearch=await request('reader','/api/v1/main/flows/search');
+    check(unrestrictedSearch.ok,'unfiltered UI search uses authorized query scope');
+    const restrictedResults=await unrestrictedSearch.json();
+    check(restrictedResults.results?.length>0 && restrictedResults.results.every(flow=>flow.namespace==='rbac.allowed'||flow.namespace?.startsWith('rbac.allowed.')),'unfiltered search contains only authorized namespaces');
     const created=await create('writer',writerCsrf,'writer-created','rbac.allowed',null,true);check(created.ok,'writer chunked YAML create 2xx/body branch does not stall');
     const saved=await request('writer','/api/v1/main/flows/rbac.allowed/writer-created?source=true');const savedFlow=await saved.json();check(saved.ok && savedFlow.id==='writer-created' && typeof savedFlow.source==='string' && savedFlow.source.includes('content: verified'),'controller reads complete audited chunked body/source=true contract');
     await noSideEffect('writer cross-domain create deny',async()=>denied(await create('writer',writerCsrf,'writer-denied-write','rbac.denied'),'writer outside allowed domain'));

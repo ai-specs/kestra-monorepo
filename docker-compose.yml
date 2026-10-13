@@ -55,6 +55,7 @@ services:
               admin: [deployment-admin]
               reader: [deployment-reader]
               writer: [deployment-writer]
+            instance-admin-roles: [deployment-admin]
             roles:
               deployment-reader:
                 - scope: NAMESPACE
@@ -79,26 +80,7 @@ services:
                   resource: EXECUTION
                   actions: [READ, CREATE, ACCESS_OUTPUTS]
                   all-ids: true
-              deployment-admin:
-                - scope: NAMESPACE
-                  tenant: main
-                  namespace: ${KESTRA_RBAC_NAMESPACE:-examples}
-                  descendants: true
-                  resource: FLOW
-                  actions: [READ, LIST, CREATE, UPDATE, DELETE, EXECUTE]
-                  all-ids: true
-                - scope: NAMESPACE
-                  tenant: main
-                  namespace: ${KESTRA_RBAC_NAMESPACE:-examples}
-                  descendants: true
-                  resource: EXECUTION
-                  actions: [READ, CREATE, ACCESS_OUTPUTS]
-                  all-ids: true
-                - scope: TENANT
-                  tenant: main
-                  resource: MCP_SERVER
-                  actions: [READ, LIST, CREATE, UPDATE]
-                  all-ids: true
+              deployment-admin: []
           oidc:
             enabled: true
             issuer: http://localhost:8080

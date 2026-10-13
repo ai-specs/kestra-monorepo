@@ -1,0 +1,200 @@
+name: Monorepo Compose acceptance
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: read
+
+concurrency:
+  group: compose-acceptance-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  compose:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    env:
+      ADMIN_UI_REPORT_DIR: ${{ github.workspace }}/.work/admin-ui
+      NODE_PATH: ${{ runner.temp }}/ci-browser/node_modules
+      BB_BROWSER_DRIVER: ci
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Checkout private submodules at root gitlinks using repository read-only keys
+        env:
+          OVERLAY_KEY: ${{ secrets.OVERLAY_READ_DEPLOY_KEY }}
+          RBAC_KEY: ${{ secrets.RBAC_READ_DEPLOY_KEY }}
+        run: |
+          set -euo pipefail
+          test -n "$OVERLAY_KEY" || { echo 'Missing OVERLAY_READ_DEPLOY_KEY'; exit 1; }
+          test -n "$RBAC_KEY" || { echo 'Missing RBAC_READ_DEPLOY_KEY'; exit 1; }
+          area=$(mktemp -d "$RUNNER_TEMP/monorepo-read-keys.XXXXXXXX")
+          export MONOREPO_KEY_AREA="$area"
+          cleanup_keys() {
+            python3 - <<'PYKEY'
+          import os, pathlib, shutil
+          root = pathlib.Path(os.environ['RUNNER_TEMP']).resolve()
+          area = pathlib.Path(os.environ['MONOREPO_KEY_AREA'])
+          assert area.parent.resolve() == root and area.name.startswith('monorepo-read-keys.') and not area.is_symlink()
+          shutil.rmtree(area)
+          PYKEY
+          }
+          trap cleanup_keys EXIT
+          chmod 700 "$area"
+          curl --fail --silent --show-error https://api.github.com/meta | python3 -c 'import json,sys; print("\n".join("github.com " + key for key in json.load(sys.stdin)["ssh_keys"]))' > "$area/known_hosts"
+          test -s "$area/known_hosts"
+          checkout_pin() {
+            local repo="$1" key="$2" commit mode type name
+            read -r mode type commit name < <(git ls-tree HEAD -- "$repo")
+            test "$mode" = 160000 && test "$type" = commit && test "$name" = "$repo"
+            [[ "$commit" =~ ^[0-9a-f]{40}$ ]]
+            printf '%s\n' "$key" > "$area/key"
+            chmod 600 "$area/key"
+            git init "$repo"
+            git -C "$repo" remote add origin "git@github.com:ai-specs/$repo.git"
+            GIT_SSH_COMMAND="ssh -i $area/key -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile=$area/known_hosts" git -C "$repo" fetch --depth=1 origin "$commit"
+            git -C "$repo" checkout --detach "$commit"
+            test "$(git -C "$repo" rev-parse HEAD)" = "$commit"
+            rm "$area/key"
+          }
+          checkout_pin kestra-overlay "$OVERLAY_KEY"
+          checkout_pin kestra-plugin-rbac "$RBAC_KEY"
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '25'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Authenticate private published images
+        env:
+          READ_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          printf '%s' "$READ_TOKEN" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+      - name: Verify tools and immutable composition inputs
+        run: |
+          set -euo pipefail
+          mkdir -p .work/ci
+          python3 - <<'PY'
+          import re, subprocess
+          version = subprocess.check_output(['docker', 'compose', 'version', '--short'], text=True).strip()
+          match = re.match(r'v?(\d+)\.(\d+)\.(\d+)', version)
+          assert match and tuple(map(int, match.groups())) >= (2, 24, 4), 'Docker Compose >= 2.24.4 required'
+          def pin(file, key):
+              values = [line.split('=', 1)[1].strip() for line in open(file) if line.startswith(key + '=')]
+              assert len(values) == 1 and re.fullmatch(r'ghcr.io/ai-specs/kestra-overlay@sha256:[0-9a-f]{64}', values[0]), 'Invalid image digest'
+              return values[0]
+          image = pin('.env.example', 'KESTRA_IMAGE')
+          assert image == pin('kestra-plugin-rbac/host-contract.properties', 'overlay.image'), 'Deployment and plugin host contracts differ'
+          with open('.work/ci/image', 'w') as stream:
+              stream.write(image + '\n')
+          PY
+          git submodule status --recursive > .work/ci/submodules.log
+          node --check scripts/blackbox-admin-ci.cjs
+          node --check scripts/admin-ui-cases.mjs
+      - name: Independently compile and check pinned plugin against published host
+        working-directory: kestra-plugin-rbac
+        run: |
+          set -euo pipefail
+          ./scripts/prepare-host.sh
+          ./gradlew clean check --console=plain
+          test -s build/libs/kestra-rbac-authorizer.jar
+          sha256sum "$GITHUB_WORKSPACE/kestra-plugin-rbac/build/libs/kestra-rbac-authorizer.jar" > ../.work/ci/plugin.sha256
+      - name: Install CI headless browser
+        run: |
+          set -euo pipefail
+          npm install --prefix "$RUNNER_TEMP/ci-browser" playwright@1.61.1
+          "$RUNNER_TEMP/ci-browser/node_modules/.bin/playwright" install --with-deps chromium
+      - name: Execute RBAC, fail-closed, CSRF and MCP Compose checks
+        run: |
+          set -euo pipefail
+          image=$(cat .work/ci/image)
+          jar="$GITHUB_WORKSPACE/kestra-plugin-rbac/build/libs/kestra-rbac-authorizer.jar"
+          hash=$(cut -d ' ' -f 1 .work/ci/plugin.sha256)
+          sha256sum --check .work/ci/plugin.sha256
+          bash scripts/blackbox-rbac.sh "$image" "$jar" "$hash" "$GITHUB_WORKSPACE/kestra-plugin-rbac" 2>&1 | python3 -u -c 'import re,sys; [print("[redacted credential-bearing line]" if re.search(r"token|password|secret|cookie|authorization|Bearer|eyJ[A-Za-z0-9_-]+\.|Passw0rd|ReaderPass|WriterPass|BlockedPass", line, re.I) else line, end="" if line.endswith("\n") else "\n") for line in sys.stdin]' | tee .work/ci/rbac.log
+      - name: Execute administrator RBAC on/off API and UI content checks
+        run: |
+          set -euo pipefail
+          image=$(cat .work/ci/image)
+          jar="$GITHUB_WORKSPACE/kestra-plugin-rbac/build/libs/kestra-rbac-authorizer.jar"
+          hash=$(cut -d ' ' -f 1 .work/ci/plugin.sha256)
+          sha256sum --check .work/ci/plugin.sha256
+          bash scripts/blackbox-admin.sh "$image" "$jar" "$hash" "$GITHUB_WORKSPACE/kestra-plugin-rbac" 2>&1 | python3 -u -c 'import re,sys; [print("[redacted credential-bearing line]" if re.search(r"token|password|secret|cookie|authorization|Bearer|eyJ[A-Za-z0-9_-]+\.|Passw0rd|ReaderPass|WriterPass|BlockedPass", line, re.I) else line, end="" if line.endswith("\n") else "\n") for line in sys.stdin]' | tee .work/ci/admin.log
+      - name: Collect diagnostics and forcibly remove acceptance resources
+        if: always()
+        run: |
+          set -euo pipefail
+          mkdir -p .work/ci
+          python3 - <<'PY'
+          import pathlib, re, subprocess
+          failed = False
+          result = subprocess.run(['docker', 'ps', '-aq'], capture_output=True, text=True, check=True)
+          for container in result.stdout.split():
+              project = subprocess.check_output(['docker', 'inspect', '-f', '{{index .Config.Labels "com.docker.compose.project"}}', container], text=True).strip()
+              if not re.fullmatch(r'(admin|rbac)-bb-[0-9]+-[0-9]+', project):
+                  continue
+              logs = subprocess.run(['docker', 'logs', '--tail', '300', container], capture_output=True, text=True)
+              text = logs.stdout + logs.stderr
+              pathlib.Path(f'.work/ci/{container}.log').write_text(text)
+              failed |= subprocess.run(['docker', 'rm', '-f', container]).returncode != 0
+          for kind in ['network', 'volume']:
+              listing = subprocess.check_output(['docker', kind, 'ls', '-q'], text=True)
+              for resource in listing.split():
+                  project = subprocess.check_output(['docker', kind, 'inspect', '-f', '{{index .Labels "com.docker.compose.project"}}', resource], text=True).strip()
+                  if re.fullmatch(r'(admin|rbac)-bb-[0-9]+-[0-9]+', project):
+                      failed |= subprocess.run(['docker', kind, 'rm', resource]).returncode != 0
+          for file in pathlib.Path('.work/ci').glob('*.log'):
+              lines = file.read_text(errors='replace').splitlines()
+              file.write_text('\n'.join('[redacted credential-bearing line]' if re.search(r'token|password|secret|cookie|authorization|Bearer|eyJ[A-Za-z0-9_-]+\.|Passw0rd|ReaderPass|WriterPass|BlockedPass|MultiPass|ExactPass|local-ci-only', line, re.I) else line for line in lines) + '\n')
+          assert not failed, 'Acceptance resource cleanup failed'
+          PY
+          docker logout ghcr.io
+      - name: Sanitize artifact text even after diagnostic cleanup failure
+        id: sanitize
+        if: always()
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json, pathlib, re
+          roots = ['.work/ci', '.work/admin-ui', 'kestra-plugin-rbac/build/reports/tests', 'kestra-plugin-rbac/build/test-results']
+          sensitive = re.compile(r'token|password|secret|cookie|authorization|Bearer|eyJ[A-Za-z0-9_-]+\.|Passw0rd|ReaderPass|WriterPass|BlockedPass|MultiPass|ExactPass|local-ci-only', re.I)
+          for root in roots:
+              for file in pathlib.Path(root).rglob('*'):
+                  if not file.is_file() or file.suffix.lower() not in {'.log', '.txt', '.xml', '.html', '.json'}:
+                      continue
+                  if file.suffix.lower() == '.json':
+                      def scrub(value):
+                          if isinstance(value, dict):
+                              return {key: '[redacted]' if sensitive.search(key) else scrub(item) for key, item in value.items()}
+                          if isinstance(value, list):
+                              return [scrub(item) for item in value]
+                          if isinstance(value, str) and sensitive.search(value):
+                              return '[redacted credential-bearing text]'
+                          return value
+                      file.write_text(json.dumps(scrub(json.loads(file.read_text())), indent=2) + '\n')
+                      continue
+                  lines = file.read_text(errors='replace').splitlines(keepends=True)
+                  file.write_text(''.join('[redacted credential-bearing line]\n' if sensitive.search(line) else line for line in lines))
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always() && steps.sanitize.outcome == 'success'
+        with:
+          name: compose-acceptance-${{ github.run_id }}-${{ github.run_attempt }}
+          retention-days: 14
+          if-no-files-found: error
+          include-hidden-files: true
+          path: |
+            .work/ci/
+            .work/admin-ui/
+            kestra-plugin-rbac/build/reports/tests/
+            kestra-plugin-rbac/build/test-results/
+            kestra-plugin-rbac/.integration/host-provenance.json
