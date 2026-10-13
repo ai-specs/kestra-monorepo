@@ -69,9 +69,11 @@ export async function runNamespaceUi(browser, base, fixture, record) {
         }
         await verify(user, 'visible-namespace-data-scope', async row => {
             await page.goto(`${base}/ui/main/namespaces`);
-            await page.waitForFunction(() => document.querySelector('tbody tr') || document.body.innerText.includes('No namespaces'));
-            const text = await page.evaluate(() => [...document.querySelectorAll('tbody tr')].map(element => element.innerText).join('\n'));
-            if (text.includes('rbac.denied') || text.includes('rbac.allowed2') || user.name === 'exact' && text.includes('rbac.allowed.child'))
+            await page.waitForFunction(() => [...document.querySelectorAll('a[href]')].some(link => link.getAttribute('href')?.includes('/namespaces/edit/rbac.allowed')));
+            const ids = await page.evaluate(() => [...document.querySelectorAll('a[href]')]
+                .filter(link => link.getAttribute('href')?.includes('/namespaces/edit/'))
+                .map(link => new URL(link.href).pathname.split('/namespaces/edit/')[1].split('/')[0]));
+            if (!ids.includes('rbac.allowed') || ids.includes('rbac.denied') || ids.includes('rbac.allowed2') || user.name === 'exact' && ids.includes('rbac.allowed.child'))
                 throw new Error('Namespace table scope leaked');
             row.dataScopeVerified = true;
         });
