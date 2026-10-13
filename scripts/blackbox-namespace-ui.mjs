@@ -165,7 +165,11 @@ export async function runNamespaceUi(browser, base, fixture, record) {
                 await page.goto(`${base}/ui/main/flows/edit/${user.namespace}/${flowId}/edit`);
                 await page.click('loc=role:button[name="Actions"]');
                 await page.click('loc=role:menuitem[name="Delete"]');
-                await page.click('loc=role:button[name="Delete"]');
+                await page.waitForFunction(() => [...document.querySelectorAll('[role=dialog] button')]
+                    .some(button => button.getClientRects().length && /^(OK|Confirm|Delete)$/i.test(button.textContent.trim())));
+                const confirmName = await page.evaluate(() => [...document.querySelectorAll('[role=dialog] button')]
+                    .filter(button => button.getClientRects().length && /^(OK|Confirm|Delete)$/i.test(button.textContent.trim())).at(-1).textContent.trim());
+                await page.click(`loc=role:button[name="${confirmName}"]`);
                 await page.waitForFunction(async endpoint => (await fetch(endpoint)).status === 404, endpoint);
                 row.persistenceVerified = true;
             });
