@@ -29,6 +29,16 @@ export async function runNamespaceUi(browser, base, fixture, record) {
             await verify(user, `menu:${menu}`, async row => {
                 await page.goto(`${base}/ui/main/flows`);
                 await page.waitForFunction(() => document.querySelectorAll('a[href]').length > 3);
+                if (['namespaces', 'plugins'].includes(menu)) {
+                    const expanded = await page.evaluate(() => [...document.querySelectorAll('a[href]')]
+                        .some(link => link.getAttribute('href') === '/ui/main/namespaces' && link.getClientRects().length));
+                    if (!expanded) await page.click('button:has-text("Resources")');
+                }
+                if (menu === 'kv') {
+                    const expanded = await page.evaluate(() => [...document.querySelectorAll('a[href]')]
+                        .some(link => link.getAttribute('href') === '/ui/main/kv' && link.getClientRects().length));
+                    if (!expanded) await page.click('button:has-text("Tenant")');
+                }
                 const links = await page.evaluate(target => [...document.querySelectorAll('a[href]')]
                     .filter(link => link.getClientRects().length && new URL(link.href).pathname === target)
                     .map(link => ({href: link.getAttribute('href'), text: link.textContent.trim()})), `/ui/main/${menu}`);
