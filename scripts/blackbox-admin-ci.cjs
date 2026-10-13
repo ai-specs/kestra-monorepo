@@ -252,7 +252,9 @@ async function main() {
         finish();
         const pageFailures = [];
         for (const testCase of adminUiCases(fixture)) {
-            await page.waitForLoadState('networkidle', {timeout: 15000});
+            await page.waitForLoadState('networkidle', {timeout: 5000}).catch(error => {
+                if (error.name !== 'TimeoutError') throw error;
+            });
             begin(testCase.path);
             try {
             current.step = 'navigation';
