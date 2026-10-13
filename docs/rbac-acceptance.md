@@ -34,6 +34,42 @@ namespace file 上传/读取/删除及 MCP 保存；核对持久化结果。miss
 根仓 workflow 已固定同一浏览器用例与矩阵报告断言。根仓 CI 最终结果仍须核对，
 不得将本节本地结果替代 CI 通过证据。
 
+### 后续版本与检查（2026-10-13 21:00 UTC）
+
+角色动作并集修复 `f5070a3` 的插件 CI `38454918085` 通过。READ 与 LIST 可以由不同
+角色授予，查询域为两种动作各自 namespace 并集的交集；专属测试验证无共同域不泄漏。
+宿主 `253e4ba` 与该插件组合的根仓 CI
+[38460010430](https://github.com/ai-specs/kestra-monorepo/actions/runs/38460010430) 通过。
+实际下载的根仓报告包含普通角色 170/170 项及管理员三阶段各 11 操作、67 页面，无失败。
+
+随后宿主 `d36ef97f22587343b0c7b37f6525eaa8f9dba2c2` 增加每次 Dashboard repository
+查询前的独立 operation，百分比 KPI 分子与分母分别授权。宿主 CI
+[38461699215](https://github.com/ai-specs/kestra-overlay/actions/runs/38461699215) 通过并发布
+`ghcr.io/ai-specs/kestra-overlay@sha256:1eb1b97210a84e2f6b6bd06e03fec6062736db4c649b12130e974126cb67fb98`。
+插件 `d95aae5a4206c28ebc1118a7837c899143659bda` 从该发布镜像编译，插件 CI
+[38465592966](https://github.com/ai-specs/kestra-plugin-rbac/actions/runs/38465592966) 通过。
+下载 jar、独立克隆 README 构建 jar 和部署保留 jar 的 SHA-256 均为
+`914e655b1c8e0d3e25db5ece7981391532711cd381f248e03407438f2cef2748`。
+
+新组合本地普通角色矩阵 170/170 通过，报告为
+`.work/namespace/namespace-bb-20261013204723-53995/ui.json`，日志为
+`.work/namespace-query-local.log`。新组合管理员 seed/enabled/disabled 各 11 操作、67 页面
+通过，日志为 `.work/query-admin-local.log`。独立构建日志为
+`.work/query-independent-check.log`。新组合根仓
+[CI 38466093813](https://github.com/ai-specs/kestra-monorepo/actions/runs/38466093813)
+已通过，检查根仓 commit `0bfa61b841ea4eeb10c65e9e41c236839220bf59`。
+实际下载的 artifact 位于 `.work/green-38466093813/compose-acceptance-38466093813-1/`。
+已核对普通角色矩阵 170/170，管理员 seed/enabled/disabled 各 11 操作、67 页面，全部无失败。
+生产用户夹具 XML 为 1 个测试、0 失败、0 错误、0 跳过。组合输入报告的部署与插件宿主
+digest 相同，CI jar hash 与下载插件 artifact、本地独立编译和保留部署 jar 一致。
+CI 的资源清理和脱敏 artifact 上传通过。本次遗留的隔离测试容器、网络与卷已清理；
+验证树、依赖缓存、jar 和报告保留。
+
+新组合本地 `scripts/blackbox-rbac.sh` 完整复测通过，日志
+`.work/query-rbac-local.log` 终止标志为 `RBAC COMPOSE BLACKBOX ALL GREEN`，覆盖
+合法 execution 输出下载及全部路径拒绝、危险 revision/表达式、CSRF、REST/MCP 同主体
+允许与拒绝、OAuth scope 与 RBAC 双层拒绝无副作用、missing jar 和关闭 RBAC 回归。
+
 ## 历史基础授权验收
 
 本次组合严格按 overlay 镜像 CI 通过、插件独立 jar 构建、monorepo Compose 集成的顺序交付。
