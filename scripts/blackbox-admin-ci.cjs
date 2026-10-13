@@ -47,6 +47,14 @@ async function main() {
     page.on('pageerror', error => current.errors.push(error.name));
     page.on('console', message => {
         if (message.type() === 'error') {
+            if (current.path === 'docs' && message.text() === 'Permissions policy violation: compute-pressure is not allowed in this document.'
+                && page.frames().some(frame => {
+                    try { return /(^|\.)(youtube\.com|youtube-nocookie\.com)$/.test(new URL(frame.url()).hostname); }
+                    catch { return false; }
+                })) {
+                (current.expectedRestrictions ||= []).push({feature: 'compute-pressure', source: 'youtube-iframe', denied: true});
+                return;
+            }
             if (current.path.endsWith('/concurrency') && /Failed to load resource:.*404/.test(message.text()) && message.location().url && new URL(message.location().url).pathname === `/api/v1/main/concurrency-limit/${fixture.namespace}/${fixture.flowId}`) return;
             current.errors.push(message.text().replace(/https?:\/\/[^\s]+/g, '[url]').replace(/(?:token|password|secret|cookie|authorization|Bearer).*$/i, '[redacted]').slice(0, 300));
         }
