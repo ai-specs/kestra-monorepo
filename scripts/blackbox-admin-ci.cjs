@@ -23,6 +23,12 @@ async function main() {
     const rows = [];
     const validation = [];
     let current = {path: 'login', responses: [], errors: [], requests: []};
+    let documentGeneration = 0;
+    const requestGeneration = new WeakMap();
+    page.on('framenavigated', frame => {
+        if (frame === page.mainFrame()) documentGeneration++;
+    });
+    page.on('request', request => requestGeneration.set(request, documentGeneration));
     const expectedConcurrencyAbsence = response => response.status() === 404 && new URL(response.url()).pathname === `/api/v1/main/concurrency-limit/${fixture.namespace}/${fixture.flowId}` && current.path.endsWith('/concurrency');
     page.on('response', response => {
         const url = new URL(response.url());
@@ -46,7 +52,10 @@ async function main() {
         }
     });
     page.on('requestfailed', request => {
-        if (request.failure()?.errorText !== 'net::ERR_ABORTED') current.requests.push(new URL(request.url()).pathname);
+        const failure = {path: new URL(request.url()).pathname, error: request.failure()?.errorText, resource: request.resourceType()};
+        if (requestGeneration.get(request) !== documentGeneration) {
+            (current.transitionRequests ||= []).push(failure);
+        } else if (failure.error !== 'net::ERR_ABORTED') current.requests.push(failure);
     });
     const begin = name => {
         current = {path: name, responses: [], errors: [], requests: []};
@@ -82,6 +91,8 @@ async function main() {
         await page.goto('about:blank');
         current.transitionErrors = current.errors;
         current.errors = [];
+        current.transitionRequests = [...(current.transitionRequests || []), ...current.requests];
+        current.requests = [];
         current.step = 'load-target-page';
         await page.goto(`${base}/ui/main/${route}`, {waitUntil: 'networkidle'});
     };
