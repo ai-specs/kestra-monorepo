@@ -1,0 +1,3 @@
+[submodule "kestra-overlay"]
+	path = kestra-overlay
+	url = git@github.com:ai-specs/kestra-overlay.git
