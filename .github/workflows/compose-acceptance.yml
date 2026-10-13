@@ -20,7 +20,6 @@ jobs:
     timeout-minutes: 60
     env:
       ADMIN_UI_REPORT_DIR: ${{ github.workspace }}/.work/admin-ui
-      NODE_PATH: ${{ runner.temp }}/ci-browser/node_modules
       BB_BROWSER_DRIVER: ci
     steps:
       - uses: actions/checkout@v4
@@ -113,6 +112,7 @@ jobs:
           set -euo pipefail
           npm install --prefix "$RUNNER_TEMP/ci-browser" playwright@1.61.1
           "$RUNNER_TEMP/ci-browser/node_modules/.bin/playwright" install --with-deps chromium
+          printf 'NODE_PATH=%s/ci-browser/node_modules\n' "$RUNNER_TEMP" >> "$GITHUB_ENV"
       - name: Execute RBAC, fail-closed, CSRF and MCP Compose checks
         run: |
           set -euo pipefail
