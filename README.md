@@ -61,6 +61,18 @@ OIDC/MCP 接入说明见 [镜像说明](kestra-overlay/README.md)。RBAC 安装�
 当前 typed 组合的本地真实浏览器与 Compose CI 结果也记录在同一文档。
 更换镜像或 jar 后必须重新执行受影响验收，历史结果不验证其他组合。
 
+将 `KESTRA_IMAGE` 导出为 `.env.example` 中的固定 digest，核对 jar SHA-256，
+再运行组合验收。需要 Docker、JDK 25、Node.js 和 ego-browser；复用本次创建的浏览器任务空间：
+
+```bash
+./scripts/blackbox-rbac.sh "$KESTRA_IMAGE" deployment/libs/kestra-rbac-authorizer.jar <jar-sha256>
+BB_RBAC_EGO_SPACE=<本次浏览器任务空间ID> ./scripts/blackbox-namespace.sh "$KESTRA_IMAGE" deployment/libs/kestra-rbac-authorizer.jar <jar-sha256>
+```
+
+测试使用独立 Compose 项目和受控账号，不使用用户部署数据。普通角色矩阵覆盖 reader、
+writer、多角色和 exact namespace；管理员检查包含 RBAC 开启、关闭、CSRF、缺 jar 和真实
+菜单/页面/写操作。根仓 CI 固定相同角色页面用例，使用真实 Chromium，并要求夹具无跳过。
+
 构建插件并安装到部署目录：
 
 ```bash

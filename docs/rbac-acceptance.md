@@ -70,6 +70,37 @@ CI 的资源清理和脱敏 artifact 上传通过。本次遗留的隔离测试�
 合法 execution 输出下载及全部路径拒绝、危险 revision/表达式、CSRF、REST/MCP 同主体
 允许与拒绝、OAuth scope 与 RBAC 双层拒绝无副作用、missing jar 和关闭 RBAC 回归。
 
+### 最终上下文与跨资源检查（2026-10-13）
+
+最终宿主 `3ed8bad9cf70f978eeed3be985fb9595a2615778` 包含请求上下文缺失失败关闭、
+宿主内部调用显式标记、授权来源线程传播及 Execution graph 实际 subflow owner 检查。
+HTTP 上下文丢失不得推断为内部全域；异步任务仅传播授权来源，不复制 JDBC 连接或事务。
+queue subscriber 使用显式内部来源。宿主定向探针验证 bare thread 拒绝、请求传播后的
+exact 范围、内部与HTTP分离，以及展开目标越权时 repository 未读取。
+宿主 [CI 38477016533](https://github.com/ai-specs/kestra-overlay/actions/runs/38477016533)
+通过，实际发布镜像为
+`ghcr.io/ai-specs/kestra-overlay@sha256:f4a9549cd13596b1252475c10d43745f595fe81d1b28066eae41d23b86b81102`。
+
+插件 `826bcbb4be8b6246f0179769e9e6f51fa3e4630e` 从该发布镜像独立编译，
+[插件 CI 38479588415](https://github.com/ai-specs/kestra-plugin-rbac/actions/runs/38479588415)
+通过。下载 artifact 位于 `.work/final-plugin-artifact/`；独立克隆 README 构建位于
+`.work/final-independent/`。jar SHA-256 与部署保留 jar 均为
+`914e655b1c8e0d3e25db5ece7981391532711cd381f248e03407438f2cef2748`。
+
+最终组合的本地普通角色矩阵 170/170 通过，报告为
+`.work/namespace/namespace-bb-20261013224418-1396/ui.json`，日志为
+`.work/final-namespace-local.log`。本地管理员 seed/enabled/disabled 各 11 个真实操作与
+67 个页面检查通过，日志为 `.work/final-admin-local.log`。
+本地完整 RBAC/MCP 验收通过，日志为 `.work/final-rbac-local.log`；跨 namespace subflow
+runtime 执行正常，授权父 execution 图可读，越权展开返回 403 且无数据库或队列副作用。
+
+最终根仓 commit `07bc9385e8fa010a3fb0eebcc33ad277e63db1f3` 的
+[CI 38480112062](https://github.com/ai-specs/kestra-monorepo/actions/runs/38480112062)
+通过。实际下载 artifact 为 `.work/final-green-38480112062/compose-acceptance-38480112062-1/`。
+主控核对普通角色矩阵 170/170、管理员三阶段各 11 操作/67 页面、生产夹具无跳过、
+镜像组合 digest 一致、jar hash 一致、expanded owner 拒绝无副作用，以及清理和脱敏上传。
+测试容器已清理。所有验证树、依赖缓存、jar 和报告继续保留，不包含于 Git。
+
 ## 历史基础授权验收
 
 本次组合严格按 overlay 镜像 CI 通过、插件独立 jar 构建、monorepo Compose 集成的顺序交付。
