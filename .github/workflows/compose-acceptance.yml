@@ -93,6 +93,8 @@ jobs:
               return values[0]
           image = pin('.env.example', 'KESTRA_IMAGE')
           plugin_image = pin('kestra-plugin-rbac/host-contract.properties', 'overlay.image')
+          print(f'Deployment image: {image}')
+          print(f'Plugin host image: {plugin_image}')
           pathlib.Path('.work/ci/composition-inputs.json').write_text(json.dumps({
               'deployment_image': image,
               'plugin_host_image': plugin_image,
