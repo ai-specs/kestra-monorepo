@@ -97,7 +97,7 @@ properties={
  'kestra.rbac.role-mapping':{'reader':['reader'],'writer':['writer']},
  'kestra.rbac.roles':{
    'reader':[{'scope':'NAMESPACE','tenant':'main','namespace':'rbac.allowed','descendants':True,'resource':'FLOW','actions':['READ','LIST'],'all-ids':True},
-             {'scope':'NAMESPACE','tenant':'main','namespace':'rbac.allowed','descendants':True,'resource':'EXECUTION','actions':['READ'],'all-ids':True}],
+             {'scope':'NAMESPACE','tenant':'main','namespace':'rbac.allowed','descendants':True,'resource':'EXECUTION','actions':['READ','LIST'],'all-ids':True}],
    'writer':[{'scope':'NAMESPACE','tenant':'main','namespace':'rbac.allowed','descendants':True,'resource':'FLOW','actions':['READ','LIST','CREATE','UPDATE','EXECUTE'],'all-ids':True},
              {'scope':'NAMESPACE','tenant':'main','namespace':'rbac.allowed','descendants':True,'resource':'EXECUTION','actions':['READ','LIST','CREATE','ACCESS_OUTPUTS'],'all-ids':True}]
  }}

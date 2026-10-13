@@ -240,7 +240,8 @@ if(phase==='seed') {
       for(const endpoint of ['file','file/metas'])
         await denied(await request('writer',`/api/v1/main/executions/${execution.id}/${endpoint}?${query}`),`file confinement ${label} / ${endpoint}`);
     }
-    for(const suffix of ['',`/file?${new URLSearchParams({path:uri})}`])
+    check((await request('reader',`/api/v1/main/executions/${execution.id}`)).ok,'reader can read authorized execution details');
+    for(const suffix of [`/file?${new URLSearchParams({path:uri})}`])
       await denied(await request('reader',`/api/v1/main/executions/${execution.id}${suffix}`),'reader READ-only cannot access execution id/output without ACCESS_OUTPUTS');
     const full='openid mcp:flows:read mcp:executions:write';
     const reader=await mcp(await token('reader',full)), writer=await mcp(await token('writer',full));
