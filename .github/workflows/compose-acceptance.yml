@@ -83,7 +83,7 @@ jobs:
           set -euo pipefail
           mkdir -p .work/ci
           python3 - <<'PY'
-          import re, subprocess
+          import json, pathlib, re, subprocess
           version = subprocess.check_output(['docker', 'compose', 'version', '--short'], text=True).strip()
           match = re.match(r'v?(\d+)\.(\d+)\.(\d+)', version)
           assert match and tuple(map(int, match.groups())) >= (2, 24, 4), 'Docker Compose >= 2.24.4 required'
@@ -92,7 +92,13 @@ jobs:
               assert len(values) == 1 and re.fullmatch(r'ghcr.io/ai-specs/kestra-overlay@sha256:[0-9a-f]{64}', values[0]), 'Invalid image digest'
               return values[0]
           image = pin('.env.example', 'KESTRA_IMAGE')
-          assert image == pin('kestra-plugin-rbac/host-contract.properties', 'overlay.image'), 'Deployment and plugin host contracts differ'
+          plugin_image = pin('kestra-plugin-rbac/host-contract.properties', 'overlay.image')
+          pathlib.Path('.work/ci/composition-inputs.json').write_text(json.dumps({
+              'deployment_image': image,
+              'plugin_host_image': plugin_image,
+              'compose_version': version,
+          }, indent=2) + '\n')
+          assert image == plugin_image, 'Deployment and plugin host contracts differ'
           with open('.work/ci/image', 'w') as stream:
               stream.write(image + '\n')
           PY
