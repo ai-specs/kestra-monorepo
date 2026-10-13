@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // Compose harness worker. No mock identity, direct SQL user creation, or decoded-JWT authorization.
-import {writeFileSync} from 'node:fs';
+import {readFileSync, writeFileSync} from 'node:fs';
 import {createHash, randomBytes} from 'node:crypto';
 import {execFileSync} from 'node:child_process';
 import {Readable} from 'node:stream';
@@ -154,6 +154,16 @@ if(phase==='seed') {
     {method:'POST',headers:{'X-CSRF-TOKEN':csrf},body:namespaceFile})).ok,'seed real forbidden-namespace file');
   const sentinel=await request('admin','/api/v1/main/namespaces/rbac.denied/files?path=%2Frbac-probe.txt');
   check(sentinel.ok && (await sentinel.text())==='cross-domain-sentinel','forbidden-namespace sentinel genuinely exists');
+  const target='id: rbac-subflow-target\nnamespace: rbac.denied\ntasks:\n  - id: secret-target\n    type: io.kestra.plugin.core.debug.Return\n    format: protected-target-source\n';
+  const parent='id: rbac-subflow-parent\nnamespace: rbac.allowed\ntasks:\n  - id: child\n    type: io.kestra.plugin.core.flow.Subflow\n    namespace: rbac.denied\n    flowId: rbac-subflow-target\n    wait: true\n';
+  check((await upload('admin',csrf,target)).ok,'seed graph target with protected source');
+  check((await upload('admin',csrf,parent)).ok,'seed graph parent referencing another namespace');
+  const parentRun=await request('admin','/api/v1/main/executions/rbac.allowed/rbac-subflow-parent?wait=true',
+    {method:'POST',headers:{'X-CSRF-TOKEN':csrf},body:new FormData()});
+  check(parentRun.ok,'seed actual parent execution for graph owner checks');
+  const parentExecution=await parentRun.json();
+  check(parentExecution.state?.current==='SUCCESS','cross-namespace runtime fixture executes successfully');
+  writeFileSync(`${directory}/graph-owner.json`,JSON.stringify({executionId:parentExecution.id}));
   const server=await request('admin','/api/v1/main/mcp-servers/default');check(server.ok,'bootstrap default MCP server exists');
   const value=await server.json();
   if(value.disabled || value.authType!=='OAUTH') {
@@ -164,6 +174,16 @@ if(phase==='seed') {
   const anonymous=await request(null,'/api/v1/main/flows/rbac.allowed/rbac-mcp',{headers:{Accept:'application/json'}});
   check(anonymous.status===401,'REST without token is 401');
   if(phase==='enabled') {
+    const graphFixture=JSON.parse(readFileSync(`${directory}/graph-owner.json`,'utf8'));
+    const graphPath=`/api/v1/main/executions/${graphFixture.executionId}/graph`;
+    const graphResponse=await request('reader',graphPath);
+    check(graphResponse.ok,'reader can view authorized parent execution graph');
+    const graph=await graphResponse.json();
+    const subflow=graph.nodes.find(node=>node.type?.endsWith('.SubflowGraphTask'));
+    check(subflow?.uid,'actual subflow graph node resolved');
+    await noSideEffect('expanded graph owner scope deny',async()=>{
+      await denied(await request('reader',`${graphPath}?${new URLSearchParams({subflows:subflow.uid})}`),'execution graph target outside namespace');
+    });
     await noSideEffect('reader write deny',async()=>denied(await create('reader',readerCsrf,'reader-denied-write','rbac.allowed'),'reader create'));
     const search=await request('reader','/api/v1/main/flows/search?filters%5Bnamespace%5D%5BEQUALS%5D=rbac.allowed&page=1&size=100');
     check(search.status===200,'reader authorized-domain search 200');
