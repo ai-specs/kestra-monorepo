@@ -255,6 +255,7 @@ async function main() {
             await page.waitForLoadState('networkidle', {timeout: 5000}).catch(error => {
                 if (error.name !== 'TimeoutError') throw error;
             });
+            await page.goto('about:blank');
             begin(testCase.path);
             try {
             current.step = 'navigation';
