@@ -101,7 +101,7 @@ properties={
    'writer':[{'scope':'NAMESPACE','tenant':'main','namespace':'rbac.allowed','descendants':True,'resource':'FLOW','actions':['READ','LIST','CREATE','UPDATE','EXECUTE'],'all-ids':True},
              {'scope':'NAMESPACE','tenant':'main','namespace':'rbac.allowed','descendants':True,'resource':'EXECUTION','actions':['READ','CREATE','ACCESS_OUTPUTS'],'all-ids':True}]
  }}
-rbac={'enabled':properties.pop('kestra.rbac.enabled'),'subjects':{},
+rbac={'enabled':properties.pop('kestra.rbac.enabled'),'typed':{'enabled':True},'subjects':{},
       'role-mapping':properties.pop('kestra.rbac.role-mapping'),'roles':properties.pop('kestra.rbac.roles')}
 assert config.splitlines().count('kestra:')==1, 'Expected one root kestra configuration'
 config=config.replace('kestra:\n','kestra:\n  rbac: '+json.dumps(rbac)+'\n',1)
