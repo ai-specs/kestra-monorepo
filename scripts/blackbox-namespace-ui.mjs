@@ -165,7 +165,7 @@ export async function runNamespaceUi(browser, base, fixture, record) {
                 await page.goto(`${base}/ui/main/flows/edit/${user.namespace}/${flowId}/edit`);
                 await page.click('loc=role:button[name="Actions"]');
                 await page.click('loc=role:menuitem[name="Delete"]');
-                await page.click('.el-dialog:visible button:has-text("Delete")');
+                await page.click('loc=role:button[name="Delete"]');
                 await page.waitForFunction(async endpoint => (await fetch(endpoint)).status === 404, endpoint);
                 row.persistenceVerified = true;
             });
