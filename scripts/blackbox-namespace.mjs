@@ -5,6 +5,7 @@ const [base, directory, phase] = process.argv.slice(2);
 const identities = {
     admin: ['tester', 'Passw0rd!'], reader: ['rbac-reader', 'ReaderPass123!'],
     writer: ['rbac-writer', 'WriterPass123!'], multi: ['rbac-multi', 'MultiPass123!'], exact: ['rbac-exact', 'ExactPass123!'],
+    blocked: ['rbac-blocked', 'BlockedPass123!'],
 };
 const cookies = new Map();
 const csrf = new Map();
@@ -64,8 +65,9 @@ const source = (namespace, id) => `id: ${id}\nnamespace: ${namespace}\ntasks:\n 
 try {
     await login('admin');
     if (phase === 'seed') {
-        for (const namespace of ['rbac.allowed', 'rbac.allowed.child', 'rbac.allowed2', 'rbac.denied']) {
-            check((await mutation('admin', 'POST', '/api/v1/main/flows', source(namespace, 'namespace-probe'))).ok, `seed ${namespace}`);
+        for (const namespace of ['rbac.allowed', 'rbac.allowed.child', 'rbac.allowed2', 'rbac.denied', 'rbac.multi']) {
+            const toolSource = source(namespace, 'namespace-probe') + `triggers:\n  - id: mcp\n    type: io.kestra.plugin.core.trigger.McpToolTrigger\n    mcpServer: default\n    toolName: tool-${namespace.replaceAll('.', '-')}\n    title: Namespace authorization probe\n    toolDescription: Namespace authorization probe\n`;
+            check((await mutation('admin', 'POST', '/api/v1/main/flows', toolSource)).ok, `seed ${namespace}`);
             check((await mutation('admin', 'PUT', `/api/v1/main/namespaces/${namespace}/kv/scope-probe`, '"verified"', 'text/plain')).ok,
                 `seed KV ${namespace}`);
             const run = await mutation('admin', 'POST', `/api/v1/main/executions/${namespace}/namespace-probe?wait=true`, undefined);
@@ -89,12 +91,54 @@ try {
         check((await mutation('reader', 'POST', '/api/v1/main/flows', source('rbac.denied', 'disabled-reader-write'))).ok,
             'disabled vanilla write');
     } else {
+        await login('blocked');
+        for (const endpoint of ['/api/v1/main/flows/search', '/api/v1/configs', '/api/v1/main/namespaces/search', '/api/v1/main/usages/all', '/api/v1/main/mcp-servers'])
+            check((await request('blocked', endpoint)).status === 403, `blocked unknown role denies ${endpoint}`);
+        const beforeBlocked = snapshot();
+        check((await mutation('blocked', 'POST', '/api/v1/main/flows', source('rbac.allowed', 'blocked-write'))).status === 403,
+            'blocked unknown role denies flow create');
+        check(snapshot() === beforeBlocked, 'blocked unknown role writes have no persistence');
         for (const user of ['reader', 'writer', 'multi', 'exact']) await login(user);
         for (const user of ['reader', 'writer', 'multi', 'exact']) {
+            const mcp = await request(user, '/api/v1/main/mcp-servers');
+            check(mcp.ok, `${user} MCP server list is visible`);
+            check((await request(user, '/api/v1/main/mcp-servers/default')).ok, `${user} MCP server connect metadata is visible`);
+            const beforeMcp = await (await request('admin', '/api/v1/main/mcp-servers/default')).text();
+            check((await mutation(user, 'PUT', '/api/v1/main/mcp-servers/default', JSON.stringify({id: 'default', disabled: false}), 'application/json')).status === 403,
+                `${user} MCP server edit is denied`);
+            check((await mutation(user, 'PATCH', '/api/v1/main/mcp-servers/default/toggle', undefined)).status === 403,
+                `${user} MCP server toggle is denied`);
+            check(await (await request('admin', '/api/v1/main/mcp-servers/default')).text() === beforeMcp,
+                `${user} denied MCP mutations preserve server configuration`);
+            const toolsResponse = await request(user, '/api/v1/main/mcp-servers/default/tools');
+            check(toolsResponse.ok, `${user} MCP tool flows list`);
+            const tools = await toolsResponse.json();
+            const expectedNamespaces = user === 'exact' ? ['rbac.allowed'] : user === 'multi' ? ['rbac.allowed', 'rbac.multi'] : ['rbac.allowed', 'rbac.allowed.child'];
+            check(JSON.stringify(tools.map(tool => tool.namespace).sort()) === JSON.stringify(expectedNamespaces.sort()),
+                `${user} MCP tool flow namespaces match role domain`);
             const result = await request(user, '/api/v1/main/flows/search?size=1&page=1');
             check(result.ok, `${user} paginated query`);
             const list = await result.json();
-            check(list.total === (user === 'exact' ? 1 : 2) && list.results.length === 1, `${user} filtered total before pagination`);
+            const expectedTotal = user === 'exact' ? 1 : 2;
+            check(list.total === expectedTotal && list.results.length === 1, `${user} filtered total before pagination`);
+            const fullList = await (await request(user, '/api/v1/main/flows/search?size=100&page=1')).json();
+            check(JSON.stringify(fullList.results.map(flow => flow.namespace).sort()) === JSON.stringify(expectedNamespaces.sort()),
+                `${user} flow namespace union matches exact role domains`);
+            const usage = await request(user, '/api/v1/main/usages/all');
+            check(usage.ok, `${user} scoped usage report`);
+            const usageValue = await usage.json();
+            check(usageValue.flows?.count === expectedTotal && usageValue.flows?.namespacesCount === expectedTotal,
+                `${user} usage totals match authorized namespaces`);
+            let executionCount = 0;
+            const usageDeadline = Date.now() + 30000;
+            const expectedExecutionCount = user === 'exact' ? 2 : 3;
+            do {
+                const currentUsage = await (await request(user, '/api/v1/main/usages/all')).json();
+                executionCount = currentUsage.executions?.dailyExecutionsCount?.reduce((total, day) => total + (day.executionCounts?.SUCCESS || 0), 0);
+                if (executionCount === expectedExecutionCount) break;
+                await new Promise(resolve => setTimeout(resolve, 250));
+            } while (Date.now() < usageDeadline);
+            check(executionCount === expectedExecutionCount, `${user} execution usage totals match authorized namespaces`);
             const second = await request(user, '/api/v1/main/flows/search?size=1&page=2');
             const next = await second.json();
             check(next.results.length === (user === 'exact' ? 0 : 1), `${user} second page scope`);
@@ -127,6 +171,17 @@ try {
             await new Promise(resolve => setTimeout(resolve, 1000));
             check(snapshot() === beforeDeniedExecution, `${user} denied execution has no queue or persistence`);
             if (user === 'exact') check((await request(user, '/api/v1/main/flows/rbac.allowed.child/namespace-probe')).status === 403, 'exact excludes child details');
+            if (user === 'multi') {
+                const beforeMultiDenial = snapshot();
+                check((await request(user, '/api/v1/main/flows/rbac.multi/namespace-probe')).ok, 'multi B namespace read allowed');
+                check((await mutation(user, 'POST', '/api/v1/main/flows', source('rbac.multi', 'multi-b-write'))).status === 403, 'multi B namespace write denied');
+                check((await mutation(user, 'PUT', '/api/v1/main/flows/rbac.multi/namespace-probe', source('rbac.multi', 'namespace-probe'))).status === 403,
+                    'multi B namespace update denied');
+                check((await mutation(user, 'POST', '/api/v1/main/executions/rbac.multi/namespace-probe', undefined)).status === 403,
+                    'multi B namespace execution denied');
+                check((await request(user, '/api/v1/main/flows/rbac.denied/namespace-probe')).status === 403, 'multi outside namespaces denied');
+                check(snapshot() === beforeMultiDenial, 'multi B write and outside denial have no persistence');
+            }
         }
         for (const user of ['reader', 'exact']) {
             const before = snapshot();

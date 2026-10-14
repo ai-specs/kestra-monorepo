@@ -60,6 +60,11 @@ services:
             instance-admin-roles: [deployment-admin]
             roles:
               deployment-reader:
+                - scope: TENANT
+                  tenant: main
+                  resource: MCP_SERVER
+                  actions: [READ, LIST]
+                  all-ids: true
                 - scope: NAMESPACE
                   tenant: main
                   namespace: ${KESTRA_RBAC_NAMESPACE:-examples}
@@ -117,6 +122,11 @@ services:
                   actions: [READ, LIST]
                   all-ids: true
               deployment-writer:
+                - scope: TENANT
+                  tenant: main
+                  resource: MCP_SERVER
+                  actions: [READ, LIST]
+                  all-ids: true
                 - scope: NAMESPACE
                   tenant: main
                   namespace: ${KESTRA_RBAC_NAMESPACE:-examples}

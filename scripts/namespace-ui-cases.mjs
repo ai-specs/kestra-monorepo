@@ -11,6 +11,11 @@ export function namespaceUiCases(fixture) {
         {path: 'kv', content: 'key|value|namespace'},
         {path: 'plugins', content: 'plugin'},
         {path: 'preferences', content: 'preference|settings'},
+        {path: 'admin/stats', content: 'statistic|usage'},
+        {path: 'admin/mcp-servers', content: 'MCP'},
+        {path: 'admin/mcp-servers/edit/default/edit', content: 'MCP|default'},
+        {path: 'admin/mcp-servers/edit/default/connect', content: 'MCP|default'},
+        {path: 'admin/mcp-servers/edit/default/tool-flows', content: 'MCP|default'},
     ];
     for (const tab of ['overview', 'executions', 'edit', 'revisions', 'triggers', 'logs', 'metrics', 'dependencies']) {
         cases.push({path: `flows/edit/${fixture.namespace}/${fixture.flowId}/${tab}`, content: fixture.flowId});
@@ -27,6 +32,6 @@ export function namespaceUiCases(fixture) {
 export const namespaceUsers = [
     {name: 'reader', username: 'rbac-reader', password: 'ReaderPass123!', namespace: 'rbac.allowed', write: false},
     {name: 'writer', username: 'rbac-writer', password: 'WriterPass123!', namespace: 'rbac.allowed', write: true},
-    {name: 'multi', username: 'rbac-multi', password: 'MultiPass123!', namespace: 'rbac.allowed', write: true},
+    {name: 'multi', username: 'rbac-multi', password: 'MultiPass123!', namespace: 'rbac.allowed', write: true, secondNamespace: 'rbac.multi'},
     {name: 'exact', username: 'rbac-exact', password: 'ExactPass123!', namespace: 'rbac.allowed', write: false},
 ];

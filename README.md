@@ -49,6 +49,11 @@ Compose 同时启用 typed 宿主适配配置；实际 RBAC 总开关仍由 `KES
 及根仓 CI 验收通过，版本和检查范围见验收记录。
 修改角色或权限配置后运行 `docker compose up -d` 更新容器配置。
 
+普通角色可以查看 MCP server 列表、编辑页和连接页；服务配置保存及开启/关闭仍只授予
+实例管理员。MCP tool-flows 列表按当前角色的 Flow namespace 范围过滤。统计页的 Flow
+和 Execution 数据使用各自授权范围。登录后的业务路径包含 `/ui/main/`；零授权账号
+显示独立 403 页面，可以点击“返回登录”撤销登录会话并使用另一账号登录。
+
 上游版本未更新时，`v2.0.5-no-plugins` 会被后续 overlay 构建复用。
 本仓组合部署固定 commit hash 标签或 digest，避免本地旧镜像缓存造成版本混淆。
 交付顺序为 overlay 镜像 CI 与扩展契约检查通过、插件独立构建 jar、本仓 Compose 组合验收。

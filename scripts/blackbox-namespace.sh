@@ -96,12 +96,16 @@ resources=['FLOW','EXECUTION','NAMESPACE','LOG','METRIC','TRIGGER','KVSTORE','NA
 def grants(namespace, descendants, write):
  actions=['READ','LIST','ACCESS_OUTPUTS'] + (['CREATE','UPDATE','DELETE','EXECUTE'] if write else [])
  return [{'scope':'NAMESPACE','tenant':'main','namespace':namespace,'descendants':descendants,'resource':resource,'actions':actions,'all-ids':True} for resource in resources]
+def mcp_read():
+ return [{'scope':'TENANT','tenant':'main','resource':'MCP_SERVER','actions':['READ','LIST'],'all-ids':True}]
 properties={'kestra.oidc.registration.enabled': True}
 rbac={'enabled':enabled=='true','typed':{'enabled':True},'subjects':{},
  'instance-admin-roles':['deployment-admin'],
- 'role-mapping':{'admin':['deployment-admin'],'reader':['reader'],'writer':['writer'],'exact-reader':['exact']},
- 'roles':{'deployment-admin':[],'reader':grants('rbac.allowed',True,False),
- 'writer':grants('rbac.allowed',True,True),'exact':grants('rbac.allowed',False,False)}}
+ 'role-mapping':{'admin':['deployment-admin'],'reader':['reader'],'writer':['writer'],
+                 'multi-reader':['multi-reader'],'multi-writer':['multi-writer'],'exact-reader':['exact']},
+ 'roles':{'deployment-admin':[],'reader':grants('rbac.allowed',True,False)+mcp_read(),
+ 'writer':grants('rbac.allowed',True,True)+mcp_read(),'multi-reader':grants('rbac.multi',False,False)+mcp_read(),
+ 'multi-writer':grants('rbac.allowed',False,True),'exact':grants('rbac.allowed',False,False)+mcp_read()}}
 assert config.splitlines().count('kestra:')==1, 'Expected one root kestra configuration'
 config=config.replace('kestra:\n','kestra:\n  rbac: '+json.dumps(rbac)+'\n',1)
 config+='\n'+''.join(json.dumps(key)+': '+json.dumps(value)+'\n' for key,value in properties.items())
@@ -129,8 +133,8 @@ assert len(policies)==1 and 'kestra.rbac.' not in text, 'Ambiguous nested/flat R
 policy=json.loads(policies[0])
 assert policy['subjects']=={} and policy['typed']['enabled']
 assert policy['instance-admin-roles']==['deployment-admin']
-assert set(policy['roles'])=={'deployment-admin','reader','writer','exact'}
-assert all(g['namespace']=='rbac.allowed' for name,grants in policy['roles'].items() for g in grants)
+assert set(policy['roles'])=={'deployment-admin','reader','writer','multi-reader','multi-writer','exact'}
+assert all(g.get('namespace') in {'rbac.allowed','rbac.multi'} or g['resource']=='MCP_SERVER' for name,grants in policy['roles'].items() for g in grants)
 print('PASS rendered Compose namespace matrix policy')
 
 PYCONFIG
@@ -213,16 +217,20 @@ python3 - "$TEMP_DIR/ui.json" <<'PYREPORT'
 import json,sys
 report=json.load(open(sys.argv[1]))
 assert report['completed'] and report['rows'] and all(row['passed'] for row in report['rows'])
-assert {row['user'] for row in report['rows']}=={'reader','writer','multi','exact'}
+assert {row['user'] for row in report['rows']}=={'reader','writer','multi','exact','blocked'}
 for user in ('reader','writer','multi','exact'):
  rows=[row for row in report['rows'] if row['user']==user]
  assert sum(row['case'].startswith('menu:') for row in rows)==7
- assert sum(row['case'].startswith('page:') for row in rows)==29
+ assert sum(row['case'].startswith('page:') for row in rows)==34
+ assert any(row['case']=='dashboard-canonical-redirect' and row.get('passed') for row in rows)
  assert any(row['case']=='visible-flow-data-scope' and row.get('dataScopeVerified') for row in rows)
+ assert any(row['case']=='visible-mcp-tool-flow-data-scope' and row.get('dataScopeVerified') for row in rows)
  if user in ('writer','multi'):
   assert all(any(row['case']=='action:flow-'+action and row.get('persistenceVerified') for row in rows) for action in ('create','update','execute','delete'))
  else:
   assert any(row['case']=='action:readonly-save-denied' and row.get('refusalVerified') and row.get('persistenceVerified') for row in rows)
+blocked=[row for row in report['rows'] if row['user']=='blocked']
+assert any(row['case']=='unknown-role-no-access' and row.get('authorizationVerified') for row in blocked)
 PYREPORT
 phase missing true false
 phase disabled false true

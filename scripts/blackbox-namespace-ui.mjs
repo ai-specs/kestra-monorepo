@@ -25,6 +25,10 @@ export async function runNamespaceUi(browser, base, fixture, record) {
             await page.click('button[type=submit]');
             await page.waitForFunction(() => location.pathname.startsWith('/ui/') && !document.querySelector('input[name=password]'));
         });
+        await verify(user, 'dashboard-canonical-redirect', async () => {
+            await page.goto(`${base}/ui/dashboards`);
+            await page.waitForFunction(() => location.pathname === '/ui/main/dashboards');
+        });
         for (const menu of ['dashboards', 'flows', 'executions', 'logs', 'namespaces', 'kv', 'plugins']) {
             await verify(user, `menu:${menu}`, async row => {
                 await page.goto(`${base}/ui/main/flows`);
@@ -67,6 +71,17 @@ export async function runNamespaceUi(browser, base, fixture, record) {
                 row.authorizationVerified = true;
             });
         }
+        await verify(user, 'visible-mcp-tool-flow-data-scope', async row => {
+            await page.goto(`${base}/ui/main/admin/mcp-servers/edit/default/tool-flows`);
+            await page.waitForFunction(() => document.querySelector('tbody tr'));
+            const text = await page.evaluate(() => [...document.querySelectorAll('tbody tr')].map(element => element.innerText).join('\n'));
+            if (!text.includes('rbac.allowed') || text.includes('rbac.denied') || text.includes('rbac.allowed2'))
+                throw new Error('MCP tool flow table leaked or hid authorized data');
+            if (user.name === 'multi' && (!text.includes('rbac.multi') || text.includes('rbac.allowed.child')))
+                throw new Error('MCP tool flow table lost multi-role namespace boundaries');
+            if (user.name === 'exact' && text.includes('rbac.allowed.child')) throw new Error('MCP tool flow table leaked child namespace');
+            row.dataScopeVerified = true;
+        });
         await verify(user, 'visible-namespace-data-scope', async row => {
             await page.goto(`${base}/ui/main/namespaces`);
             await page.waitForFunction(() => [...document.querySelectorAll('a[href]')].some(link => link.getAttribute('href')?.includes('/namespaces/edit/rbac.allowed')));
@@ -75,6 +90,7 @@ export async function runNamespaceUi(browser, base, fixture, record) {
                 .map(link => new URL(link.href).pathname.split('/namespaces/edit/')[1].split('/')[0]));
             if (!ids.includes('rbac.allowed') || ids.includes('rbac.denied') || ids.includes('rbac.allowed2') || user.name === 'exact' && ids.includes('rbac.allowed.child'))
                 throw new Error('Namespace table scope leaked');
+            if (user.name === 'multi' && !ids.includes('rbac.multi')) throw new Error('Multi-role second namespace is missing');
             row.dataScopeVerified = true;
         });
         await verify(user, 'visible-flow-data-scope', async row => {
@@ -178,6 +194,26 @@ export async function runNamespaceUi(browser, base, fixture, record) {
         }
         await browser.closePage(user.name);
     }
+    const blocked = await browser.page('blocked');
+    await verify({name: 'blocked'}, 'unknown-role-no-access', async row => {
+        await blocked.goto(`${base}/ui/`);
+        await blocked.fill('input[name=username]', 'rbac-blocked');
+        await blocked.fill('input[name=password]', 'BlockedPass123!');
+        await blocked.click('button[type=submit]');
+        await blocked.waitForFunction(() => location.pathname === '/ui/access-denied');
+        for (const path of ['/dashboards', '/main/dashboards', '/main/flows/new', '/mian/dashboards', '/mian/flows/new']) {
+            await blocked.goto(`${base}/ui${path}`);
+            await blocked.waitForFunction(() => location.pathname === '/ui/access-denied' && document.querySelector('[data-testid="return-to-login"]'));
+        }
+        await blocked.click('[data-testid="return-to-login"]');
+        await blocked.waitForFunction(() => Boolean(document.querySelector('input[name=password]')));
+        await blocked.fill('input[name=username]', 'rbac-reader');
+        await blocked.fill('input[name=password]', 'ReaderPass123!');
+        await blocked.click('button[type=submit]');
+        await blocked.waitForFunction(() => location.pathname === '/ui/main/dashboards');
+        row.authorizationVerified = true;
+    });
+    await browser.closePage('blocked');
     await record({completed: true, rows});
     return rows;
 }
