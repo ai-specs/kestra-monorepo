@@ -105,6 +105,8 @@ jobs:
               stream.write(image + '\n')
           PY
           git submodule status --recursive > .work/ci/submodules.log
+          POSTGRES_PASSWORD=local-ci-only KESTRA_OIDC_UI_CLIENT_SECRET=local-ci-only docker compose --env-file .env.example config --format json > .work/ci/default-compose.json
+          python3 scripts/check-default-multi-policy.py .work/ci/default-compose.json
           node --check scripts/blackbox-admin-ci.cjs
           node --check scripts/admin-ui-cases.mjs
       - name: Independently compile and check pinned plugin against published host

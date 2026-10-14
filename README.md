@@ -49,6 +49,12 @@ Compose 同时启用 typed 宿主适配配置；实际 RBAC 总开关仍由 `KES
 及根仓 CI 验收通过，版本和检查范围见验收记录。
 修改角色或权限配置后运行 `docker compose up -d` 更新容器配置。
 
+可信角色 `multi-writer` 和 `multi-reader` 分别映射到独立的本地角色。默认授予
+`rbac.allowed` 命名空间读写权限和 `rbac.multi` 命名空间只读权限，均仅匹配精确命名空间。
+可以通过 `KESTRA_RBAC_MULTI_WRITE_NAMESPACE` 和 `KESTRA_RBAC_MULTI_READ_NAMESPACE`
+分别设置两个范围。两者必须设置为不同且互不包含的命名空间，才能保留跨范围读写隔离。
+此配置不创建测试账号；已有 `rbac-multi` 账号携带上述可信角色时即可获得对应权限。
+
 普通角色可以查看 MCP server 列表、编辑页和连接页；服务配置保存及开启/关闭仍只授予
 实例管理员。MCP tool-flows 列表按当前角色的 Flow namespace 范围过滤。统计页的 Flow
 和 Execution 数据使用各自授权范围。登录后的业务路径包含 `/ui/main/`；零授权账号

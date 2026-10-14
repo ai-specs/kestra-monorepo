@@ -57,6 +57,8 @@ services:
               admin: [deployment-admin]
               reader: [deployment-reader]
               writer: [deployment-writer]
+              multi-writer: [deployment-multi-writer]
+              multi-reader: [deployment-multi-reader]
             instance-admin-roles: [deployment-admin]
             roles:
               deployment-reader:
@@ -183,6 +185,26 @@ services:
                   resource: NAMESPACE_FILE
                   actions: [READ, LIST, CREATE, UPDATE, DELETE]
                   all-ids: true
+              deployment-multi-writer:
+                - {scope: TENANT, tenant: main, resource: MCP_SERVER, actions: [READ, LIST], all-ids: true}
+                - {scope: NAMESPACE, tenant: main, namespace: "${KESTRA_RBAC_MULTI_WRITE_NAMESPACE:-rbac.allowed}", resource: FLOW, actions: [READ, LIST, CREATE, UPDATE, DELETE, EXECUTE], all-ids: true}
+                - {scope: NAMESPACE, tenant: main, namespace: "${KESTRA_RBAC_MULTI_WRITE_NAMESPACE:-rbac.allowed}", resource: EXECUTION, actions: [READ, LIST, CREATE, DELETE, ACCESS_OUTPUTS], all-ids: true}
+                - {scope: NAMESPACE, tenant: main, namespace: "${KESTRA_RBAC_MULTI_WRITE_NAMESPACE:-rbac.allowed}", resource: NAMESPACE, actions: [READ, LIST], all-ids: true}
+                - {scope: NAMESPACE, tenant: main, namespace: "${KESTRA_RBAC_MULTI_WRITE_NAMESPACE:-rbac.allowed}", resource: LOG, actions: [READ, LIST, DELETE], all-ids: true}
+                - {scope: NAMESPACE, tenant: main, namespace: "${KESTRA_RBAC_MULTI_WRITE_NAMESPACE:-rbac.allowed}", resource: METRIC, actions: [READ, LIST], all-ids: true}
+                - {scope: NAMESPACE, tenant: main, namespace: "${KESTRA_RBAC_MULTI_WRITE_NAMESPACE:-rbac.allowed}", resource: TRIGGER, actions: [READ, LIST], all-ids: true}
+                - {scope: NAMESPACE, tenant: main, namespace: "${KESTRA_RBAC_MULTI_WRITE_NAMESPACE:-rbac.allowed}", resource: KVSTORE, actions: [READ, LIST, CREATE, UPDATE, DELETE], all-ids: true}
+                - {scope: NAMESPACE, tenant: main, namespace: "${KESTRA_RBAC_MULTI_WRITE_NAMESPACE:-rbac.allowed}", resource: NAMESPACE_FILE, actions: [READ, LIST, CREATE, UPDATE, DELETE], all-ids: true}
+              deployment-multi-reader:
+                - {scope: TENANT, tenant: main, resource: MCP_SERVER, actions: [READ, LIST], all-ids: true}
+                - {scope: NAMESPACE, tenant: main, namespace: "${KESTRA_RBAC_MULTI_READ_NAMESPACE:-rbac.multi}", resource: FLOW, actions: [READ, LIST], all-ids: true}
+                - {scope: NAMESPACE, tenant: main, namespace: "${KESTRA_RBAC_MULTI_READ_NAMESPACE:-rbac.multi}", resource: EXECUTION, actions: [READ, LIST, ACCESS_OUTPUTS], all-ids: true}
+                - {scope: NAMESPACE, tenant: main, namespace: "${KESTRA_RBAC_MULTI_READ_NAMESPACE:-rbac.multi}", resource: NAMESPACE, actions: [READ, LIST], all-ids: true}
+                - {scope: NAMESPACE, tenant: main, namespace: "${KESTRA_RBAC_MULTI_READ_NAMESPACE:-rbac.multi}", resource: LOG, actions: [READ, LIST], all-ids: true}
+                - {scope: NAMESPACE, tenant: main, namespace: "${KESTRA_RBAC_MULTI_READ_NAMESPACE:-rbac.multi}", resource: METRIC, actions: [READ, LIST], all-ids: true}
+                - {scope: NAMESPACE, tenant: main, namespace: "${KESTRA_RBAC_MULTI_READ_NAMESPACE:-rbac.multi}", resource: TRIGGER, actions: [READ, LIST], all-ids: true}
+                - {scope: NAMESPACE, tenant: main, namespace: "${KESTRA_RBAC_MULTI_READ_NAMESPACE:-rbac.multi}", resource: KVSTORE, actions: [READ, LIST], all-ids: true}
+                - {scope: NAMESPACE, tenant: main, namespace: "${KESTRA_RBAC_MULTI_READ_NAMESPACE:-rbac.multi}", resource: NAMESPACE_FILE, actions: [READ, LIST], all-ids: true}
               deployment-admin: []
           oidc:
             enabled: true
