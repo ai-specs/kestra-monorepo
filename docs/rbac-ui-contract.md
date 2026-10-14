@@ -10,6 +10,37 @@ CI 覆盖记录见 `docs/rbac-acceptance.md`。插件已删除旧路径分派实
 验收记录只证明其中列明的行为；本文未被对应探针或组合测试证明的条目仍须审查，
 不得将 CI 全绿解释为任意上游路由、后台调用或第三方 datasource 已支持。
 
+## MCP 服务页面的权限要求
+
+本节记录已明确的部署需求。适用条件为 RBAC 与类型化授权均开启、授权插件已装载。
+“受限用户”指已有有效角色映射和资源权限的用户，不包含角色无映射且无用户身份绑定的
+零授权用户。“实例管理员”指通过扩展策略明确获得实例管理权限的用户。
+
+| 页面 | 有权限的受限用户 | 实例管理员 |
+|---|---|---|
+| `/ui/main/admin/mcp-servers` | 可以查看服务列表 | 可以查看和管理 |
+| `/ui/main/admin/mcp-servers/edit/default/edit` | 可以查看；不得保存配置或开启/关闭服务 | 可以修改、保存和开启/关闭 |
+| `/ui/main/admin/mcp-servers/edit/default/connect` | 可以查看和使用连接说明；页面无额外配置变更操作 | 可以查看和使用 |
+| `/ui/main/admin/mcp-servers/edit/default/tool-flows` | 可以查看，只显示其 Flow 授权命名空间中的数据 | 可以查看完整授权范围 |
+
+页面位于 `admin` 路径下，不代表全部读取需要实例管理权限。页面可见不代表配置写入获准。
+当前界面可能显示编辑控件；服务端必须拒绝受限用户的配置变更，并保持原配置不变。
+使用连接说明不授予工具执行权限。MCP 工具调用仍须同时通过 OAuth 能力范围和实际资源
+RBAC 检查。零授权用户仍须进入独立拒绝页面，并可以退出换号。
+
+当前实现与配置的对应关系：
+
+- 服务列表与配置读取使用 `MCP_SERVER` 的租户级 READ/LIST 权限。主部署普通角色和
+  multi 角色仅配置服务只读权限，不配置服务 CREATE/UPDATE/DELETE 权限。
+- 保存和开启/关闭经过配置 UPDATE 授权。当前部署只授予实例管理员相关权限。
+- 工具列表实际读取 Flow，必须使用完整 Flow 查询授权，并在查询和数量计算前应用
+  Flow 授权范围。不得因服务配置可读而返回全局工具列表。
+
+对应实现为 overlay 的 0260/0300 补丁、根仓 `docker-compose.yml`、
+`scripts/blackbox-namespace.mjs` 和 `scripts/blackbox-namespace-ui.mjs`。
+版本证据见 `docs/rbac-acceptance.md`。后续修改必须保留上述权限边界，并重新检查页面
+读取、修改拒绝及配置不变、工具数据范围和零授权用户退出行为。
+
 ## 目标
 
 overlay 负责适配当前 OSS 版本。插件负责 RBAC 策略。Compose 负责选择兼容的镜像和 jar。
