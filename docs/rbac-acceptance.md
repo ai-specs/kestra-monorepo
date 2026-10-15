@@ -262,3 +262,23 @@ overlay 构建只声明运行时挂载文件名，不读取插件源码或 jar�
 插件独立边界规则提交 `242921e` 的
 [CI 38362803243](https://github.com/ai-specs/kestra-plugin-rbac/actions/runs/38362803243)
 通过。本轮未改变 monorepo 已通过组合验收的部署 digest。
+# 管理功能实施验收（2026-10-15）
+
+宿主正式镜像：`ghcr.io/ai-specs/kestra-overlay@sha256:4273dba06b421711f715977c8d3d29e1c5311bc38f4fbcf50bcfbe36273b69f9`。
+宿主 CI `38738824395` 的 patch、构建、OIDC 黑盒和推广全部通过；该版本包含 READ-only
+详情读取与集合 LIST 权限分离的修复。
+
+插件 `kestra-plugin-rbac` commit `01c1c0d` 的 CI `38749200214` 通过，发布 jar SHA-256
+为 `158c10b59dce71355824d51e51e26b42161049a7963ded8e87b2bb7b6b668253`，provenance 指向
+上述宿主摘要。独立构建报告包含单元测试和 PostgreSQL 存储测试；jar thin 检查、bean 索引、
+UI manifest 资源 hash 与正式 UI SDK integrity 已核对。
+
+本地隔离管理黑盒使用上述实际镜像和实际发布 jar，日志为
+`.work/management-final-blackbox.log`，终止标志为 `MANAGEMENT COMPOSE BLACKBOX ALL GREEN`。
+检查覆盖管理员登录、策略 ETag、角色 CRUD、稳定 ID、引用冲突、严格 JSON、账号创建与零授权、
+精确 namespace 读写、READ/LIST 分离、解绑即时拒绝、资料 revision、管理员保护、停用/启用、
+密码重置会话失效、manifest MIME/hash/未知资源 404 和拒绝副作用。
+
+根仓 Compose CI `38749655918` 已使用部署摘要与插件宿主摘要一致的组合运行最终浏览器和 API
+检查；在该 CI 完成前，本节不把根仓组合写成通过。
+
