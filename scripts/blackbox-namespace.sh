@@ -146,6 +146,7 @@ ready() {
     sleep 2
   done
   [ "$complete" = 1 ] || { echo 'FAIL Compose Kestra readiness'; return 1; }
+  [ "$(curl -s -o /dev/null -w '%{http_code}' "$BASE/ui/assets/oidc-login-i18n.js")" = 200 ] || { echo 'FAIL anonymous login translation asset'; return 1; }
 }
 phase() {
   local name="$1" enabled="$2" mounted="$3"
