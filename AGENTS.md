@@ -104,7 +104,7 @@ Codex 共享后台进程可能丢失工具命令的 `HERDR_*` 上下文，见
 用户指定的启动命令为：
 
 ```bash
-codex --sandbox danger-full-access --ask-for-approval never
+codex --no-daemon --sandbox danger-full-access --ask-for-approval never
 ```
 
 按任务规模和共享文件风险决定 agent 数量。启动数量不是完成标准。
