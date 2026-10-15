@@ -93,6 +93,12 @@ RBAC UI 的目标类型化契约见 `docs/rbac-ui-contract.md`。该文档描述
 只有用户或适用规则授权使用子 agent 时，才启动子 agent。
 本项目使用 Herdr 时，先读取 Herdr skill，并检查 `HERDR_ENV=1`。
 检查失败时，不操作 Herdr session；报告限制并继续可独立执行的工作。
+Codex 共享后台进程可能丢失工具命令的 `HERDR_*` 上下文，见
+[Herdr #4649](https://github.com/herdrdev/herdr/issues/4649) 和
+[#4829](https://github.com/herdrdev/herdr/issues/4829)。检查失败不能单独证明客户端不在 Herdr 中。
+此问题修复并验证前，在目标 Herdr 面板中以 `codex --no-daemon` 启动，或以
+`codex --no-daemon resume <session-id>` 恢复已核对的会话，并保留下方指定的启动参数。
+新会话必须重新检查工具环境和面板归属；不得伪造环境变量或停止仍有活动任务的后台进程。
 检查成功后，按当前 Herdr CLI 帮助操作。保存返回的 pane ID，不推测 ID。
 使用本次创建的后台 pane；保持用户焦点。未经用户指令，不关闭原有 pane。
 用户指定的启动命令为：
