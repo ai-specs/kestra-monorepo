@@ -282,3 +282,18 @@ UI manifest 资源 hash 与正式 UI SDK integrity 已核对。
 根仓 Compose CI `38749655918` 已使用部署摘要与插件宿主摘要一致的组合运行最终浏览器和 API
 检查；在该 CI 完成前，本节不把根仓组合写成通过。
 
+## 管理扩展 UI 样式验收标准
+
+管理扩展页面必须使用正式 `.integration/ui-sdk` 对应的公开设计系统组件。组件命名空间必须
+配置为 `kel`，避免 Element Plus 默认 `el-*` 样式导致原生灰底按钮、黑色边框或无圆角。
+MCP Servers 的 tabs 和按钮、Namespaces 的表格和搜索是上游同构参照。
+
+浏览器验收必须在 light 和 dark 主题分别检查：按钮圆角、边框、颜色和焦点；tabs 的 11px
+字号、500 字重、6px 圆角和 active 状态；表头背景、行分隔线和文字颜色；搜索框的存在、
+输入后的行过滤、清空后的恢复、分页总数和空结果。不得以组件 import、manifest 或 HTTP 200
+替代计算样式和交互结果。复现命令为：
+
+```bash
+ego-browser nodejs -e 'globalThis.managementStyleInput={base:"http://localhost:8080",spaceId:11}; await import("file:///absolute/repository/scripts/management-ui-style-cases.mjs")'
+```
+
