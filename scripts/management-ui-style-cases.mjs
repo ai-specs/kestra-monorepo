@@ -87,6 +87,20 @@ try {
     await page.fill('input[name="management-search"]', '')
     await page.waitForFunction(expected => (document.querySelector('[data-test="extension-container"]')?.shadowRoot?.querySelectorAll('tbody tr').length ?? 0) === expected, rowsBefore)
     check('clearing search restores rows', true, {rowsBefore})
+    for (const theme of ['light', 'dark']) {
+        await page.evaluate(value => localStorage.setItem('theme', value), theme)
+        for (const section of ['roles', 'users', 'bindings']) {
+            await page.goto(new URL('/ui/main/extensions/rbac/' + section, base).href)
+            await page.waitForSelector('input[name="management-search"]')
+            await page.waitForFunction(() => document.querySelector('[data-test="extension-container"]')?.shadowRoot?.querySelector('main')?.getAttribute('aria-busy') === 'false')
+            const before = await page.evaluate(() => document.querySelector('[data-test="extension-container"]').shadowRoot.querySelectorAll('tbody tr').length)
+            await page.fill('input[name="management-search"]', '__management_style_no_match__')
+            await page.waitForFunction(() => document.querySelector('[data-test="extension-container"]').shadowRoot.querySelectorAll('tbody tr').length === 0)
+            await page.fill('input[name="management-search"]', '')
+            await page.waitForFunction(expected => document.querySelector('[data-test="extension-container"]').shadowRoot.querySelectorAll('tbody tr').length === expected, before)
+            check(`${theme} ${section} search and clear`, true, {before})
+        }
+    }
     report.completed = true
 } finally {
     await record(report)
