@@ -87,6 +87,18 @@ try {
     await page.fill('input[name="management-search"]', '')
     await page.waitForFunction(expected => (document.querySelector('[data-test="extension-container"]')?.shadowRoot?.querySelectorAll('tbody tr').length ?? 0) === expected, rowsBefore)
     check('clearing search restores rows', true, {rowsBefore})
+    const directorySetup = await page.evaluate(async () => {
+        const token = document.querySelector('meta[name="csrf-token"]').content
+        const existing = await (await fetch('/api/v1/main/extensions/rbac/users?page=1&size=100')).json()
+        for (let index = 0; index < 21; index++) {
+            const username = 'style-user-' + String(index).padStart(2, '0')
+            if (existing.items.some(user => user.subject === username)) continue
+            const response = await fetch('/api/v1/main/extensions/rbac/users', {method: 'POST', headers: {'Content-Type': 'application/json', 'X-CSRF-TOKEN': token}, body: JSON.stringify({username, name: username, email: username + '@example.invalid', password: 'StyleAcceptance123!'})})
+            if (!response.ok) return false
+        }
+        return true
+    })
+    check('directory spans multiple display pages', directorySetup)
     for (const theme of ['light', 'dark']) {
         await page.evaluate(value => localStorage.setItem('theme', value), theme)
         for (const section of ['roles', 'users', 'bindings']) {
@@ -99,6 +111,15 @@ try {
             await page.fill('input[name="management-search"]', '')
             await page.waitForFunction(expected => document.querySelector('[data-test="extension-container"]').shadowRoot.querySelectorAll('tbody tr').length === expected, before)
             check(`${theme} ${section} search and clear`, true, {before})
+            if (section === 'users') {
+                await page.fill('input[name="management-search"]', 'style-user-20')
+                await page.waitForFunction(() => {
+                    const root = document.querySelector('[data-test="extension-container"]').shadowRoot
+                    return root.querySelectorAll('tbody tr').length === 1 && root.querySelector('tbody').textContent.includes('style-user-20')
+                })
+                check(`${theme} user search includes other display pages`, true)
+                await page.fill('input[name="management-search"]', '')
+            }
         }
     }
     report.completed = true
