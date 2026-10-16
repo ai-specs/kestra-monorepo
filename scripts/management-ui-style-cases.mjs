@@ -96,6 +96,12 @@ try {
             const response = await fetch('/api/v1/main/extensions/rbac/users', {method: 'POST', headers: {'Content-Type': 'application/json', 'X-CSRF-TOKEN': token}, body: JSON.stringify({username, name: username, email: username + '@example.invalid', password: 'StyleAcceptance123!'})})
             if (!response.ok) return false
         }
+        let policy = await (await fetch('/api/v1/main/extensions/rbac/policy')).json()
+        for (const suffix of ['alpha', 'beta']) {
+            const response = await fetch('/api/v1/main/extensions/rbac/role-mappings', {method: 'PUT', headers: {'Content-Type': 'application/json', 'X-CSRF-TOKEN': token, 'If-Match': '"' + policy.revision + '"'}, body: JSON.stringify({trustedRole: 'style-claim-' + suffix, roles: ['style-' + suffix]})})
+            if (!response.ok) return false
+            policy = await response.json()
+        }
         return true
     })
     check('directory spans multiple display pages', directorySetup)
@@ -106,6 +112,14 @@ try {
             await page.waitForSelector('input[name="management-search"]')
             await page.waitForFunction(() => document.querySelector('[data-test="extension-container"]')?.shadowRoot?.querySelector('main')?.getAttribute('aria-busy') === 'false')
             const before = await page.evaluate(() => document.querySelector('[data-test="extension-container"]').shadowRoot.querySelectorAll('tbody tr').length)
+            check(`${theme} ${section} has searchable test data`, before >= 2, {before})
+            const query = section === 'roles' ? 'style-alpha' : section === 'users' ? 'style-user-20' : 'style-claim-alpha'
+            await page.fill('input[name="management-search"]', query)
+            await page.waitForFunction(expected => {
+                const root = document.querySelector('[data-test="extension-container"]').shadowRoot
+                return root.querySelectorAll('tbody tr').length === 1 && root.querySelector('tbody').textContent.includes(expected)
+            }, query)
+            check(`${theme} ${section} search selects matching record`, true, {query})
             await page.fill('input[name="management-search"]', '__management_style_no_match__')
             await page.waitForFunction(() => document.querySelector('[data-test="extension-container"]').shadowRoot.querySelectorAll('tbody tr').length === 0)
             await page.fill('input[name="management-search"]', '')

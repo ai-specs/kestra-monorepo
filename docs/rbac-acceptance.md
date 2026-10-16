@@ -284,6 +284,17 @@ UI manifest 资源 hash 与正式 UI SDK integrity 已核对。
 
 ## 管理扩展 UI 样式验收标准
 
+2026-10-16 本地复验使用 overlay `4d26bef` 的已发布镜像
+`sha256:144de64b24b584a43ea34632da97e36ba5c42d8fbe6f1df650a1df87637ccb52`，
+插件 `192f20f` 独立编译 jar SHA-256 为
+`3139384e740138f78582716c2f29cc113c865d200aa992c45cb860df412fef7e`。
+本地管理 API 289 项通过，共享 UI 用例 31 项通过；报告分别为
+`.work/management/management-bb-20261016134652-30295/api.json` 与
+`.work/ui-final-combination-report.json`。UI 检查实际对照 MCP Servers tab 和按钮尺寸、
+Namespaces 搜索字体，覆盖明暗主题、非空角色／账号／绑定列表精确筛选、清空恢复及
+跨分页账号。当前 Namespaces 是树形列表，不将其 DOM 当成表格。
+上述为本地记录；最终提交的根仓 CI 必须另行通过并下载报告核对。
+
 管理扩展页面必须使用正式 `.integration/ui-sdk` 对应的公开设计系统组件。组件命名空间必须
 配置为 `kel`，避免 Element Plus 默认 `el-*` 样式导致原生灰底按钮、黑色边框或无圆角。
 MCP Servers 的 tabs 和按钮、Namespaces 的表格和搜索是上游同构参照。
