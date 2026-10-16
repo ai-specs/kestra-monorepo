@@ -146,6 +146,14 @@ jobs:
           jar="$GITHUB_WORKSPACE/kestra-plugin-rbac/build/libs/kestra-rbac-authorizer.jar"
           hash=$(cut -d ' ' -f 1 .work/ci/plugin.sha256)
           BB_BROWSER_DRIVER=ci bash scripts/blackbox-namespace.sh "$image" "$jar" "$hash" "$GITHUB_WORKSPACE/kestra-plugin-rbac" 2>&1 | python3 -u -c 'import re,sys; [print("[redacted credential-bearing line]" if re.search(r"token|password|secret|cookie|authorization|Bearer|eyJ[A-Za-z0-9_-]+\.|Passw0rd|ReaderPass|WriterPass|MultiPass|ExactPass", line, re.I) else line, end="" if line.endswith("\n") else "\n") for line in sys.stdin]' | tee .work/ci/namespace.log
+      - name: Verify management API and themed components against host pages
+        run: |
+          set -euo pipefail
+          python3 -m pip install PyYAML
+          image=$(cat .work/ci/image)
+          jar="$GITHUB_WORKSPACE/kestra-plugin-rbac/build/libs/kestra-rbac-authorizer.jar"
+          hash=$(cut -d ' ' -f 1 .work/ci/plugin.sha256)
+          BB_BROWSER_DRIVER=ci bash scripts/blackbox-management.sh "$image" "$jar" "$hash" > .work/ci/management.log 2>&1
       - name: Collect diagnostics and forcibly remove acceptance resources
         if: always()
         run: |
@@ -157,7 +165,7 @@ jobs:
           result = subprocess.run(['docker', 'ps', '-aq'], capture_output=True, text=True, check=True)
           for container in result.stdout.split():
               project = subprocess.check_output(['docker', 'inspect', '-f', '{{index .Config.Labels "com.docker.compose.project"}}', container], text=True).strip()
-              if not re.fullmatch(r'(admin|rbac|namespace)-bb-[0-9]+-[0-9]+', project):
+              if not re.fullmatch(r'(admin|rbac|namespace|management)-bb-[0-9]+-[0-9]+', project):
                   continue
               logs = subprocess.run(['docker', 'logs', '--tail', '300', container], capture_output=True, text=True)
               text = logs.stdout + logs.stderr
@@ -167,7 +175,7 @@ jobs:
               listing = subprocess.check_output(['docker', kind, 'ls', '-q'], text=True)
               for resource in listing.split():
                   project = subprocess.check_output(['docker', kind, 'inspect', '-f', '{{index .Labels "com.docker.compose.project"}}', resource], text=True).strip()
-                  if re.fullmatch(r'(admin|rbac|namespace)-bb-[0-9]+-[0-9]+', project):
+                  if re.fullmatch(r'(admin|rbac|namespace|management)-bb-[0-9]+-[0-9]+', project):
                       failed |= subprocess.run(['docker', kind, 'rm', resource]).returncode != 0
           for file in pathlib.Path('.work/ci').glob('*.log'):
               lines = file.read_text(errors='replace').splitlines()
@@ -182,7 +190,7 @@ jobs:
           set -euo pipefail
           python3 - <<'PY'
           import json, pathlib, re
-          roots = ['.work/ci', '.work/admin-ui', '.work/namespace', 'kestra-plugin-rbac/build/reports/tests', 'kestra-plugin-rbac/build/test-results']
+          roots = ['.work/ci', '.work/admin-ui', '.work/namespace', '.work/management', 'kestra-plugin-rbac/build/reports/tests', 'kestra-plugin-rbac/build/test-results']
           sensitive = re.compile(r'token|password|secret|cookie|authorization|Bearer|eyJ[A-Za-z0-9_-]+\.|Passw0rd|ReaderPass|WriterPass|BlockedPass|MultiPass|ExactPass|local-ci-only', re.I)
           for root in roots:
               for file in pathlib.Path(root).rglob('*'):
@@ -212,6 +220,9 @@ jobs:
           path: |
             .work/ci/
             .work/admin-ui/
+            .work/management/**/api.json
+            .work/management/**/ui-style.json
+            .work/management/**/inputs.json
             .work/namespace/*/ui.json
             .work/namespace/*/*.report.json
             kestra-plugin-rbac/build/reports/tests/

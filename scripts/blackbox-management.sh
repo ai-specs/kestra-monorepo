@@ -87,4 +87,7 @@ if [ "${BB_MANAGEMENT_START_ONLY:-0}" = 1 ]; then
 fi
 export BB_MANAGEMENT_PG="$(compose ps -q postgres)"
 node "$root_dir/scripts/blackbox-management.mjs" "http://localhost:$port" "$area"
+if [ "${BB_BROWSER_DRIVER:-ego}" = ci ]; then
+  node "$root_dir/scripts/management-ui-style-ci.cjs" "http://localhost:$port" "$area/ui-style.json"
+fi
 echo 'MANAGEMENT COMPOSE BLACKBOX ALL GREEN'

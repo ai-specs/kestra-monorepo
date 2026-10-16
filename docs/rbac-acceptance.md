@@ -294,6 +294,6 @@ MCP Servers 的 tabs 和按钮、Namespaces 的表格和搜索是上游同构参
 替代计算样式和交互结果。复现命令为：
 
 ```bash
-ego-browser nodejs -e 'globalThis.managementStyleInput={base:"http://localhost:8080",spaceId:11}; await import("file:///absolute/repository/scripts/management-ui-style-cases.mjs")'
+ego-browser nodejs -e 'const {runManagementStyleChecks}=await import("file:///absolute/repository/scripts/management-ui-style-cases.mjs"); await runManagementStyleChecks((await taskSpace(11)).page("p1"),"http://localhost:8080",report=>console.log(JSON.stringify(report)))'
 ```
 
