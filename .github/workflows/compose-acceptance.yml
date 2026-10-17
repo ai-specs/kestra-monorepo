@@ -29,6 +29,7 @@ jobs:
         env:
           OVERLAY_KEY: ${{ secrets.OVERLAY_READ_DEPLOY_KEY }}
           RBAC_KEY: ${{ secrets.RBAC_READ_DEPLOY_KEY }}
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           test -n "$OVERLAY_KEY" || { echo 'Missing OVERLAY_READ_DEPLOY_KEY'; exit 1; }
@@ -46,7 +47,7 @@ jobs:
           }
           trap cleanup_keys EXIT
           chmod 700 "$area"
-          ssh-keyscan -T 10 github.com > "$area/known_hosts" 2>/dev/null
+          gh api meta --jq '.ssh_keys[] | "github.com " + .' > "$area/known_hosts"
           test -s "$area/known_hosts"
           checkout_pin() {
             local repo="$1" key="$2" commit mode type name
