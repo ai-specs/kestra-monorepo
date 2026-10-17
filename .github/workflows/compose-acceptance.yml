@@ -46,7 +46,7 @@ jobs:
           }
           trap cleanup_keys EXIT
           chmod 700 "$area"
-          curl --fail --silent --show-error https://api.github.com/meta | python3 -c 'import json,sys; print("\n".join("github.com " + key for key in json.load(sys.stdin)["ssh_keys"]))' > "$area/known_hosts"
+          ssh-keyscan -T 10 github.com > "$area/known_hosts" 2>/dev/null
           test -s "$area/known_hosts"
           checkout_pin() {
             local repo="$1" key="$2" commit mode type name
