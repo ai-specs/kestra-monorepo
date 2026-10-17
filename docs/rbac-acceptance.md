@@ -285,7 +285,7 @@ UI manifest 资源 hash 与正式 UI SDK integrity 已核对。
 ## 管理扩展 UI 样式验收标准
 
 2026-10-16 本地复验使用 overlay `4d26bef` 的已发布镜像
-`sha256:144de64b24b584a43ea34632da97e36ba5c42d8fbe6f1df650a1df87637ccb52`，
+`sha256:1b044df9242f3f05c45a24e5301a8efe9ba37d52109a2d332ff420d5f3d624d0`，
 插件 `192f20f` 独立编译 jar SHA-256 为
 `3139384e740138f78582716c2f29cc113c865d200aa992c45cb860df412fef7e`。
 本地管理 API 289 项通过，共享 UI 用例 31 项通过；报告分别为
