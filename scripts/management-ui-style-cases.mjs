@@ -147,6 +147,19 @@ try {
                 return root.querySelectorAll('tbody tr').length === 1 && root.querySelector('tbody').textContent.includes(expected)
             }, query)
             check(`${theme} ${section} search selects matching record`, true, {query})
+            const columns = await page.evaluate(section => {
+                const root = document.querySelector('[data-test="extension-container"]').shadowRoot
+                const headers = [...root.querySelectorAll('.kel-table__header-wrapper th')].map(header => header.textContent.trim())
+                const cells = [...root.querySelector('tbody tr').querySelectorAll('td')].map(cell => cell.textContent.trim())
+                const expected = section === 'roles' ? ['Name', 'Description', 'Actions'] : section === 'users'
+                    ? ['User identity', 'Name', 'Email', 'Active', 'Actions']
+                    : ['User identity / Trusted identity role', 'Assigned roles', 'Actions']
+                const valuesMatch = section === 'roles' ? cells[0] === 'style-alpha' && cells[1] === 'Style acceptance'
+                    : section === 'users' ? cells[0] === 'style-user-20' && cells[1] === 'style-user-20' && cells[2] === 'style-user-20@example.invalid' && cells[3] === 'Active'
+                    : cells[0] === 'Trusted identity role: style-claim-alpha' && cells[1] === 'style-alpha'
+                return {headers, cells, passed: JSON.stringify(headers) === JSON.stringify(expected) && cells.length === expected.length && valuesMatch && cells.at(-1) === 'Edit'}
+            }, section)
+            check(`${theme} ${section} columns match their records`, columns.passed, columns)
             await page.click('button:has-text("Clear all")')
             await page.waitForFunction(() => document.querySelector('[data-test="extension-container"]').shadowRoot.querySelector('.ks-search input').value === '')
             await page.click('button:has-text("Add filters")')

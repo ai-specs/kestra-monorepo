@@ -265,7 +265,8 @@ if(phase==='seed') {
       await denied(await request('reader',`/api/v1/main/executions/${execution.id}${suffix}`),'reader READ-only cannot access execution id/output without ACCESS_OUTPUTS');
     const full='openid mcp:flows:read mcp:executions:write';
     const reader=await mcp(await token('reader',full)), writer=await mcp(await token('writer',full));
-    const visible=await reader.list();check(visible.result?.tools?.some(t=>t.name==='rbac-allowed-tool') && !visible.result.tools.some(t=>t.name==='rbac-denied-tool'),'reader tools list applies per-resource RBAC');
+    const visible=await reader.list();
+    check(visible.result?.tools?.some(t=>t.name==='rbac-allowed-tool') && !visible.result.tools.some(t=>t.name==='rbac-denied-tool'),'reader tools list applies per-resource RBAC');
     await noSideEffect('same reader/resource REST+MCP deny',async()=>{
       await denied(await request('reader','/api/v1/main/executions/rbac.allowed/rbac-mcp',{method:'POST',headers:{'X-CSRF-TOKEN':readerCsrf},body:new FormData()}),'reader REST execute');
       callDenied(await reader.call('rbac-allowed-tool'),'reader MCP execute deny despite full OAuth scope');

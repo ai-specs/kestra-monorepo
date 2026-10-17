@@ -22,14 +22,6 @@ def database_policy(configuration, target, administrators):
         ordinary = [identifier for identifier in identifiers if any(role["id"] == identifier for role in document["roles"])]
         if ordinary:
             document["subjects"][identity] = ordinary
-    fixture_roles = {
-        "rbac-reader": ["reader"], "rbac-writer": ["writer"],
-        "rbac-multi": ["multi-reader", "multi-writer"], "rbac-exact": ["exact"]
-    }
-    for identity, identifiers in fixture_roles.items():
-        ordinary = [identifier for identifier in identifiers if any(role["id"] == identifier for role in document["roles"])]
-        if ordinary:
-            document["subjects"][identity] = ordinary
     with open(target, "w") as output:
         json.dump(document, output)
     return {"enabled": configuration["enabled"], "typed": {"enabled": True}, "evaluation": {"enabled": configuration["enabled"]},

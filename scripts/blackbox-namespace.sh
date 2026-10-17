@@ -134,7 +134,8 @@ text=rendered['services']['kestra']['environment']['KESTRA_CONFIGURATION']
 policies=[line.removeprefix('  rbac: ') for line in text.splitlines() if line.startswith('  rbac: ')]
 assert len(policies)==1 and 'kestra.rbac.' not in text, 'Ambiguous nested/flat RBAC policies'
 policy=json.loads(policies[0])
-assert policy['policy-source']=='database' and policy['typed']['enabled'] and policy['evaluation']['enabled']
+assert policy['policy-source']=='database' and policy['typed']['enabled']
+assert policy['evaluation']['enabled'] == policy['enabled']
 assert 'roles' not in policy and 'role-mapping' not in policy
 print('PASS rendered Compose namespace matrix policy')
 

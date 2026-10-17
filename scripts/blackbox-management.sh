@@ -89,5 +89,22 @@ export BB_MANAGEMENT_PG="$(compose ps -q postgres)"
 node "$root_dir/scripts/blackbox-management.mjs" "http://localhost:$port" "$area"
 if [ "${BB_BROWSER_DRIVER:-ego}" = ci ]; then
   node "$root_dir/scripts/management-ui-style-ci.cjs" "http://localhost:$port" "$area/ui-style.json"
+else
+  python3 - "$root_dir/scripts/management-ui-style-cases.mjs" "http://localhost:$port" "$area/ui-style.json" "${BB_RBAC_EGO_SPACE:?Reuse the goal TaskSpace}" <<'PYBROWSER' | ego-browser nodejs
+import json,pathlib,sys
+module,base,report,space=sys.argv[1:]
+print('const fs=await import("node:fs/promises");')
+print('const {runManagementStyleChecks}=await import('+json.dumps(pathlib.Path(module).resolve().as_uri())+');')
+print('const task=await taskSpace('+str(int(space))+');')
+print('await runManagementStyleChecks(task.page("p1"),'+json.dumps(base)+',result=>fs.writeFile('+json.dumps(report)+',JSON.stringify(result,null,2)+"\\n"));')
+PYBROWSER
 fi
+python3 - "$area/ui-style.json" <<'PYREPORT'
+import json,sys
+report=json.load(open(sys.argv[1]))
+assert report['completed'] and report['checks'] and all(check['passed'] for check in report['checks'])
+for theme in ('light','dark'):
+ for section in ('roles','users','bindings'):
+  assert any(check['name']==f'{theme} {section} columns match their records' for check in report['checks'])
+PYREPORT
 echo 'MANAGEMENT COMPOSE BLACKBOX ALL GREEN'
