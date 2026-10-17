@@ -78,6 +78,8 @@ make_override() {
   python3 - "$TEMP_DIR/base.json" "$OVERRIDE" "$BASE" "$PORT" "$TEMP_DIR" "$enabled" "$mounted" "$IMAGE" <<'PY'
 import json,sys
 source,target,base,port,temp,enabled,mounted,image=sys.argv[1:]
+from importlib.machinery import SourceFileLoader
+database_policy=SourceFileLoader('ci_policy', 'scripts/ci-policy.py').load_module().database_policy
 config=json.load(open(source))['services']['kestra']['environment']['KESTRA_CONFIGURATION']
 config=config.replace('http://localhost:8080',base)
 # OAuth backchannel runs within Kestra, independent of the host-published test port.
@@ -106,6 +108,7 @@ rbac={'enabled':enabled=='true','typed':{'enabled':True},'subjects':{},
  'roles':{'deployment-admin':[],'reader':grants('rbac.allowed',True,False)+mcp_read(),
  'writer':grants('rbac.allowed',True,True)+mcp_read(),'multi-reader':grants('rbac.multi',False,False)+mcp_read(),
  'multi-writer':grants('rbac.allowed',False,True),'exact':grants('rbac.allowed',False,False)+mcp_read()}}
+rbac=database_policy(rbac,temp+'/policy.json',['tester'])
 assert config.splitlines().count('kestra:')==1, 'Expected one root kestra configuration'
 config=config.replace('kestra:\n','kestra:\n  rbac: '+json.dumps(rbac)+'\n',1)
 config+='\n'+''.join(json.dumps(key)+': '+json.dumps(value)+'\n' for key,value in properties.items())
@@ -131,10 +134,8 @@ text=rendered['services']['kestra']['environment']['KESTRA_CONFIGURATION']
 policies=[line.removeprefix('  rbac: ') for line in text.splitlines() if line.startswith('  rbac: ')]
 assert len(policies)==1 and 'kestra.rbac.' not in text, 'Ambiguous nested/flat RBAC policies'
 policy=json.loads(policies[0])
-assert policy['subjects']=={} and policy['typed']['enabled']
-assert policy['instance-admin-roles']==['deployment-admin']
-assert set(policy['roles'])=={'deployment-admin','reader','writer','multi-reader','multi-writer','exact'}
-assert all(g.get('namespace') in {'rbac.allowed','rbac.multi'} or g['resource']=='MCP_SERVER' for name,grants in policy['roles'].items() for g in grants)
+assert policy['policy-source']=='database' and policy['typed']['enabled'] and policy['evaluation']['enabled']
+assert 'roles' not in policy and 'role-mapping' not in policy
 print('PASS rendered Compose namespace matrix policy')
 
 PYCONFIG
@@ -195,6 +196,8 @@ import sys,xml.etree.ElementTree as ET
 suite=ET.parse(sys.argv[1]).getroot()
 assert int(suite.get('tests','0')) > 0 and all(int(suite.get(k,'0'))==0 for k in ('failures','errors','skipped')), 'Fixture test missing/skipped/failed'
 PY
+source "$REPO/scripts/initialize-ci-policy.sh"
+initialize_ci_policy
 phase enabled true true
 export NAMESPACE_UI_BASE="$BASE"
 export NAMESPACE_UI_FIXTURE="$TEMP_DIR/resources.json"

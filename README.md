@@ -33,32 +33,18 @@ docker compose up -d
 jar 与配置变更需要重启。授权扩展的文件名和镜像兼容版本以插件项目说明为准。
 `KESTRA_RBAC_ENABLED` 默认关闭，启用前需部署完整授权组件和权限配置。
 
-Compose 将可信 OIDC `admin` 映射到 `deployment-admin`，并通过
-`instance-admin-roles: [deployment-admin]` 授予实例管理员权限。首次安装创建的用户
-具有可信 `admin` 角色。RBAC 开启后，该用户可以访问宿主已有的全部业务 API，
-不受 namespace 范围、普通角色 API 白名单和保守表达式策略限制。
-实例管理员仍须通过认证、CSRF 与独立的 MCP OAuth scope 检查；授权 jar 缺失时仍失败关闭。
-这项授权不会增加宿主没有实现的 EE 功能，也不会改变 OIDC client 的用户归属。
+RBAC 策略来源只有 PostgreSQL 数据库。Compose 显式配置 `policy-source: database`，
+不再包含五个 `deployment-*` 角色或 YAML 角色映射。角色、权限和绑定通过管理页面维护。
+部署管理员由 `KESTRA_RBAC_ADMIN_SUBJECT` 指定精确认证 subject，默认示例为 admin；
+可信角色名 admin 不自动授予管理员权。修改该部署身份需更新容器配置。
 
-可信 `reader`、`writer` 分别映射到普通部署角色，其权限域为
-`KESTRA_RBAC_NAMESPACE`（默认 `examples`）及其子 namespace。
-reader 配置 Flow、Execution、Namespace、Log、Metric、Trigger、KV 和 Namespace File
-的只读权限。writer 配置 Flow 创建、更新、执行、删除，以及 KV/file 写入权限。
-Compose 同时启用 typed 宿主适配配置；实际 RBAC 总开关仍由 `KESTRA_RBAC_ENABLED` 控制。
-普通角色未支持的 API 返回 403。当前固定组合的普通角色与管理员真实浏览器、Compose
-及根仓 CI 验收通过，版本和检查范围见验收记录。
-修改角色或权限配置后运行 `docker compose up -d` 更新容器配置。
+首次启用 RBAC 前，必须按插件 README 的初始化命令初始化空策略库；已有数据库不得
+覆盖初始化。将 `KESTRA_RBAC_ENABLED=true` 后执行 `docker compose up -d`。
+普通角色变更保存数据库后对新请求生效，无需重启。管理员仍须通过认证、CSRF 与 MCP scope。
 
-可信角色 `multi-writer` 和 `multi-reader` 分别映射到独立的本地角色。默认授予
-`rbac.allowed` 命名空间读写权限和 `rbac.multi` 命名空间只读权限，均仅匹配精确命名空间。
-可以通过 `KESTRA_RBAC_MULTI_WRITE_NAMESPACE` 和 `KESTRA_RBAC_MULTI_READ_NAMESPACE`
-分别设置两个范围。两者必须设置为不同且互不包含的命名空间，才能保留跨范围读写隔离。
-此配置不创建测试账号；已有 `rbac-multi` 账号携带上述可信角色时即可获得对应权限。
-
-普通角色可以查看 MCP server 列表、编辑页和连接页；服务配置保存及开启/关闭仍只授予
-实例管理员。MCP tool-flows 列表按当前角色的 Flow namespace 范围过滤。统计页的 Flow
-和 Execution 数据使用各自授权范围。登录后的业务路径包含 `/ui/main/`；零授权账号
-显示独立 403 页面，可以点击“返回登录”撤销登录会话并使用另一账号登录。
+CI 的 reader、writer、multi-reader、multi-writer、exact 是隔离数据库中的测试角色，
+由测试脚本通过插件公开初始化命令导入。它们不属于用户部署默认策略，不自动创建生产账号。
+管理员、普通角色、缺 jar 与关闭 RBAC 的验收覆盖保留，全部使用数据库策略来源。
 
 上游版本未更新时，`v2.0.5-no-plugins` 会被后续 overlay 构建复用。
 本仓组合部署固定 commit hash 标签或 digest，避免本地旧镜像缓存造成版本混淆。

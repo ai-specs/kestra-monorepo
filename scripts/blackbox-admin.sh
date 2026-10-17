@@ -78,6 +78,11 @@ config=config.replace('enabled: false\n            role-mapping:', 'enabled: '+e
 import re
 config,n=re.subn(r'(  rbac:\n    enabled: )[^\n]+', r'\g<1>'+enabled, config)
 assert n==1, 'Expected a single RBAC switch in default deployment policy'
+config=config.replace('management-admin-subjects: ["admin"]', 'management-admin-subjects: ["tester"]')
+config=re.sub(r'management-admin-subjects: \[[^\n]+\]', 'management-admin-subjects: ["tester"]', config)
+config=re.sub(r'(    evaluation:\n      enabled: )[^\n]+', r'\g<1>'+enabled, config)
+with open(temp+'/policy.json','w') as policy:
+ json.dump({'schemaVersion':1,'roles':[],'subjects':{},'roleMapping':{}},policy)
 libs=temp+('/libs' if mounted=='true' else '/empty-libs')
 # Compose merges volumes by container target; !override replaces the original published port.
 with open(target,'w') as f:
@@ -96,10 +101,10 @@ import json,sys
 rendered=json.load(open(sys.argv[1]))
 assert rendered['services']['kestra']['image']==sys.argv[2]
 text=rendered['services']['kestra']['environment']['KESTRA_CONFIGURATION']
-assert 'instance-admin-roles: [deployment-admin]' in text
-assert 'admin: [deployment-admin]' in text
-assert 'deployment-admin: []' in text
-print('PASS default deployment policy retains explicit instance administrator')
+assert 'policy-source: database' in text
+assert 'management-admin-subjects: ["tester"]' in text
+assert 'role-mapping:' not in text and 'instance-admin-roles:' not in text
+print('PASS database deployment retains exact-subject administrator')
 PYCONFIG
 }
 ready() {
@@ -165,6 +170,8 @@ fi
 compose up -d
 ready
 phase seed false true
+source "$REPO/scripts/initialize-ci-policy.sh"
+initialize_ci_policy
 phase enabled true true
 phase missing true false
 phase disabled false true
