@@ -120,6 +120,7 @@ try {
     await page.waitForSelector('.ks-search input')
     if (await page.evaluate(() => [...document.querySelector('[data-test="extension-container"]').shadowRoot.querySelectorAll('button')].some(button => button.textContent.trim() === 'Clear all' && !button.disabled))) await page.click('button:has-text("Clear all")')
     await page.waitForSelector('.kel-pagination')
+    if (await page.evaluate(() => [...document.querySelectorAll('.pwa-install-actions button')].some(button => button.textContent.trim() === 'Not now'))) await page.click('.pwa-install-actions button:has-text("Not now")')
     await page.click('.kel-pagination button.btn-next')
     await page.waitForFunction(() => document.querySelector('[data-test="extension-container"]').shadowRoot.querySelector('.kel-pager .is-active')?.textContent.trim() === '2')
     check('host-style pagination advances displayed page', true)
