@@ -180,7 +180,7 @@ export async function main(argv=process.argv.slice(2),runtime={}) {
       assert.equal(artifacts.artifacts.filter(item=>item.name==='kestra-rbac-authorizer'&&!item.expired).length,1,'artifact name is ambiguous')
       assert(artifacts.artifacts.some(item=>item.id===evidence.pluginArtifactId),'artifact is not listed in selected run')
       const downloaded=join(output,'downloaded-plugin');mkdirSync(downloaded,{mode:0o700})
-      command('gh',['run','download',String(evidence.pluginRunId),'-R','ai-specs/kestra-plugin-rbac','--name','kestra-rbac-authorizer','--dir',downloaded])
+      command('gh',['run','download',String(evidence.pluginRunId),'-R','ai-specs/kestra-plugin-rbac','--name','kestra-rbac-authorizer','--dir',downloaded],{timeout:180000})
       const jar=join(downloaded,'build/libs/kestra-rbac-authorizer.jar')
       for(const name of ['build/libs/kestra-rbac-authorizer.jar','.integration/host-provenance.json','.evidence','build/reports/tests/test','build/test-results/test'])assert(statSync(join(downloaded,name)),'downloaded artifact layout incomplete: '+name)
       assert(readdirSync(join(downloaded,'.evidence')).length,'hidden evidence omitted from artifact')
