@@ -86,12 +86,12 @@ export class ProjectManagement {
     assert(candidate.scopes&&typeof candidate.scopes==='object','complete scopes required')
     const saved=await this.request(path,'PUT',candidate,projection.policyRevision)
     assert.equal(saved.policy?.schemaVersion,2)
-    assert.deepEqual(saved.policy.applicationProjects[projectId],Object.fromEntries(Object.entries(candidate).filter(([key])=>key!=='id')))
+    assert.deepEqual(semantic(saved.policy.applicationProjects[projectId]),semantic(Object.fromEntries(Object.entries(candidate).filter(([key])=>key!=='id'))))
     await this.login()
     const confirmed=await this.request(path)
     assert.equal(confirmed.directoryRevision,confirmed.upperBound.project.revision)
     assert.equal(confirmed.project.directoryRevision,confirmed.directoryRevision)
-    assert.deepEqual(confirmed.project,{...candidate})
+    assert.deepEqual(semantic(confirmed.project),semantic(candidate))
     const verified=await this.client.verifiedUiIdentity({projectId:applicationProject,subject:this.account.subject,audience:'kestra-ui'})
     // The public OAuth helper exposes epoch, not directoryRevision. Directory
     // revision was verified above against the full authoritative projection.

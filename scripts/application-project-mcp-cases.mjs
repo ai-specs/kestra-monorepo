@@ -45,7 +45,7 @@ const jsonEqual=(a,b)=>JSON.stringify(a)===JSON.stringify(b)
 const get=(value,path)=>path.split('.').reduce((object,name)=>object?.[name],value)
 export async function runApplicationProjectMcp(base,fixture,record) {
   assert.equal(typeof record,'function','persistent report callback required')
-  const report={schemaVersion:1,completed:false,checks:owned.map(id=>({id,passed:false,status:'not_run',evidence:{}})),sessions:[],mutations:[],failures:0,skipped:0,notRun:owned.length}
+  const report={schemaVersion:1,completed:false,checks:owned.map(id=>({id,passed:false,status:'not_run',evidence:{}})),sessions:[],mutations:[],rpc:[],failures:0,skipped:0,notRun:owned.length}
   const restorations=[];const revoked=[];let rpcId=1;let effects;let observer;let issuance
   const allSecrets=Object.values(fixture.accounts??{}).map(account=>account.password).concat(fixture.observerAccount?.password).filter(Boolean)
   const safe=error=>allSecrets.reduce((text,secret)=>text.replaceAll(secret,'[redacted]'),String(error?.message??error)).replace(/eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+/g,'[redacted-jwt]')
@@ -85,7 +85,7 @@ export async function runApplicationProjectMcp(base,fixture,record) {
     report.sessions.push({scenario:name,subject:identity.subject,identity,clientId:issued.clientId,protocol:'2025-06-18'})
     return result
   }
-  async function rpc(s,method,params){const value=await s.client.rpc(s.session,method,params,rpcId++);assert.equal(value.session,s.session,'same-session test unexpectedly changed MCP session');return value}
+  async function rpc(s,method,params){const value=await s.client.rpc(s.session,method,params,rpcId++);report.rpc.push({subject:s.account.subject,method,status:value.status,message:JSON.parse(safe(JSON.stringify(value.message??null)))});await persist();assert.equal(value.session,s.session,'same-session test unexpectedly changed MCP session');return value}
   function denied(value,config=fixture){assert(value.status!==500&&value.status!==404,'500/404 is not authorization denial');if([401,403].includes(value.status))return true;if(value.status!==200)return false;const error=value.message?.error;if(error)return ![-32700,-32600,-32601,-32602,-32603].includes(error.code)&&(config.denialErrors??[]).some(rule=>rule.code===error.code&&rule.message===error.message);const result=value.message?.result;return result?.isError===true&&(typeof result.structuredContent?.code==='string'&&(config.denialToolCodes??[]).includes(result.structuredContent.code)||(config.denialToolResults??[]).some(expected=>jsonEqual(result,expected)))}
   async function tools(s,expected=s.spec.expectedTools){
     const names=[];let cursor;const seen=new Set()
