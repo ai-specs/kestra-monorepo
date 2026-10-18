@@ -33,8 +33,8 @@ export function localApplicationPolicy({issuer, audiences, directoryRevision}) {
     [scopeNames.restrictedIdB]: scope('Only the named B flow', [complete(namespaceDomains.b, 'FLOW', ['READ', 'LIST'], false, ['other-id']), metadata()]),
     [scopeNames.readOnlyIdA]: scope('A named flow READ without LIST', [complete(namespaceDomains.a, 'FLOW', ['READ'], false, ['allowed-id']), metadata()]),
     [scopeNames.listOnlyOtherIdA]: scope('A different named flow LIST without READ', [complete(namespaceDomains.a, 'FLOW', ['LIST'], false, ['other-id']), metadata()]),
-    [scopeNames.identityManager]: scope('Explicit issuer directory management', [metadata()], [{domain: 'IDENTITY', actions: ['READ', 'MANAGE']}]),
-    [scopeNames.policyManager]: scope('Explicit project local policy management', [metadata()], [{domain: 'LOCAL_POLICY', actions: ['READ', 'MANAGE']}]),
+    [scopeNames.identityManager]: scope('Explicit issuer directory management', [metadata()], [{domain: 'IDENTITY', actions: ['READ', 'MANAGE'], projectIds: []}]),
+    [scopeNames.policyManager]: scope('Explicit project local policy management', [metadata()], [{domain: 'LOCAL_POLICY', actions: ['READ', 'MANAGE'], projectIds: []}]),
   }
   // An intentionally unbound directory scope is omitted from local policy. A token
   // mixing it with a known scope must be denied, rather than using a known subset.
