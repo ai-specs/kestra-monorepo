@@ -111,4 +111,5 @@ export const requiredProjectChecks = Object.freeze([
   'last-identity-administrator', 'last-local-policy-administrator',
   'ui-create-project-explicit-local-policy-target', 'local-policy-unapproved-project-denied',
   'management-target-action-cross-scope-denied', 'reconciliation-complete-project-atomic',
+  'oauth-error-callback-preserves-session', 'oauth-error-callback-state-rejection',
 ])

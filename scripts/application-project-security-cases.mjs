@@ -18,12 +18,14 @@ import {createHash,randomBytes} from 'node:crypto'
 import {ProductionOAuthClient} from './production-oauth-client.mjs'
 import {applicationProject,scopeNames,namespaceDomains} from './application-project-cases.mjs'
 import {mcpFlowSource,mcpProtocolEvidence} from './application-project-fixture.mjs'
+import {runApplicationProjectOauth,oauthCheckIds} from './application-project-oauth-cases.mjs'
 
 export const securityCheckIds=Object.freeze([
   'last-identity-administrator','last-local-policy-administrator',
   'local-policy-unapproved-project-denied','management-target-action-cross-scope-denied',
   'reconciliation-complete-project-atomic','rest-subject-revoke','wrong-tenant',
   'wrong-issuer','wrong-audience','wrong-project','directory-unavailable','policy-unavailable',
+  ...oauthCheckIds,
 ])
 const api='/api/v1/main/extensions/rbac'
 const projectPath=api+'/projects/'+encodeURIComponent(applicationProject)
@@ -816,6 +818,7 @@ export async function runApplicationProjectSecurity(base,fixture={},record) {
     await step('restoration-verified',{mainTenantAllowed:true,unchanged:true})
   })
 
+  await runApplicationProjectOauth(base,{planned,snapshot:securitySnapshot},async fragment=>{report.oauth=fragment;for(const row of fragment.checks){const index=report.checks.findIndex(item=>item.id===row.id);report.checks[index]=row}await persist()})
   report.completed=!report.preconditionFailure&&report.checks.every(row=>row.passed)
   await persist();return report
 }
