@@ -450,14 +450,14 @@ class MigrationReviewEvidence {
     const file=join(work,'compose.json')
     const save=()=>writeFileSync(file,JSON.stringify(config),{mode:0o600})
     const dc=(args,extra={})=>exec('docker',['compose','--env-file','/dev/null','-p',project,'-f',file,...args],{env,...extra})
-    let legacyPolicyActive=false
+    let legacyPolicyActive=false,legacyRoleMappingOnly=false
     const legacyConfiguration=()=>{
       let current=migrationUiScopes(configuration,'legacy')
       if(legacyPolicyActive){
         current=applicationProjectFeature(current,true).replace(/(    application-projects:\n      enabled: )true/,'$1false')
-        if(caseId==='migration-legacy-role-no-scope')current=current.replace(/^    management-admin-subjects:.*\n/m,'')
+        if(legacyRoleMappingOnly)current=current.replace(/^    management-admin-subjects:.*\n/m,'')
       }
-      return current
+      return migrationUiScopes(current,'legacy')
     }
     const use=which=>{const bundle=verified[which];host.image=bundle.host.image;host.volumes=host.volumes.filter(v=>v.target!=='/app/libs/kestra-rbac-authorizer.jar');host.volumes.push({type:'bind',source:bundle.jar,target:'/app/libs/kestra-rbac-authorizer.jar',read_only:true});host.environment.KESTRA_CONFIGURATION=which==='legacy'?legacyConfiguration():newConfiguration;save()}
     use('legacy');dc(['config','--quiet'])
@@ -900,6 +900,7 @@ class MigrationReviewEvidence {
         target.applicationProjects.kestra.scopes[scope]={description:'Explicit migrated read grant',enabled:true,grants:[grant],managementGrants:[]}
         directoryPlan.projects[0].scopes.push({projectId:'kestra',scope,description:'Explicit migrated read grant',active:true,resourceIntents:[{vocabularyVersion:'kestra-resources-v1',resourceType:'FLOW',namespaces:{kind:'RESTRICTED',exact:[],subtrees:['scope.acceptance.a']},resourceIds:{kind:'ALL',ids:[]},actions:['READ','LIST']}],managementIntents:[],revision:1})
         directoryPlan.projects[0].memberships[0].allowedProjectScopes.push(scope)
+        legacyPolicyActive=true;use('legacy')
         dc(['up','-d','kestra']);await wait()
         const admin=await login(),root='/api/v1/main/extensions/rbac'
         if(noScopeCase) {
@@ -923,7 +924,7 @@ class MigrationReviewEvidence {
           directoryPlan.projects[0].assignments[0].subject=managerAccount.subject
           for(const account of [subjectAccount,planned.admin])directoryPlan.projects[0].assignments.push({projectId:'kestra',issuer:base,subject:account.subject,projectScopes:[],revision:1,authorizationVersion:1})
         }
-        legacyPolicyActive=true;use('legacy');dc(['up','-d','kestra']);await wait();inspect()
+        legacyRoleMappingOnly=caseId==='migration-legacy-role-no-scope';use('legacy');dc(['up','-d','kestra']);await wait();inspect()
         return {target,directoryPlan,decisions:[{roleId:'migration-reader',disposition:'MAP',targets:[{project:'kestra',scope}],reason:'Explicit isolated read-only migration test'}]}
       },
       destroy:async()=>{inspect();try{dc(['down','--volumes','--remove-orphans'])}finally{credentialHandles.clear();backups.clear()}},
