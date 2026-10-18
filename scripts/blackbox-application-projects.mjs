@@ -150,6 +150,8 @@ export async function main(argv=process.argv.slice(2),runtime={}) {
       host.volumes.push({type:'bind',source:options.jar,target:'/app/libs/kestra-rbac-authorizer.jar',read_only:true})
       host.environment.KESTRA_CONFIGURATION=host.environment.KESTRA_CONFIGURATION.replaceAll('http://localhost:8080',base).replaceAll('url: '+base+'/oidc/token','url: http://localhost:8080/oidc/token').replaceAll('jwks-uri: '+base+'/oidc/jwks','jwks-uri: http://localhost:8080/oidc/jwks')
       host.environment.KESTRA_CONFIGURATION=applicationProjectFeature(host.environment.KESTRA_CONFIGURATION,false)
+      assert(host.environment.KESTRA_CONFIGURATION.includes('kestra:\n'),'isolated host configuration root missing')
+      host.environment.KESTRA_CONFIGURATION=host.environment.KESTRA_CONFIGURATION.replace('kestra:\n','kestra:\n  anonymous-usage-report:\n    enabled: false\n  ui-anonymous-usage-report:\n    enabled: false\n')
       Object.assign(host.environment,{KESTRA_OIDC_REGISTRATION_PENDING_TTL_MINUTES:'120',RBAC_POLICY_JDBC_URL:'jdbc:postgresql://postgres:5432/kestra',RBAC_POLICY_JDBC_USER:'kestra',RBAC_POLICY_JDBC_PASSWORD:env.POSTGRES_PASSWORD,RBAC_POLICY_OPERATOR_SUBJECT:planned.admin.subject})
       composeConfig=config;composeEnvironment=env
       const compose=join(output,'compose.json');saveCompose()
