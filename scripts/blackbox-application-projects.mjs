@@ -49,11 +49,13 @@ export async function main(argv=process.argv.slice(2),runtime={}) {
   const output=mkdtempSync(join(tmpdir(),'application-projects-bb-'))
   const project='application-projects-bb-'+Date.now()+'-'+process.pid
   const hash=bytes=>createHash('sha256').update(bytes).digest('hex')
-  const command=(program,args,extra={})=>{
+  const command=(program,args,extra={},attempt=0)=>{
     try{return execFileSync(program,args,{encoding:'utf8',timeout:60000,maxBuffer:32*1024*1024,stdio:['ignore','pipe','pipe'],env:{...process.env,PATH:process.env.PATH??'/opt/homebrew/opt/node@24/bin:/usr/local/bin:/usr/bin:/bin'},...extra}).trim()}
     catch(error){
       const redact=text=>String(text??'').split('\n').map(line=>/token|password|secret|cookie|authorization|Bearer|eyJ[A-Za-z0-9_-]+\.|[?&](?:state|code)=/i.test(line)?'[credential-bearing line redacted]':line).join('\n')
-      appendFileSync(join(output,'command-failures.log'),JSON.stringify({program,args,status:error.status,code:error.code,stdout:redact(error.stdout),stderr:redact(error.stderr)})+'\n',{mode:0o600})
+      appendFileSync(join(output,'command-failures.log'),JSON.stringify({program,args,attempt,status:error.status,code:error.code,stdout:redact(error.stdout),stderr:redact(error.stderr)})+'\n',{mode:0o600})
+      const readOnly=program==='gh'&&(args[0]==='api'&&!args.some(value=>['-X','--method','-F','--field','-f','--raw-field','--input'].includes(value))||args[0]==='run'&&args[1]==='view')
+      if(readOnly&&attempt<2&&/EOF|ETIMEDOUT|ECONNRESET|TLS handshake timeout/i.test(String(error.code)+' '+String(error.stderr)))return command(program,args,extra,attempt+1)
       throw error
     }
   }

@@ -324,7 +324,7 @@ export async function createMigrationContext(options) {
   // Deliberately do not inherit Compose settings, bootstrap credentials or .env.
   const processEnv=Object.fromEntries(['PATH','HOME','DOCKER_CONFIG','GH_CONFIG_DIR','GH_HOST','GH_TOKEN','GITHUB_TOKEN','TMPDIR'].filter(key=>process.env[key]!==undefined).map(key=>[key,process.env[key]]))
   const operations=[]
-  const exec=(program,args,{input,binary=false,allowFailure=false,env=processEnv}={})=>{
+  const exec=(program,args,{input,binary=false,allowFailure=false,env=processEnv}={},attempt=0)=>{
     try {
       const output=execFileSync(program,args,{env,input,encoding:binary?undefined:'utf8',timeout:180000,maxBuffer:128*1024*1024,stdio:['pipe','pipe','pipe']})
       operations.push({program,exitCode:0,at:Date.now()})
@@ -332,6 +332,8 @@ export async function createMigrationContext(options) {
     } catch(error) {
       const exitCode=Number.isInteger(error.status)?error.status:-1
       operations.push({program,exitCode,at:Date.now(),code:error.code,stdout:redactFailure(error.stdout),stderr:redactFailure(error.stderr)})
+      const readOnly=program==='gh'&&(args[0]==='api'&&!args.some(value=>['-X','--method','-F','--field','-f','--raw-field','--input'].includes(value))||args[0]==='run'&&args[1]==='view')
+      if(readOnly&&attempt<2&&/EOF|ETIMEDOUT|ECONNRESET|TLS handshake timeout/i.test(String(error.code)+' '+String(error.stderr)))return exec(program,args,{input,binary,allowFailure,env},attempt+1)
       // Never print raw arguments, stdout/stderr, environment or the Error object.
       if(!allowFailure)throw new Error('migration external operation failed; program='+program+'; status='+exitCode)
       return {exitCode,stdout:''}
@@ -642,7 +644,7 @@ class MigrationReviewEvidence {
             }
             const location=response.headers.get('location')
             if(location)issuance.authorizationCode=issuance.authorizationCode||new URL(location,base).searchParams.has('code')
-            issued=issued||issuance.cookieNames.length>0||issuance.authorizationCode
+            issued=issued||issuance.cookieNames.some(name=>['JWT','oidc_session'].includes(name))||issuance.authorizationCode
           }
           const authReceipt=(response,allowedLoginPaths)=>{
             const location=response.headers.get('location'),url=location?new URL(location,base):null
@@ -701,6 +703,22 @@ class MigrationReviewEvidence {
               // to userinfo. This is the protected production UI entry.
               const auth=await send('/ui/',{headers:{Cookie:'JWT='+credential.jwt}})
               observeIssuance(auth);authenticationCheck=authReceipt(auth,['/oauth/login/kestra','/oidc/login']);await auth.body?.cancel()
+              if(phase==='after'&&authenticationCheck.redirectPath==='/oidc/logout'&&[302,303,307,308].includes(auth.status)) {
+                const logout=await send('/oidc/logout',{headers:{Cookie:'JWT='+credential.jwt}})
+                observeIssuance(logout)
+                const cleared=logout.headers.getSetCookie().filter(value=>/;\s*max-age=0(?:;|$)/i.test(value)).map(value=>value.split('=')[0])
+                assert(cleared.includes('JWT')&&cleared.includes('oidc_session'),'invalidated UI identity must clear both authentication cookies')
+                await logout.body?.cancel()
+                const fresh=new ProductionOAuthClient(base),chain=[];let next='/ui/',loginForm=false
+                for(let hop=0;hop<8;hop++) {
+                  const response=await fresh.request(next);observeIssuance(response);const url=new URL(next,base)
+                  chain.push({path:url.pathname,status:response.status})
+                  if(response.status===200){const html=await response.text();loginForm=url.pathname==='/oidc/login'&&/name="username"/.test(html)&&/name="password"/.test(html);break}
+                  assert([302,303,307,308].includes(response.status));const location=new URL(response.headers.get('location'),base);assert.equal(location.origin,base);assert(!location.searchParams.has('code'));next=location.pathname+location.search;await response.body?.cancel()
+                }
+                assert(loginForm,'cleared UI session must reach the production login form without credentials')
+                authenticationCheck={...authenticationCheck,loginRedirect:true,logoutClearedCookies:cleared,finalLoginPath:'/oidc/login',unauthenticatedLoginForm:true,chain}
+              }
             }
             if(['access','mcp-session'].includes(credential.kind)){
               const auth=await send('/oidc/userinfo',{headers:{Authorization:'Bearer '+credential.access}})
