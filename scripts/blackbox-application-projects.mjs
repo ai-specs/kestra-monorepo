@@ -424,6 +424,8 @@ export async function main(argv=process.argv.slice(2),runtime={}) {
     if(report.nonFinal){report.development.outcome='implemented-checks-finished-non-final';await persist();return {exitCode:2,reportPath,nonFinal:true}}
     await stage('final-report-check',async()=>{
       for(const [name,expected]of Object.entries(report.executionSources))assert.equal(hash(readFileSync(join(repository,'scripts',name))),expected,'execution source changed during acceptance: '+name)
+      for(const item of report.staticChecks)assert.equal(hash(readFileSync(join(repository,'scripts',item.file))),item.sha256,'shared assertion source changed during acceptance: '+item.file)
+      for(const name of ['root','overlay','plugin']){assert.equal(git(report.sources[name].path,'rev-parse','HEAD'),report.inputs[name+'Commit'],'commit changed during acceptance: '+name);assert.equal(git(report.sources[name].path,'status','--porcelain','--untracked-files=normal'),'','source became dirty during acceptance: '+name)}
       assert.equal(report.nonFinal,false,'development reports cannot enter the final checker')
       assert.equal(report.notRun,0,'required MCP/UI/migration/fault checks still not_run')
       assert.equal(report.failures,0,'acceptance failures remain')
