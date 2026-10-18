@@ -44,6 +44,7 @@ export async function main(argv=process.argv.slice(2),runtime={}) {
     else {assert(['--image','--jar','--sha256','--root','--overlay','--plugin','--release-evidence','--port','--browser','--migration-releases'].includes(arg),'unknown option '+arg);assert(argv[i+1]&&!argv[i+1].startsWith('--'),'missing value '+arg);assert(options[arg]===undefined,'duplicate '+arg);options[arg]=argv[++i]}
   }
   assert(mode,'choose --static, --config-check or --run')
+  if(runtime.retainOnFailure)assert(options['--allow-dirty-root']===true,'diagnostic resource retention requires explicit non-final development mode')
   assert(!options['--browser']||options['--browser']==='ci','only --browser ci is accepted; local Ego passes a caller-owned runtime.uiAdapter')
   const repository=resolve(dirname(fileURLToPath(import.meta.url)),'..')
   const output=mkdtempSync(join(tmpdir(),'application-projects-bb-'))
@@ -445,14 +446,16 @@ export async function main(argv=process.argv.slice(2),runtime={}) {
     return {exitCode:1,reportPath}
   } finally {
     report.finishedAt=new Date().toISOString();await persist()
-    for(const deployment of additionalDeployments.reverse()) {
+    const retained=runtime.retainOnFailure===true&&report.nonFinal&&report.failures>0
+    if(retained){report.resources.retainedForDebug=true;report.resources.cleaned=false;await persist()}
+    for(const deployment of retained?[]:additionalDeployments.reverse()) {
       try {
         for(const id of deployment.compose('ps','-a','-q').split('\n').filter(Boolean))assert.equal(command('docker',['inspect','-f','{{index .Config.Labels "com.docker.compose.project"}}',id]),deployment.project)
         deployment.compose('down','--volumes')
         if(report.resources.missingExtension)report.resources.missingExtension.cleaned=true
       }catch{report.stages.push({id:'cleanup-'+deployment.project,status:'failed',error:'own additional deployment cleanup failed'});process.exitCode=1}
     }
-    if(composeStarted) {
+    if(composeStarted&&!retained) {
       try {
         // Only this fresh project's containers may be removed. No shared Docker
         // prune, no down of user's Compose project, no external volume cleanup.
