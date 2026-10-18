@@ -382,6 +382,9 @@ export async function createMigrationContext(options) {
     verified[name]={host:structuredClone(host),plugin:structuredClone(plugin),jar,hostSha256:provenance.sha256}
   }
   const release={verified:true,host:verified.target.host,plugin:verified.target.plugin,legacy:{image:verified.legacy.host.image,sha256:verified.legacy.plugin.sha256}}
+  const compilerHost=join(directory,'published-host.jar')
+  const extraction=run('docker',['create',verified.target.host.image])
+  try{run('docker',['cp',extraction+':/app/kestra',compilerHost]);assert.equal(bytesHash(readFileSync(compilerHost)),verified.target.hostSha256)}finally{run('docker',['rm','-v',extraction])}
   const context={release,storageOnly:true,oldWriteEndpoints:legacyWriteEndpoints,supportedChecks:storageMigrationCheckIds,directory,
     unsupportedChecks:migrationCheckIds.filter(id=>!storageMigrationCheckIds.includes(id)),operations}
   context.create=async({caseId})=>{
@@ -443,6 +446,7 @@ class MigrationReviewEvidence {
   }
 }
 `,{mode:0o600})
+    run('javac',['-cp',compilerHost+':'+verified.target.jar,'-d',work,join(work,'MigrationReviewEvidence.java')])
     const file=join(work,'compose.json')
     const save=()=>writeFileSync(file,JSON.stringify(config),{mode:0o600})
     const dc=(args,extra={})=>exec('docker',['compose','--env-file','/dev/null','-p',project,'-f',file,...args],{env,...extra})
@@ -526,7 +530,7 @@ class MigrationReviewEvidence {
         const encoded=sql("SELECT encode(convert_to(document_json,'UTF8'),'base64') FROM rbac_policy_snapshot WHERE revision="+revision)
         const source=Buffer.from(encoded.replace(/\s/g,''),'base64')
         writeFileSync(join(work,'source-current.json'),source,{mode:0o600})
-        const result=dc(['run','--rm','-T','--no-deps','--user','0:0','--entrypoint','java','maintenance','-cp','/app/kestra:/app/libs/kestra-rbac-authorizer.jar','/work/MigrationReviewEvidence.java',review,target,'/work/source-current.json'])
+        const result=dc(['run','--rm','-T','--no-deps','--user','0:0','--entrypoint','java','maintenance','-cp','/app/kestra:/app/libs/kestra-rbac-authorizer.jar:/work','MigrationReviewEvidence',review,target,'/work/source-current.json'])
         return JSON.parse(result.stdout.split('\n').find(line=>line.startsWith('{')&&line.includes('"sourceRawSha256"'))??'null')
       },
       credentials:{
