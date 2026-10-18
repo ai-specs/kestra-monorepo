@@ -63,6 +63,8 @@ services:
           oidc:
             enabled: true
             issuer: http://localhost:8080
+            registration:
+              enabled: ${KESTRA_OIDC_REGISTRATION_ENABLED:-false}
         micronaut:
           security:
             enabled: true

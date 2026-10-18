@@ -393,7 +393,7 @@ export async function createMigrationContext(options) {
     const noScopeCase=['migration-legacy-subject-no-scope','migration-legacy-role-no-scope'].includes(caseId)
     const env={...processEnv,KESTRA_IMAGE:verified.legacy.host.image,POSTGRES_PASSWORD:randomBytes(32).toString('hex'),
       KESTRA_OIDC_UI_CLIENT_SECRET:randomBytes(32).toString('hex'),KESTRA_OIDC_BOOTSTRAP_USERNAME:planned.admin.username,
-      KESTRA_OIDC_BOOTSTRAP_PASSWORD:planned.admin.password,KESTRA_OIDC_SETUP_ALLOWED:'false',KESTRA_RBAC_ENABLED:'false'}
+      KESTRA_OIDC_BOOTSTRAP_PASSWORD:planned.admin.password,KESTRA_OIDC_SETUP_ALLOWED:'false',KESTRA_RBAC_ENABLED:'false',KESTRA_OIDC_REGISTRATION_ENABLED:'true'}
     const config=JSON.parse(run('docker',['compose','--env-file','/dev/null','-p',project,'-f',sourceFile,'config','--format','json'],{env}))
     assert.deepEqual(Object.keys(config.services).sort(),['kestra','postgres'])
     delete config.name

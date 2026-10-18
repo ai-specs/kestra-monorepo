@@ -128,7 +128,7 @@ export async function main(argv=process.argv.slice(2),runtime={}) {
       const port=Number(options['--port']??18128);assert(Number.isInteger(port)&&port>1024&&port<65536)
       const base='http://localhost:'+port
       planned=planFixture(base)
-      const env={PATH:process.env.PATH,HOME:process.env.HOME,DOCKER_CONFIG:process.env.DOCKER_CONFIG,KESTRA_IMAGE:report.inputs.image,POSTGRES_PASSWORD:randomBytes(24).toString('hex'),KESTRA_OIDC_UI_CLIENT_SECRET:randomBytes(24).toString('hex'),KESTRA_OIDC_BOOTSTRAP_USERNAME:planned.admin.username,KESTRA_OIDC_BOOTSTRAP_PASSWORD:planned.admin.password,KESTRA_OIDC_SETUP_ALLOWED:'false',KESTRA_RBAC_ENABLED:'false',KESTRA_OIDC_UI_SCOPES:'openid,profile,email'}
+      const env={PATH:process.env.PATH,HOME:process.env.HOME,DOCKER_CONFIG:process.env.DOCKER_CONFIG,KESTRA_IMAGE:report.inputs.image,POSTGRES_PASSWORD:randomBytes(24).toString('hex'),KESTRA_OIDC_UI_CLIENT_SECRET:randomBytes(24).toString('hex'),KESTRA_OIDC_BOOTSTRAP_USERNAME:planned.admin.username,KESTRA_OIDC_BOOTSTRAP_PASSWORD:planned.admin.password,KESTRA_OIDC_SETUP_ALLOWED:'false',KESTRA_RBAC_ENABLED:'false',KESTRA_OIDC_REGISTRATION_ENABLED:'true',KESTRA_OIDC_UI_SCOPES:'openid,profile,email'}
       // /dev/null excludes repository .env; fresh explicit environment excludes
       // inherited Compose project/files/profiles and real deployment credentials.
       const config=JSON.parse(command('docker',['compose','--env-file','/dev/null','--project-directory',repository,'-p',project,'-f',join(repository,'docker-compose.yml'),'config','--format','json'],{env}))
