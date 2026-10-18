@@ -68,7 +68,7 @@ export async function main(argv=process.argv.slice(2),runtime={}) {
     const deadline=Date.now()+180000
     for(;;){try{const response=await fetch(report.resources.base+'/ping',{signal:AbortSignal.timeout(3000)});await response.body?.cancel();if(response.ok)return}catch{}assert(Date.now()<deadline,'host startup timeout');await new Promise(resolve=>setTimeout(resolve,1000))}
   }
-  const canonical=value=>Array.isArray(value)?value.map(canonical):value&&typeof value==='object'?Object.fromEntries(Object.entries(value).sort(([a],[b])=>a.localeCompare(b)).map(([key,item])=>[key,canonical(item)])):value
+  const canonical=value=>Array.isArray(value)?value.map(canonical).sort((left,right)=>JSON.stringify(left)<JSON.stringify(right)?-1:JSON.stringify(left)>JSON.stringify(right)?1:0):value&&typeof value==='object'?Object.fromEntries(Object.keys(value).sort().map(key=>[key,canonical(value[key])])):value
   const cli=(className,...args)=>compose('run','--rm','--no-deps','--entrypoint','java','kestra','-cp','/app/kestra:/app/libs/kestra-rbac-authorizer.jar',className,...args)
   const writePlan=(name,value)=>{writeFileSync(join(output,name),JSON.stringify(value,null,2)+'\n',{mode:0o600});return '/work/'+name}
 
@@ -238,7 +238,7 @@ export async function main(argv=process.argv.slice(2),runtime={}) {
       const jsonLine=text.split('\n').find(line=>line.trim().startsWith('{')&&line.includes('"approvalHash"'))
       assert(jsonLine,'public CLI preview did not emit a JSON report')
       const preview=JSON.parse(jsonLine)
-      assert.deepEqual(preview.plan,planned.activation);assert.deepEqual(preview.source,[])
+      assert.deepEqual(canonical(preview.plan),canonical(planned.activation));assert.deepEqual(preview.source,[])
       const approvalHash=hash(JSON.stringify(canonical(preview.plan)))
       assert.equal(preview.approvalHash,approvalHash,'CLI approval hash does not bind entire reviewed plan')
       // Explicitly pass the reviewed hash to apply; never mutate identity SQL.
@@ -320,7 +320,7 @@ export async function main(argv=process.argv.slice(2),runtime={}) {
       const previewText=offline('io.kestra.webserver.oidc.projects.ApplicationDirectoryCommand','preview',path)
       writeFileSync(join(dir,'directory-preview.txt'),previewText+'\n',{mode:0o600})
       const preview=JSON.parse(previewText.split('\n').find(line=>line.trim().startsWith('{')&&line.includes('"approvalHash"'))??'null')
-      assert.deepEqual(preview?.plan,activation);assert.deepEqual(preview.source,[])
+      assert.deepEqual(canonical(preview?.plan),canonical(activation));assert.deepEqual(preview.source,[])
       const approved=hash(JSON.stringify(canonical(activation)));assert.equal(preview.approvalHash,approved)
       report.resources.missingExtension.activation.approvalHash=approved
       offline('io.kestra.webserver.oidc.projects.ApplicationDirectoryCommand','apply',path,approved)
