@@ -900,7 +900,7 @@ class MigrationReviewEvidence {
         assert(identity.projectScopes.includes(scopeNames.policyManager));assert(identity.projectScopes.includes(scopeNames.identityManager))
         // Prove this caller can reach both management domains before checking
         // tombstones; a zero-grant identity or an authentication failure is not 410.
-        for(const path of ['/api/v1/main/extensions/rbac/projects/kestra','/api/v1/main/extensions/rbac/identity/projects/kestra']) {
+        for(const path of ['/api/v1/main/extensions/rbac/projects/kestra/scopes','/api/v1/main/extensions/rbac/identity/projects/kestra']) {
           const response=await client.request(path)
           if(response.status!==200){const body=await response.json().catch(()=>null);const recovery=await client.request('/api/v1/main/extensions/rbac/projects/kestra/reconciliation');const projection=await recovery.json().catch(()=>null);const failure=new Error('Migration manager baseline failed: '+JSON.stringify({path,status:response.status,code:body?.code,identity,recoveryStatus:recovery.status,localDirectoryRevision:projection?.project?.directoryRevision,currentDirectoryRevision:projection?.directoryRevision}));failure.migrationManagerEvidence={identity,projection};throw failure}
           await response.body?.cancel()
