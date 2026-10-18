@@ -311,7 +311,7 @@ export async function provisionMcpFixture({planned,management,effects,observer,r
     assert([200,201].includes(response.status),'MCP flow seed rejected HTTP '+response.status);await response.body?.cancel()
     const storedResponse=await writer.request(flowPath(seed.namespace,seed.id)+'?source=true');assert.equal(storedResponse.status,200)
     const stored=await storedResponse.json();assert.equal(stored.id,seed.id);assert.equal(stored.namespace,seed.namespace)
-    assert(stored.triggers?.some(trigger=>trigger.toolName===seed.toolName&&trigger.mcpServer==='default'),'stored flow lacks exact MCP tool trigger')
+    assert(stored.source?.includes('mcpServer: default')&&stored.triggers?.some(trigger=>trigger.type==='io.kestra.plugin.core.trigger.McpToolTrigger'&&trigger.toolName===seed.toolName&&(trigger.mcpServer??'default')==='default'),'stored flow lacks exact MCP tool trigger')
     await emit({kind:'mcp-tool-seeded',namespace:seed.namespace,id:seed.id,toolName:seed.toolName})
   }
   async function localScope(name,definition) {

@@ -295,7 +295,7 @@ export async function main(argv=process.argv.slice(2),runtime={}) {
       const seeded=await loginClient.request('/api/v1/main/flows',{method:'POST',headers:{'Content-Type':'application/x-yaml'},body:seed.source});assert(seeded.ok,'isolated feature-off missing-mode tool seed failed');await seeded.body?.cancel()
       const seededRead=await loginClient.request('/api/v1/main/flows/'+encodeURIComponent(seed.namespace)+'/'+encodeURIComponent(seed.id)+'?source=true');assert.equal(seededRead.status,200)
       const savedSeed=await seededRead.json();assert.equal(savedSeed.namespace,seed.namespace);assert.equal(savedSeed.id,seed.id)
-      assert(savedSeed.triggers?.some(trigger=>trigger.toolName===seed.toolName&&trigger.mcpServer==='default'),'missing-mode stored tool trigger differs')
+      assert(savedSeed.source?.includes('mcpServer: default')&&savedSeed.triggers?.some(trigger=>trigger.type==='io.kestra.plugin.core.trigger.McpToolTrigger'&&trigger.toolName===seed.toolName&&(trigger.mcpServer??'default')==='default'),'missing-mode stored tool trigger differs')
       report.resources.missingExtension.seededFlow={namespace:seed.namespace,id:seed.id,toolName:seed.toolName,readBack:true}
       report.fragments.featureDisabled={checks:[{id:'feature-disabled-regression',passed:true,status:'passed',evidence:{base:missingBase,image:report.inputs.image,featureEnabled:false,productionLogin:true,write:{method:'POST',path:'/api/v1/main/flows',status:seeded.status,savedId:savedSeed.id,savedNamespace:savedSeed.namespace},readBack:true}}]};await persist()
 
