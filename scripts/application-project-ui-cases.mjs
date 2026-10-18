@@ -302,7 +302,8 @@ export async function runApplicationProjectUi(page, base, fixture, record) {
     await page.fill('.ks-search input', identifier)
     await page.waitForFunction(identifier => {
       const root = document.querySelector('[data-test="extension-container"]')?.shadowRoot
-      return [...(root?.querySelectorAll('tbody tr') ?? [])].some(row => row.textContent.includes(identifier))
+      const rows=[...(root?.querySelectorAll('tbody tr') ?? [])]
+      return rows.length===1&&[...rows[0].querySelectorAll('td')].some(cell=>cell.textContent.trim()===identifier)&&root.querySelectorAll('tbody button').length===1
     }, identifier)
     const target = await page.evaluate(identifier => {
       const root = document.querySelector('[data-test="extension-container"]').shadowRoot
@@ -313,7 +314,7 @@ export async function runApplicationProjectUi(page, base, fixture, record) {
       if (!button || button.disabled) throw new Error('record action is not interactive')
       return {index:[...root.querySelectorAll('tbody button')].indexOf(button),name:button.textContent.trim()}
     }, identifier)
-    await page.click(await markTarget('tbody button',target.index))
+    await page.click('tbody button')
     return target
   }
   async function preference(steps) {
