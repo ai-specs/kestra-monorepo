@@ -235,7 +235,14 @@ export async function provisionFixture({planned,effects,observer,record=async()=
     }while(Date.now()<deadline)
     assert.equal(stored.state?.current,'SUCCESS','seed execution timeout')
     assert.equal(stored.namespace,probe.namespace);assert.equal(stored.flowId,data.flowId)
-    data.executionId=stored.id;data.outputUri=stored.outputs?.file;data.outputText='verified'
+    assert(/^[A-Za-z0-9_-]+$/.test(stored.id),'safe output execution identity required')
+    const label=execFileSync('docker',['inspect','-f','{{index .Config.Labels "com.docker.compose.project"}}',observer.postgresContainer],{encoding:'utf8'}).trim()
+    assert.equal(label,observer.composeProject)
+    const encoded=execFileSync('docker',['exec',observer.postgresContainer,'psql','-X','-U','kestra','-d','kestra','-v','ON_ERROR_STOP=1','-Atc',`SELECT encode(value,'base64') FROM execution_outputs WHERE key='${stored.id}'`],{encoding:'utf8'}).trim()
+    const output=Buffer.from(encoded.replace(/\s/g,''),'base64').toString('utf8')
+    const match=output.match(/(?:"file"|\bfile)\s*:\s*("(?:[^"\\]|\\.)*")/)
+    assert(match,'persisted text-Ion output URI missing')
+    data.executionId=stored.id;data.outputUri=JSON.parse(match[1]);data.outputText='verified'
     assert(typeof data.outputUri==='string'&&data.outputUri.startsWith('kestra://'),'real storage URI missing')
     const file=await client.request('/api/v1/main/executions/'+encodeURIComponent(stored.id)+'/file?'+new URLSearchParams({path:data.outputUri}))
     assert.equal(file.status,200);assert.equal(await file.text(),data.outputText)
