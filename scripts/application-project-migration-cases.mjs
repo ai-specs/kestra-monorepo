@@ -256,7 +256,7 @@ export async function runApplicationProjectMigration(base,context,record) {
         assert.equal(state(await env.snapshot()).effects.sha256,after.effects.sha256)
       }
       row.passed=true;row.status='passed'
-    } catch(error) {row.passed=false;row.status='failed';if(error.probeEvidence)row.evidence.failedCredentialProbe=error.probeEvidence;if(error.partialEvidence)row.evidence.partialDenial=error.partialEvidence;row.evidence.failure={name:error.name,message:redactFailure(error.message),locations:String(error.stack??'').split('\n').filter(line=>line.trim().startsWith('at ')).slice(0,8).map(redactFailure)}}
+    } catch(error) {row.passed=false;row.status='failed';if(error.probeEvidence)row.evidence.failedCredentialProbe=error.probeEvidence;if(error.partialEvidence)row.evidence.partialDenial=error.partialEvidence;if(error.migrationManagerEvidence)row.evidence.managerProjection=error.migrationManagerEvidence;row.evidence.failure={name:error.name,message:redactFailure(error.message),locations:String(error.stack??'').split('\n').filter(line=>line.trim().startsWith('at ')).slice(0,8).map(redactFailure)}}
     finally {
       if(env)row.evidence.timeline=structuredClone(env.timeline??[])
       if(env)try {await env.assertOwned();await env.destroy()}catch {report.cleanup.push({caseId:row.id,status:'failed'})}
@@ -902,7 +902,7 @@ class MigrationReviewEvidence {
         // tombstones; a zero-grant identity or an authentication failure is not 410.
         for(const path of ['/api/v1/main/extensions/rbac/projects/kestra','/api/v1/main/extensions/rbac/identity/projects/kestra']) {
           const response=await client.request(path)
-          if(response.status!==200){const body=await response.json().catch(()=>null);const recovery=await client.request('/api/v1/main/extensions/rbac/projects/kestra/reconciliation');const projection=await recovery.json().catch(()=>null);throw new Error('Migration manager baseline failed: '+JSON.stringify({path,status:response.status,code:body?.code,identity,recoveryStatus:recovery.status,localDirectoryRevision:projection?.project?.directoryRevision,currentDirectoryRevision:projection?.directoryRevision}))}
+          if(response.status!==200){const body=await response.json().catch(()=>null);const recovery=await client.request('/api/v1/main/extensions/rbac/projects/kestra/reconciliation');const projection=await recovery.json().catch(()=>null);const failure=new Error('Migration manager baseline failed: '+JSON.stringify({path,status:response.status,code:body?.code,identity,recoveryStatus:recovery.status,localDirectoryRevision:projection?.project?.directoryRevision,currentDirectoryRevision:projection?.directoryRevision}));failure.migrationManagerEvidence={identity,projection};throw failure}
           await response.body?.cancel()
         }
         const before=state(await snapshot()),actual=[]
