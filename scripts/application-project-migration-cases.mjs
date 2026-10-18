@@ -709,7 +709,7 @@ class MigrationReviewEvidence {
                 const cleared=logout.headers.getSetCookie().filter(value=>/;\s*max-age=0(?:;|$)/i.test(value)).map(value=>value.split('=')[0])
                 assert(cleared.includes('JWT')&&cleared.includes('oidc_session'),'invalidated UI identity must clear both authentication cookies')
                 await logout.body?.cancel()
-                const fresh=new ProductionOAuthClient(base),chain=[];let next='/ui/',loginForm=false
+                const fresh=new ProductionOAuthClient(base),chain=[];let next='/oauth/login/kestra',loginForm=false
                 for(let hop=0;hop<8;hop++) {
                   const response=await fresh.request(next);observeIssuance(response);const url=new URL(next,base)
                   chain.push({path:url.pathname,status:response.status})
