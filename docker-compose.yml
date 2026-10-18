@@ -58,7 +58,8 @@ services:
             management:
               enabled: true
             policy-source: database
-            management-admin-subjects: ["${KESTRA_RBAC_ADMIN_SUBJECT:-admin}"]
+            application-projects:
+              enabled: ${KESTRA_RBAC_ENABLED:-false}
           oidc:
             enabled: true
             issuer: http://localhost:8080
@@ -93,7 +94,7 @@ services:
                 kestra:
                   client-id: kestra-ui
                   client-secret: $${KESTRA_OIDC_UI_CLIENT_SECRET}
-                  scopes: [openid, profile, email]
+                  scopes: [${KESTRA_OIDC_UI_SCOPES:-openid, profile, email}]
                   openid:
                     issuer: http://localhost:8080
                     token:

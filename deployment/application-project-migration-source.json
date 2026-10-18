@@ -1,0 +1,15 @@
+{
+  "legacy": {
+    "host": {
+      "image": "ghcr.io/ai-specs/kestra-overlay@sha256:4273dba06b421711f715977c8d3d29e1c5311bc38f4fbcf50bcfbe36273b69f9",
+      "commit": "1823f03bd1c795dc7f255dd4c5ea5f0a066832fe",
+      "runId": 38738824395
+    },
+    "plugin": {
+      "commit": "01c1c0d773e60db28e9419089914d14daa8253c2",
+      "runId": 38749200214,
+      "artifactId": 11979614804,
+      "sha256": "158c10b59dce71355824d51e51e26b42161049a7963ded8e87b2bb7b6b668253"
+    }
+  }
+}
