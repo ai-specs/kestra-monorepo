@@ -901,7 +901,9 @@ class MigrationReviewEvidence {
         // Prove this caller can reach both management domains before checking
         // tombstones; a zero-grant identity or an authentication failure is not 410.
         for(const path of ['/api/v1/main/extensions/rbac/projects/kestra','/api/v1/main/extensions/rbac/identity/projects/kestra']) {
-          const response=await client.request(path);assert.equal(response.status,200);await response.body?.cancel()
+          const response=await client.request(path)
+          if(response.status!==200){const body=await response.json().catch(()=>null);const recovery=await client.request('/api/v1/main/extensions/rbac/projects/kestra/reconciliation');const projection=await recovery.json().catch(()=>null);throw new Error('Migration manager baseline failed: '+JSON.stringify({path,status:response.status,code:body?.code,identity,recoveryStatus:recovery.status,localDirectoryRevision:projection?.project?.directoryRevision,currentDirectoryRevision:projection?.directoryRevision}))}
+          await response.body?.cancel()
         }
         const before=state(await snapshot()),actual=[]
         const bodies={roles:{id:'migration-reader',name:'Changed old role',description:'Must never persist',grants:[]},bindings:{subject:subjectAccount.subject,roles:['migration-reader']},'role-mappings':{trustedRole:'admin',roles:['migration-reader']}}
