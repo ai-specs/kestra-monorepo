@@ -318,7 +318,8 @@ export function initialApplicationProjectUiReport() {
   return {completed:false,ui:applicationProjectUiThemes.flatMap(theme=>applicationProjectUiLocales.map(locale=>({case:'theme-language',theme,locale,passed:false,status:'not_run'}))),zeroGrant:{case:'ui-zero-grant-logout-switch',passed:false,status:'not_run'}}
 }
 export async function runZeroGrantBrowser(page,base,fixture) {
-  const source=()=>page.evaluate(()=>({path:location.pathname,url:location.href,timeOrigin:performance.timeOrigin}))
+  const source=()=>page.evaluate(()=>({path:location.pathname,url:location.origin+location.pathname,queryKeys:[...new URL(location.href).searchParams.keys()],timeOrigin:performance.timeOrigin}))
+  const sameDocumentPath=(event,document)=>{try{const url=new URL(event.url);return url.origin+url.pathname===document.url}catch{return false}}
   const previous=new Set((await page.diagnostics()).events.map(event=>event.id))
   async function signOut(requireClick) {
     await page.goto(base+'/ui/access-denied')
@@ -337,7 +338,7 @@ export async function runZeroGrantBrowser(page,base,fixture) {
   await page.waitForFunction(()=>location.pathname==='/ui/access-denied'&&!document.querySelector('input[name="password"]')&&Boolean(document.querySelector('[data-testid="return-to-login"]')))
   const rejectedDocument=await source()
   const beforeDenial=(await page.diagnostics()).events
-  rejectedDocument.documentId=[...beforeDenial].reverse().find(event=>['document-navigation','document-route'].includes(event.kind)&&event.url===rejectedDocument.url)?.documentId
+  rejectedDocument.documentId=[...beforeDenial].reverse().find(event=>['document-navigation','document-route'].includes(event.kind)&&sameDocumentPath(event,rejectedDocument))?.documentId
   assert(rejectedDocument.documentId,'zero-grant document identity missing')
   const path='/api/v1/main/flows/search?size=1'
   const denial=await page.evaluate(async path=>{const response=await fetch(path,{credentials:'same-origin',redirect:'manual'});await response.body?.cancel();return {status:response.status}},path)
@@ -345,7 +346,7 @@ export async function runZeroGrantBrowser(page,base,fixture) {
   const clicked=await signOut(true)
   const anonymousDocument=await source()
   const anonymousEvents=(await page.diagnostics()).events
-  anonymousDocument.documentId=[...anonymousEvents].reverse().find(event=>['document-navigation','document-route'].includes(event.kind)&&event.url===anonymousDocument.url)?.documentId
+  anonymousDocument.documentId=[...anonymousEvents].reverse().find(event=>['document-navigation','document-route'].includes(event.kind)&&sameDocumentPath(event,anonymousDocument))?.documentId
   assert(anonymousDocument.documentId,'anonymous login document identity missing')
   const anonymous=await page.evaluate(async path=>{const response=await fetch(path,{credentials:'same-origin',redirect:'manual'});await response.body?.cancel();return {status:response.status}},path)
   assert([0,401].includes(anonymous.status),'logout did not clear authenticated access; 403 alone cannot establish session clearing')
