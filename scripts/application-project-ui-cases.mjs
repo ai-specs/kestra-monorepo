@@ -403,15 +403,16 @@ export async function runApplicationProjectUi(page, base, fixture, record) {
       const menu = await page.evaluate(ui => {
         const link = [...document.querySelectorAll('a[href]')].find(item => new URL(item.href).pathname.startsWith(ui + '/extensions/rbac'))
         if (!link) throw new Error('Access management menu entry missing')
-        const collapsed = link.closest('[aria-hidden="true"]') || !link.getClientRects().length
+        const control = link.closest('.ks-sidebar-section')?.querySelector('button[aria-expanded]')
+        const collapsed = link.closest('[aria-hidden="true"], [inert]') || control?.getAttribute('aria-expanded') === 'false' || !link.getClientRects().length
         const toggles = [...document.querySelectorAll('button[aria-expanded="false"]')].map(item => ({name:item.textContent.trim(),controls:item.getAttribute('aria-controls')}))
-        return {href:link.getAttribute('href'),name:link.textContent.trim(),collapsed:Boolean(collapsed),toggles}
+        return {href:link.getAttribute('href'),name:link.textContent.trim(),collapsed:Boolean(collapsed),sectionControl:control?{name:control.textContent.trim(),expanded:control.getAttribute('aria-expanded')}:null,toggles}
       },ui)
       if (menu.collapsed) {
-        const toggle = menu.toggles.find(item => /extensions/i.test(item.name))
+        const toggle = menu.sectionControl??menu.toggles.find(item => /extensions/i.test(item.name))
         ensure(toggle,'collapsed extension menu has no discovered expansion control')
         await clickText('button[aria-expanded="false"]',toggle.name)
-        await page.waitForFunction(href => [...document.querySelectorAll('a[href]')].some(link => link.getAttribute('href') === href && link.getClientRects().length > 0),menu.href)
+        await page.waitForFunction(href => [...document.querySelectorAll('a[href]')].some(link => link.getAttribute('href') === href && !link.closest('[inert], [aria-hidden="true"]') && link.closest('.ks-sidebar-section')?.querySelector('button[aria-expanded]')?.getAttribute('aria-expanded') === 'true' && link.getClientRects().length > 0),menu.href)
       }
       await page.click('a[href=' + quote(menu.href) + ']')
       const state = await stable(ui + '/extensions/rbac/projects')
