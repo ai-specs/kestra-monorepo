@@ -934,6 +934,13 @@ class MigrationReviewEvidence {
       const id=dc(['ps','-q','kestra']).stdout
       assert.equal(run('docker',['exec',id,'sha256sum','/app/kestra']).split(/\s+/)[0],verified.legacy.hostSha256)
       await login()
+      dc(['stop','kestra'])
+      use('target');host.environment.KESTRA_CONFIGURATION=applicationProjectFeature(newConfiguration,false);save()
+      dc(['up','-d','kestra']);await wait();inspect()
+      assert.equal(run('docker',['exec',dc(['ps','-q','kestra']).stdout,'sha256sum','/app/kestra']).split(/\s+/)[0],verified.target.hostSha256)
+      assert(exists('oidc_project_state'),'published host migration must prepare the identity directory before CLI use')
+      timeline.push({event:'target-identity-schema-prepared',at:Date.now(),featureEnabled:false,hostImage:verified.target.host.image})
+      dc(['stop','kestra']);use('legacy');dc(['up','-d','kestra']);await wait();inspect();await login()
       return instance
     } catch {
       // Failed create must clean its own resources; no caller receives an env.
