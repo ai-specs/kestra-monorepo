@@ -103,7 +103,7 @@ export async function main(argv=process.argv.slice(2),runtime={}) {
     })
     await stage('shared-module-interface',async()=>{
       for(const file of ['application-project-cases.mjs','application-project-policy.mjs','application-project-effects.mjs','application-project-rest-cases.mjs','application-project-mcp-cases.mjs','application-project-ui-cases.mjs','application-project-browser-adapters.mjs','production-oauth-client.mjs','check-application-project-report.mjs','application-project-ui-fixture.mjs','application-project-browser-ci.cjs','application-project-security-cases.mjs','application-project-migration-cases.mjs','application-project-aggregate-cases.mjs','application-project-target-ui.mjs']) {
-        command(process.execPath,['--check',join(repository,'scripts',file)])
+        command('node',['--check',join(repository,'scripts',file)])
         report.staticChecks.push({file,sha256:hash(readFileSync(join(repository,'scripts',file))),syntax:true})
       }
       assert.equal(report.matrix.length,56,'shared REST matrix changed; review integration')
@@ -422,7 +422,7 @@ export async function main(argv=process.argv.slice(2),runtime={}) {
       assert(report.stages.filter(row=>row.id!=='final-report-check').every(row=>row.status==='passed'))
       const candidate=join(output,'report-for-final-check.json')
       writeFileSync(candidate,JSON.stringify({...report,completed:true},null,2)+'\n',{mode:0o600})
-      command(process.execPath,[join(repository,'scripts/check-application-project-report.mjs'),candidate,...['image','jarSha256','rootCommit','overlayCommit','pluginCommit'].map(name=>report.inputs[name])])
+      command('node',[join(repository,'scripts/check-application-project-report.mjs'),candidate,...['image','jarSha256','rootCommit','overlayCommit','pluginCommit'].map(name=>report.inputs[name])])
       return {requiredRowsPassed:true,checkerPassed:true}
     })
     return {exitCode:0,reportPath}
