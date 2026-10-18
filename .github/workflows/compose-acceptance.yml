@@ -158,6 +158,9 @@ jobs:
                   assert report.parent.parent == pathlib.Path(tempfile.gettempdir()).resolve()
                   destination.mkdir(parents=True, exist_ok=True)
                   shutil.copy2(report, destination / 'report.json')
+                  command_failures = report.parent / 'command-failures.log'
+                  if command_failures.exists():
+                      shutil.copy2(command_failures, destination / 'command-failures.log')
                   browser = report.parent / 'browser/browser-report.json'
                   if browser.exists():
                       shutil.copy2(browser, destination / 'browser-report.json')
