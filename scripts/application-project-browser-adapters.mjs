@@ -44,6 +44,7 @@ function redactor(initialSecrets = []) {
     let output = String(value ?? '')
     for (const secret of secrets) output = output.replaceAll(secret,'[redacted]')
     return output.replace(/eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+/g,'[redacted-jwt]')
+      .replace(/([?&]from=)[^&#\s]*/gi,'$1[redacted-login-target]')
       .replace(/([?&](?:code|state|access_token|id_token|refresh_token|password|client_secret)=)[^&#\s]*/gi,'$1[redacted]')
       .replace(/Bearer\s+[^\s,;]+/gi,'Bearer [redacted]')
   }
@@ -80,7 +81,7 @@ function diagnosticsCollector(redact) {
   }
   function add(kind,document,detail = {}) {
     const source = document ?? current
-    const value = {id:'event:' + (++sequence),kind,documentId:source.id,url:redact.text(detail.url ?? source.url),message:redact.text(detail.message ?? ''),observedAt:new Date().toISOString(),...detail}
+    const value = {id:'event:' + (++sequence),kind,documentId:source.id,documentUrl:redact.text(source.url),url:redact.text(detail.url ?? source.url),message:redact.text(detail.message ?? ''),observedAt:new Date().toISOString(),...detail}
     value.url = redact.text(value.url)
     value.message = redact.text(value.message)
     if (value.scriptUrl) value.scriptUrl = redact.text(value.scriptUrl)
@@ -139,7 +140,7 @@ function diagnosticsCollector(redact) {
       case 'Log.entryAdded': {
         const entry = p.entry ?? {}
         const request = requests.get(entry.networkRequestId)
-        add(entry.level === 'error' ? 'console-error' : 'browser-log',request?.document ?? current,{message:entry.text,scriptUrl:entry.url,requestId:entry.networkRequestId,level:entry.level,source:entry.source,stack:stackFrames(entry.stackTrace)})
+        add(entry.level === 'error' ? 'console-error' : 'browser-log',request?.document ?? current,{url:request?.url??entry.url,status:request?.status,message:entry.text,scriptUrl:entry.url,requestId:entry.networkRequestId,level:entry.level,source:entry.source,stack:stackFrames(entry.stackTrace)})
         break
       }
       case 'Network.requestWillBeSent': {
@@ -157,6 +158,7 @@ function diagnosticsCollector(redact) {
         const request = requests.get(p.requestId)
         const document = request?.document ?? frameDocuments.get(p.frameId) ?? current
         const response = p.response ?? {}
+        if(request)request.status=response.status
         add(response.status >= 400 ? 'http-error' : 'http-response',document,{requestId:p.requestId,url:response.url ?? request?.url,status:response.status,method:request?.method,resourceType:p.type,message:'HTTP ' + response.status,fromDiskCache:response.fromDiskCache === true,fromServiceWorker:response.fromServiceWorker === true})
         break
       }

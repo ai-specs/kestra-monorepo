@@ -203,7 +203,7 @@ export function uiBrowserFixture({base,admin,zeroAccount,clientId,subject,record
   const pagination=Object.fromEntries(Object.entries({projects:'id',scopes:'scope',clients:'clientId',assignments:'subject'}).map(([section,field])=>[section,records[section][25][field]]))
   return {admin:copy(admin),zeroAccount:copy(zeroAccount),projectId:applicationProject,scope:uiScopeNames.edit,clientId,subject,unknownScope:'kestra:acceptance:ui-unknown-never-created',
     edit:{description:'UI saved explicit namespace/action change',namespace:uiNamespaces.edited,actions:['READ','UPDATE']},
-    loginFinalPath:'/ui/main/dashboards',reauthenticationPath:'/ui/access-denied',reauthenticationSteps:[click('button:text-is("Sign out")')],
+    loginFinalPath:'/ui/main/dashboards',reauthenticationPath:'/ui/access-denied',reauthenticationSteps:[click('[data-testid="return-to-login"]')],
     preferences:{path:'/ui/main/preferences',themes:{'dark-2':[click('.theme-picker button:nth-child(1)')],dark:[click('.theme-picker button:nth-child(2)')],light:[click('.theme-picker button:nth-child(3)')],system:[click('.theme-picker button:nth-child(4)')]},
       locales:Object.fromEntries(applicationProjectUiLocales.map(locale=>[locale,[click('.settings-block:last-child .setting-row:first-child .kel-select__wrapper'),option(uiLanguageNames[locale])]]))},
     localeText:copy(uiLocaleText),translationEvidence:{sourceHashes:uiTranslationSourceHashes,status:'source-reviewed; actual rendering asserted by shared browser matrix'},
@@ -322,10 +322,10 @@ export async function runZeroGrantBrowser(page,base,fixture) {
   const previous=new Set((await page.diagnostics()).events.map(event=>event.id))
   async function signOut(requireClick) {
     await page.goto(base+'/ui/access-denied')
-    await page.waitForFunction(()=>Boolean(document.querySelector('input[name="username"]'))||[...document.querySelectorAll('button')].some(button=>button.textContent.trim()==='Sign out'))
+    await page.waitForFunction(()=>Boolean(document.querySelector('input[name="username"]'))||Boolean(document.querySelector('[data-testid="return-to-login"]')))
     const alreadyAnonymous=await page.evaluate(()=>Boolean(document.querySelector('input[name="username"]')))
     assert(!requireClick||!alreadyAnonymous,'zero-account session vanished before the required real logout click')
-    if(!alreadyAnonymous)await page.click('button:text-is("Sign out")')
+    if(!alreadyAnonymous)await page.click('[data-testid="return-to-login"]')
     await page.waitForFunction(()=>Boolean(document.querySelector('input[name="username"]'))&&Boolean(document.querySelector('input[name="password"]')))
     return !alreadyAnonymous
   }
@@ -334,7 +334,7 @@ export async function runZeroGrantBrowser(page,base,fixture) {
   }
   await signOut(false)
   await login(fixture.zeroAccount)
-  await page.waitForFunction(()=>location.pathname==='/ui/access-denied'&&!document.querySelector('input[name="password"]')&&[...document.querySelectorAll('button')].some(button=>button.textContent.trim()==='Sign out'))
+  await page.waitForFunction(()=>location.pathname==='/ui/access-denied'&&!document.querySelector('input[name="password"]')&&Boolean(document.querySelector('[data-testid="return-to-login"]')))
   const rejectedDocument=await source()
   const beforeDenial=(await page.diagnostics()).events
   rejectedDocument.documentId=[...beforeDenial].reverse().find(event=>['document-navigation','document-route'].includes(event.kind)&&event.url===rejectedDocument.url)?.documentId
@@ -357,9 +357,11 @@ export async function runZeroGrantBrowser(page,base,fixture) {
   const events=(await page.diagnostics()).events.filter(event=>!previous.has(event.id))
   const expectedUrl=base+path
   const errors=events.filter(event=>['console-error','page-error','request-failed','http-error','diagnostic-integrity-error'].includes(event.kind))
-  const unexpected=errors.filter(event=>!(event.kind==='http-error'&&event.url===expectedUrl&&((event.status===403&&event.documentId===rejectedDocument.documentId)||(anonymous.status===401&&event.status===401&&event.documentId===anonymousDocument.documentId))))
+  const expectedHttp=errors.filter(event=>event.kind==='http-error'&&event.url===expectedUrl&&((event.status===403&&event.documentId===rejectedDocument.documentId)||(anonymous.status===401&&event.status===401&&event.documentId===anonymousDocument.documentId)))
+  const classifiedConsole=errors.filter(event=>event.kind==='console-error'&&event.source==='network'&&event.requestId&&/^Failed to load resource: the server responded with a status of (401|403) /.test(event.message)&&expectedHttp.some(http=>http.requestId===event.requestId&&http.documentId===event.documentId&&http.url===event.url))
+  const unexpected=errors.filter(event=>!expectedHttp.includes(event)&&!classifiedConsole.includes(event))
   assert.equal(unexpected.length,0,'zero-grant browser has unclassified document/request errors; inspect retained diagnostics')
-  return {case:'ui-zero-grant-logout-switch',passed:true,status:'passed',evidence:{subject:fixture.zeroAccount.subject,rejectedDocument,businessStatus:denial.status,realSignOutClicked:clicked,anonymousStatus:anonymous.status,anonymousDocument,replacementSubject:verified.body.subject,final:await source(),events}}
+  return {case:'ui-zero-grant-logout-switch',passed:true,status:'passed',evidence:{subject:fixture.zeroAccount.subject,rejectedDocument,businessStatus:denial.status,realSignOutClicked:clicked,anonymousStatus:anonymous.status,anonymousDocument,replacementSubject:verified.body.subject,final:await source(),expectedErrorEventIds:[...expectedHttp,...classifiedConsole].map(event=>event.id),events}}
 }
 
 export async function runPreparedApplicationProjectUi(adapter,base,fixture,record) {

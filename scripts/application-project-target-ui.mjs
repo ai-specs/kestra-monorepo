@@ -30,8 +30,8 @@ export async function runTargetProjectBrowser(page,base,fixture,{management,plan
   const read=async path=>{await management.login();return management.request(api+path)}
   async function login(account) {
     await page.goto(base+'/ui/access-denied')
-    await page.waitForFunction(()=>Boolean(document.querySelector('input[name="username"]'))||[...document.querySelectorAll('button')].some(button=>button.textContent.trim()==='Sign out'))
-    if(!await page.evaluate(()=>Boolean(document.querySelector('input[name="username"]'))))await page.click('button:text-is("Sign out")')
+    await page.waitForFunction(()=>Boolean(document.querySelector('input[name="username"]'))||Boolean(document.querySelector('[data-testid="return-to-login"]')))
+    if(!await page.evaluate(()=>Boolean(document.querySelector('input[name="username"]'))))await page.click('[data-testid="return-to-login"]')
     await page.waitForFunction(()=>Boolean(document.querySelector('input[name="username"]'))&&Boolean(document.querySelector('input[name="password"]')))
     await page.fill('input[name="username"]',account.username);await page.fill('input[name="password"]',account.password);await page.click('button[type="submit"]')
     await page.waitForFunction(()=>!document.querySelector('input[name="password"]')&&['/ui/main/dashboards','/ui/access-denied'].includes(location.pathname))
@@ -208,8 +208,8 @@ export async function runTargetProjectBrowser(page,base,fixture,{management,plan
     assert(rejected,'old real UI cookie did not lose access within deadline')
     await management.reconcile(applicationProject)
     await login(account)
-    await page.waitForFunction(()=>location.pathname==='/ui/access-denied'&&[...document.querySelectorAll('button')].some(button=>button.textContent.trim()==='Sign out'))
-    await page.click('button:text-is("Sign out")');await page.waitForFunction(()=>Boolean(document.querySelector('input[name="username"]')))
+    await page.waitForFunction(()=>location.pathname==='/ui/access-denied'&&Boolean(document.querySelector('[data-testid="return-to-login"]')))
+    await page.click('[data-testid="return-to-login"]');await page.waitForFunction(()=>Boolean(document.querySelector('input[name="username"]')))
     await page.fill('input[name="username"]',planned.admin.username);await page.fill('input[name="password"]',planned.admin.password);await page.click('button[type="submit"]')
     await page.waitForFunction(()=>location.pathname==='/ui/main/dashboards'&&!document.querySelector('input[name="password"]'))
     const caps=await sameCookie('/capabilities');assert.equal(caps.status,200);assert.equal(caps.body.subject,planned.admin.subject)
