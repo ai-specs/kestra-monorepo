@@ -256,7 +256,7 @@ export async function runApplicationProjectMigration(base,context,record) {
         assert.equal(state(await env.snapshot()).effects.sha256,after.effects.sha256)
       }
       row.passed=true;row.status='passed'
-    } catch(error) {row.passed=false;row.status='failed';if(error.probeEvidence)row.evidence.failedCredentialProbe=error.probeEvidence;if(error.partialEvidence)row.evidence.partialDenial=error.partialEvidence;row.evidence.failure={name:error.name,message:redactFailure(error.message)}}
+    } catch(error) {row.passed=false;row.status='failed';if(error.probeEvidence)row.evidence.failedCredentialProbe=error.probeEvidence;if(error.partialEvidence)row.evidence.partialDenial=error.partialEvidence;row.evidence.failure={name:error.name,message:redactFailure(error.message),locations:String(error.stack??'').split('\n').filter(line=>line.trim().startsWith('at ')).slice(0,8).map(redactFailure)}}
     finally {
       if(env)row.evidence.timeline=structuredClone(env.timeline??[])
       if(env)try {await env.assertOwned();await env.destroy()}catch {report.cleanup.push({caseId:row.id,status:'failed'})}
