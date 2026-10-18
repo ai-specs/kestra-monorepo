@@ -60,6 +60,7 @@ const kinds=['ui-cookie','idp-session','access','refresh','code','mcp-session']
 const digest=value=>createHash('sha256').update(JSON.stringify(canonical(value))).digest('hex')
 const canonical=value=>Array.isArray(value)?value.map(canonical):value&&typeof value==='object'?Object.fromEntries(Object.entries(value).sort(([a],[b])=>a.localeCompare(b)).map(([k,v])=>[k,canonical(v)])):value
 const sha=value=>assert.match(value??'',/^[a-f0-9]{64}$/)
+const redactFailure=value=>String(value??'').split('\n').map(line=>/Bearer|eyJ[A-Za-z0-9_-]+\.|github_pat_|password|client_secret|refresh_token|access_token|Cookie:/i.test(line)?'[credential-bearing line redacted]':line).join('\n')
 const refused=status=>[401,403].includes(status)
 function state(value) {
   for(const key of ['legacy','local','directory']){sha(value?.[key]?.sha256);assert(Number.isSafeInteger(value[key].revision)&&value[key].revision>=0)}
@@ -255,7 +256,7 @@ export async function runApplicationProjectMigration(base,context,record) {
         assert.equal(state(await env.snapshot()).effects.sha256,after.effects.sha256)
       }
       row.passed=true;row.status='passed'
-    } catch(error) {row.passed=false;row.status='failed';if(error.probeEvidence)row.evidence.failedCredentialProbe=error.probeEvidence;if(error.partialEvidence)row.evidence.partialDenial=error.partialEvidence;row.evidence.failure='isolated migration operation or assertion failed; inspect caller-owned redacted operation evidence'}
+    } catch(error) {row.passed=false;row.status='failed';if(error.probeEvidence)row.evidence.failedCredentialProbe=error.probeEvidence;if(error.partialEvidence)row.evidence.partialDenial=error.partialEvidence;row.evidence.failure={name:error.name,message:redactFailure(error.message)}}
     finally {
       if(env)row.evidence.timeline=structuredClone(env.timeline??[])
       if(env)try {await env.assertOwned();await env.destroy()}catch {report.cleanup.push({caseId:row.id,status:'failed'})}
@@ -330,7 +331,7 @@ export async function createMigrationContext(options) {
       return {exitCode:0,stdout:binary?output:output.trim()}
     } catch(error) {
       const exitCode=Number.isInteger(error.status)?error.status:-1
-      operations.push({program,exitCode,at:Date.now()})
+      operations.push({program,exitCode,at:Date.now(),code:error.code,stdout:redactFailure(error.stdout),stderr:redactFailure(error.stderr)})
       // Never print raw arguments, stdout/stderr, environment or the Error object.
       if(!allowFailure)throw new Error('migration external operation failed; program='+program+'; status='+exitCode)
       return {exitCode,stdout:''}

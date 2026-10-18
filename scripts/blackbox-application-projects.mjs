@@ -383,6 +383,7 @@ export async function main(argv=process.argv.slice(2),runtime={}) {
             // artifact IDs/download hashes and host-contract pins before create.
             context=await module.createMigrationContext({composeFile:join(repository,'docker-compose.yml'),port:Number(options['--port']??18128)+2,target,legacy:requested.legacy,downloadedArtifacts:{...runtime.migrationArtifacts,target:{runId:publication.pluginRunId,artifactId:publication.artifactId,directory:resolve(dirname(publication.downloadedJar),'../..')}}})
             report.resources.migrationDirectory=context.directory
+            report.fragments.migrationOperations=context.operations
             return {target,legacy:requested.legacy,supportedChecks:context.supportedChecks,unsupportedChecks:context.unsupportedChecks}
           })}catch(error){report.fragments.migrationReleaseFailure={status:'failed',error:error.stdout!==undefined?'migration release command failed; inspect retained operation evidence':String(error.message)};await persist()}
         }
