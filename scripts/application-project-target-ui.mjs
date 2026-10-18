@@ -119,7 +119,7 @@ export async function runTargetProjectBrowser(page,base,fixture,{management,plan
     const result=await management.request(api+path,method,body,revision)
     await management.login()
     const projection=await management.request(api+'/projects/'+applicationProject+'/reconciliation')
-    assert(projection.upperBound.project.authorizationVersion>before.authorizationVersion)
+    assert(projection.directoryRevision>before.revision)
     await reconcileConsole(false)
     return result
   }
