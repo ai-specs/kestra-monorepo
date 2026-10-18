@@ -69,7 +69,7 @@ export async function main(argv=process.argv.slice(2),runtime={}) {
     for(;;){try{const response=await fetch(report.resources.base+'/ping',{signal:AbortSignal.timeout(3000)});await response.body?.cancel();if(response.ok)return}catch{}assert(Date.now()<deadline,'host startup timeout');await new Promise(resolve=>setTimeout(resolve,1000))}
   }
   const canonical=value=>Array.isArray(value)?value.map(canonical).sort((left,right)=>JSON.stringify(left)<JSON.stringify(right)?-1:JSON.stringify(left)>JSON.stringify(right)?1:0):value&&typeof value==='object'?Object.fromEntries(Object.keys(value).sort().map(key=>[key,canonical(value[key])])):value
-  const cli=(className,...args)=>compose('run','--rm','--no-deps','--entrypoint','java','kestra','-cp','/app/kestra:/app/libs/kestra-rbac-authorizer.jar',className,...args)
+  const cli=(className,...args)=>compose('run','--rm','--no-deps','--user','0:0','--entrypoint','java','kestra','-cp','/app/kestra:/app/libs/kestra-rbac-authorizer.jar',className,...args)
   const writePlan=(name,value)=>{writeFileSync(join(output,name),JSON.stringify(value,null,2)+'\n',{mode:0o600});return '/work/'+name}
 
   const persist=async()=>{
@@ -279,7 +279,7 @@ export async function main(argv=process.argv.slice(2),runtime={}) {
       const file=join(dir,'compose.json')
       const save=()=>writeFileSync(file,JSON.stringify(config,null,2),{mode:0o600})
       const dc=(...args)=>command('docker',['compose','--env-file','/dev/null','-p',missingProject,'-f',file,...args],{env:composeEnvironment})
-      const offline=(name,...args)=>dc('run','--rm','--no-deps','--entrypoint','java','maintenance','-cp','/app/kestra:/app/libs/kestra-rbac-authorizer.jar',name,...args)
+      const offline=(name,...args)=>dc('run','--rm','--no-deps','--user','0:0','--entrypoint','java','maintenance','-cp','/app/kestra:/app/libs/kestra-rbac-authorizer.jar',name,...args)
       const planFile=(name,value)=>{writeFileSync(join(dir,name),JSON.stringify(value,null,2)+'\n',{mode:0o600});return '/work/'+name}
       save();dc('config','--quiet')
       additionalDeployments.push({project:missingProject,compose:dc})

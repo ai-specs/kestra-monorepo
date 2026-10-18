@@ -466,7 +466,7 @@ class MigrationReviewEvidence {
     const sql=query=>run('docker',['exec',pg(),'psql','-X','-U','kestra','-d','kestra','-v','ON_ERROR_STOP=1','-Atc',query])
     const exists=table=>sql("SELECT to_regclass('public."+table+"') IS NOT NULL")==='t'
     const tableRows=table=>exists(table)?JSON.parse(sql('SELECT COALESCE(json_agg(x ORDER BY x::text),\'[]\'::json) FROM (SELECT row_to_json(t) x FROM '+table+' t) q')):[]
-    const cli=(name,args,{legacy=false}={})=>{inspect();return dc(['run','--rm','-T','--no-deps','--entrypoint','java',legacy?'kestra':'maintenance','-cp','/app/kestra:/app/libs/kestra-rbac-authorizer.jar',name,...args],{allowFailure:true})}
+    const cli=(name,args,{legacy=false}={})=>{inspect();return dc(['run','--rm','-T','--no-deps','--user','0:0','--entrypoint','java',legacy?'kestra':'maintenance','-cp','/app/kestra:/app/libs/kestra-rbac-authorizer.jar',name,...args],{allowFailure:true})}
     const write=(name,value)=>{assert.equal(basename(name),name);const destination=join(work,name);if(value===null){assert(!existsSync(destination));return '/work/'+name}writeFileSync(destination,JSON.stringify(value)+'\n',{mode:0o600});return '/work/'+name}
     const read=path=>{assert(path.startsWith('/work/')&&basename(path)===path.slice(6));return JSON.parse(readFileSync(join(work,basename(path)),'utf8'))}
     const snapshot=async()=>{
@@ -523,7 +523,7 @@ class MigrationReviewEvidence {
         const encoded=sql("SELECT encode(convert_to(document_json,'UTF8'),'base64') FROM rbac_policy_snapshot WHERE revision="+revision)
         const source=Buffer.from(encoded.replace(/\s/g,''),'base64')
         writeFileSync(join(work,'source-current.json'),source,{mode:0o600})
-        const result=dc(['run','--rm','-T','--no-deps','--entrypoint','java','maintenance','-cp','/app/kestra:/app/libs/kestra-rbac-authorizer.jar','/work/MigrationReviewEvidence.java',review,target,'/work/source-current.json'])
+        const result=dc(['run','--rm','-T','--no-deps','--user','0:0','--entrypoint','java','maintenance','-cp','/app/kestra:/app/libs/kestra-rbac-authorizer.jar','/work/MigrationReviewEvidence.java',review,target,'/work/source-current.json'])
         return JSON.parse(result.stdout.split('\n').find(line=>line.startsWith('{')&&line.includes('"sourceRawSha256"'))??'null')
       },
       credentials:{
