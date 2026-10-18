@@ -399,6 +399,7 @@ export async function runApplicationProjectUi(page, base, fixture, record) {
       return {final:current,subject:caps.body.subject}
     })
     await run('menu-access-management', async () => {
+      await page.waitForFunction(ui => [...document.querySelectorAll('a[href]')].some(item => new URL(item.href).pathname.startsWith(ui + '/extensions/rbac')) || document.querySelector('[data-test="extension-container"]'), ui)
       const menu = await page.evaluate(ui => {
         const link = [...document.querySelectorAll('a[href]')].find(item => new URL(item.href).pathname.startsWith(ui + '/extensions/rbac'))
         if (!link) throw new Error('Access management menu entry missing')
