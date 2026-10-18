@@ -781,10 +781,12 @@ export async function runApplicationProjectUi(page, base, fixture, record) {
         ensure(before.rows.length === 25,'fixture must populate a complete 25-row first page for ' + section)
         const next = '.kel-pagination button.btn-next'
         ensure(await page.evaluate(() => !document.querySelector('[data-test="extension-container"]').shadowRoot.querySelector('.kel-pagination button.btn-next')?.disabled),'next page is not available')
+        await page.focus(next)
         await page.click(next)
         await page.waitForFunction(() => document.querySelector('[data-test="extension-container"]')?.shadowRoot?.querySelector('.kel-pager .is-active')?.textContent.trim() === '2')
         const second = await extensionState()
         ensure(!exact(before.rows,second.rows),'pagination did not change displayed records')
+        await page.focus('.kel-pagination button.btn-prev')
         await page.click('.kel-pagination button.btn-prev')
         await page.waitForFunction(() => document.querySelector('[data-test="extension-container"]')?.shadowRoot?.querySelector('.kel-pager .is-active')?.textContent.trim() === '1')
         const target = fixture.pagination[section]
