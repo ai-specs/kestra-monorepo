@@ -183,7 +183,7 @@ export function uiFilterPlans(records) {
     // rows; choose the exact first ID if a generated client prefix is too broad.
     const needle=contains.length<=25?prefix:first
     const rows=records[section].filter(item=>String(item[field]).toLocaleLowerCase().includes(needle.toLocaleLowerCase())).map(item=>item[field])
-    const open=[fill('.ks-search input',''),click('.customize-button'),click('button[aria-label="Add advanced filter"]'),click('.adv-clear'),click('.adv-footer .adv-add:nth-child(1)')]
+    const open=[fill('.ks-search input',''),click('.customize-button'),click('.adv-clear'),click('.adv-footer .adv-add:nth-child(1)')]
     const condition=(index,comparator,value)=>{
       const root='.adv-body .adv-row:nth-child('+index+')'
       return [click(root+' .cond-field .kel-select__wrapper'),option(label),click(root+' .cond-op .kel-select__wrapper'),option(comparator),fill(root+' .cond-value-input input',value)]
