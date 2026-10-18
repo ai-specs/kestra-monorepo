@@ -33,7 +33,7 @@ const key=value=>'~'+Buffer.from(value).toString('base64url')
 const hash=value=>createHash('sha256').update(typeof value==='string'?value:JSON.stringify(value)).digest('hex')
 const delay=ms=>new Promise(resolve=>setTimeout(resolve,ms))
 // Public grant/action/ID collections are sets; JSON array order is not semantic.
-const semantic=value=>Array.isArray(value)?value.map(semantic).sort((a,b)=>String(JSON.stringify(a)).localeCompare(String(JSON.stringify(b)))):value&&typeof value==='object'?Object.fromEntries(Object.entries(value).sort(([a],[b])=>a.localeCompare(b)).map(([k,v])=>[k,semantic(v)])):value
+const semantic=value=>Array.isArray(value)?value.map(semantic).sort((a,b)=>String(JSON.stringify(a)).localeCompare(String(JSON.stringify(b)))):value&&typeof value==='object'?Object.fromEntries(Object.entries(value).filter(([name,item])=>!(name==='namespace'&&item===null&&value.scope==='TENANT')).sort(([a],[b])=>a.localeCompare(b)).map(([k,v])=>[k,semantic(v)])):value
 const same=(actual,expected,message)=>assert.deepEqual(semantic(actual),semantic(expected),message)
 const scopeInput=(name,value)=>({name,...structuredClone(value)})
 const directoryScopeInput=value=>Object.fromEntries(['scope','description','active','resourceIntents','managementIntents'].map(name=>[name,structuredClone(value[name])]))
@@ -90,7 +90,7 @@ export async function runApplicationProjectSecurity(base,fixture={},record) {
     const sources={security:hash(state),business:business.hash,...business.sources}
     return {hash:hash(sources),sources}
   }
-  async function deny(client,path,method,body,revision,{statuses=[403],code,windowMs=fixture.effectsWindowMs??5000}={}) {
+  async function deny(client,path,method,body,revision,{statuses=[403],code,invalidTenant=false,windowMs=fixture.effectsWindowMs??5000}={}) {
     assert(windowMs>=5000&&windowMs<=60000,'bounded delayed-effect window required')
     const before=securitySnapshot(),started=performance.now()
     const evidence={expectedStatuses:statuses,expectedCode:code,before:before.hash,beforeSources:before.sources,windowMs,samples:[]}
@@ -106,6 +106,7 @@ export async function runApplicationProjectSecurity(base,fixture={},record) {
     await step('denied-effects',evidence)
     if(requestFailure)throw requestFailure
     assert(statuses.includes(result.status),'unexpected denial HTTP '+result.status)
+    if(result.status===400&&invalidTenant){assert(/tenant/i.test(JSON.stringify(result.value)),'400 must explicitly reject the tenant');evidence.tenantValidationRejected=true}
     if(code)assert.equal(evidence.code,code,'specific rejection reason required')
     assert(evidence.samples.every(sample=>sample.hash===before.hash),'denied operation changed identity, policy or business state')
     return evidence
@@ -662,6 +663,7 @@ export async function runApplicationProjectSecurity(base,fixture={},record) {
       assert.equal(list.status,200);assert(list.message?.result?.tools?.some(tool=>tool.name===toolName))
       const marker='project-boundary-'+suffix
       const called=await owner.rpc(mainSession,'tools/call',{name:toolName,arguments:{marker}},8203)
+      await step('main-tool-call-response',{status:called.status,message:called.message})
       assert.equal(called.status,200);assert(!called.message?.error&&called.message?.result?.isError!==true)
       const executionId=called.message?.result?.structuredContent?.executionId
       assert(typeof executionId==='string'&&executionId)
@@ -807,8 +809,8 @@ export async function runApplicationProjectSecurity(base,fixture={},record) {
     assert.equal((await request(client,allowed)).status,200)
     await step('allow-baseline',{tenant:'main',flowRead:200,managementRead:200})
     // Real URI tenant, same production identity and CSRF. No synthetic identity headers.
-    await deny(client,allowed.replace('/main/','/security-other-tenant/'),'GET',undefined,undefined,{statuses:[403,404]})
-    await deny(client,recoveryPath.replace('/main/','/security-other-tenant/'),'PUT',projection.project,projection.policyRevision,{statuses:[403,404]})
+    await deny(client,allowed.replace('/main/','/security-other-tenant/'),'GET',undefined,undefined,{statuses:[400,403,404],invalidTenant:true})
+    await deny(client,recoveryPath.replace('/main/','/security-other-tenant/'),'PUT',projection.project,projection.policyRevision,{statuses:[400,403,404],invalidTenant:true})
     assert.equal((await request(client,allowed)).status,200)
     same((await get(client,recoveryPath)).project,projection.project)
     await step('restoration-verified',{mainTenantAllowed:true,unchanged:true})

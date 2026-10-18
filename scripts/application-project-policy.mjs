@@ -24,7 +24,7 @@ export function localApplicationPolicy({issuer, audiences, directoryRevision}) {
       metadata(), serverRead(),
     ]),
     [scopeNames.deleteB]: scope('B read and deletion without update', [complete(namespaceDomains.b, 'FLOW', ['READ','DELETE']), metadata()]),
-    [scopeNames.outputsA]: scope('A execution read and output access without update', [complete(namespaceDomains.a, 'EXECUTION', ['READ','ACCESS_OUTPUTS']), metadata()]),
+    [scopeNames.outputsA]: scope('A execution read/list and output access without update', [complete(namespaceDomains.a, 'EXECUTION', ['READ','LIST','ACCESS_OUTPUTS']), metadata()]),
     [scopeNames.readOnlyA]: scope('A READ without LIST', [complete(namespaceDomains.a, 'FLOW', ['READ']), metadata()]),
     [scopeNames.listOnlyA]: scope('A LIST without READ', [complete(namespaceDomains.a, 'FLOW', ['LIST']), metadata()]),
     [scopeNames.listOnlyB]: scope('B LIST without READ', [complete(namespaceDomains.b, 'FLOW', ['LIST']), metadata()]),
