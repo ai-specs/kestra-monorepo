@@ -51,7 +51,7 @@ import {mkdtempSync,mkdirSync,writeFileSync,readFileSync,existsSync,chmodSync} f
 import {tmpdir} from 'node:os'
 import {resolve,join,basename} from 'node:path'
 import {ProductionOAuthClient} from './production-oauth-client.mjs'
-import {planFixture,directoryActivationPlan,applicationProjectFeature,ProjectManagement} from './application-project-fixture.mjs'
+import {planFixture,directoryActivationPlan,applicationProjectFeature,ProjectManagement,flowSource} from './application-project-fixture.mjs'
 import {requiredProjectChecks,scopeNames} from './application-project-cases.mjs'
 
 export const migrationCheckIds=Object.freeze(requiredProjectChecks.filter(id=>id.startsWith('migration-')))
@@ -481,8 +481,12 @@ class MigrationReviewEvidence {
       const policy=prefix=>{if(!exists(prefix+'_head'))return {revision:0,sha256:bytesHash('')};const revision=Number(sql('SELECT revision FROM '+prefix+'_head WHERE policy_id=1'));const encoded=revision?sql("SELECT encode(convert_to(document_json,'UTF8'),'base64') FROM "+prefix+'_snapshot WHERE revision='+revision):'';return {revision,sha256:bytesHash(Buffer.from(encoded.replace(/\s/g,''),'base64'))}}
       const directory=tableRows('oidc_project_state').map(row=>JSON.parse(row.document_json))
       const receipt=dc(['run','--rm','-T','--no-deps','--entrypoint','cat','maintenance','/app/storage/.oidc-installation']).stdout
+      const running=dc(['ps','--status','running','-q','kestra']).stdout
+      const storageCommand=['sh','-c',"set -eu; entries=$(find /app/storage -type f ! -name .oidc-installation -exec sha256sum {} +); printf '%s\\n' \"$entries\" | LC_ALL=C sort"]
+      const storage=running?run('docker',['exec','--user','0:0',running,...storageCommand]):dc(['run','--rm','-T','--no-deps','--user','0:0','--entrypoint',...storageCommand.slice(0,1),'maintenance',...storageCommand.slice(1)]).stdout
+      const queue=Object.fromEntries(['queues','execution_queued'].map(table=>[table,exists(table)?sql("SELECT COALESCE(string_agg(value::text,'|' ORDER BY value::text),'') FROM "+table+" WHERE value::text LIKE '%scope.acceptance.%'"):'']))
       return {policyStateSha256:digest(Object.fromEntries(['rbac_policy_head','rbac_policy_snapshot','rbac_project_policy_head','rbac_project_policy_snapshot'].map(table=>[table,tableRows(table)]))),directoryStateSha256:digest(Object.fromEntries(['oidc_project_state','oidc_project_bootstrap','oidc_project_invalidation'].map(table=>[table,tableRows(table)]))),schemaSha256:digest(JSON.parse(sql("SELECT COALESCE(json_agg(t ORDER BY table_name,column_name),'[]'::json) FROM (SELECT table_name,column_name,data_type,is_nullable FROM information_schema.columns WHERE table_schema='public') t"))),legacy:policy('rbac_policy'),local:policy('rbac_project_policy'),directory:{revision:directory.reduce((sum,item)=>sum+(item.project?.revision??0),0),sha256:digest(directory)},
-        effects:{sha256:digest(Object.fromEntries(['flows','executions','triggers','kv_metadata'].map(table=>[table,tableRows(table)])))},installation:{sha256:bytesHash(receipt)}}
+        effects:{sha256:digest({database:Object.fromEntries(['flows','executions','triggers','kv_metadata','execution_outputs'].map(table=>[table,tableRows(table)])),queue,storage:bytesHash(storage)})},installation:{sha256:bytesHash(receipt)}}
     }
     const login=async(account=planned.admin)=>{const client=new ProductionOAuthClient(base);await client.login(account.username,account.password);return client}
     const loginIdentity=async(account,mode)=>{
@@ -861,9 +865,17 @@ class MigrationReviewEvidence {
         const {client,identity}=await loginIdentity(account,phase==='new'?'new':'legacy')
         if(kind==='role')assert(Array.isArray(identity.roles)&&identity.roles.length>0,'signed role claim is required; username is not role evidence')
         const before=await snapshot()
-        const response=await client.request('/api/v1/main/flows/search?namespace=scope.acceptance.a');await response.body?.cancel()
+        const response=await client.request('/api/v1/main/flows/scope.acceptance.a/migration-in-range');const status=response.status;await response.body?.cancel()
+        const list=await client.request('/api/v1/main/flows/search?filters[namespace][PREFIX]=scope.acceptance.a&size=100')
+        const outside=await client.request('/api/v1/main/flows/scope.acceptance.outside/migration-outside');const outsideStatus=outside.status;await outside.body?.cancel()
+        let authorizedIds
+        if(phase!=='new') {
+          assert.equal(status,200);assert.equal(list.status,200);const value=await list.json();authorizedIds=value.results.map(item=>item.namespace+'/'+item.id).sort()
+          assert.deepEqual(authorizedIds,['scope.acceptance.a.child/migration-child','scope.acceptance.a/migration-in-range']);assert.equal(value.total,2)
+          if(noScopeCase)assert.equal(outsideStatus,403,'legacy role/subject must not cross its namespace')
+        } else {assert.equal(list.status,status);await list.body?.cancel();assert.equal(outsideStatus,status)}
         const current=await snapshot();assert.deepEqual(current,before,'account probe changed policy, directory or business state')
-        return {status:response.status,identity,sideEffectsSha256:current.effects.sha256}
+        return {status,identity,authorizedIds,outsideStatus,sideEffectsSha256:current.effects.sha256,sources:['database','queue','storage']}
       },
       probeLegacyWrites:async()=>{
         const {client,identity}=await loginIdentity(planned.admin,'new')
@@ -903,6 +915,10 @@ class MigrationReviewEvidence {
         legacyPolicyActive=true;use('legacy')
         dc(['up','-d','kestra']);await wait()
         const admin=await login(),root='/api/v1/main/extensions/rbac'
+        for(const [namespace,id]of [['scope.acceptance.a','migration-in-range'],['scope.acceptance.a.child','migration-child'],['scope.acceptance.outside','migration-outside']]) {
+          const response=await admin.request('/api/v1/main/flows',{method:'POST',headers:{'Content-Type':'application/x-yaml'},body:flowSource(namespace,id)})
+          assert([200,201].includes(response.status),'legacy migration data must actually be saved');await response.body?.cancel()
+        }
         if(noScopeCase) {
           for(const account of [subjectAccount,managerAccount]) {
             const response=await admin.request(root+'/users',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({username:account.username,name:'Isolated migration account',email:account.username+'@example.invalid',password:account.password})})
@@ -925,6 +941,8 @@ class MigrationReviewEvidence {
           for(const account of [subjectAccount,planned.admin])directoryPlan.projects[0].assignments.push({projectId:'kestra',issuer:base,subject:account.subject,projectScopes:[],revision:1,authorizationVersion:1})
         }
         legacyRoleMappingOnly=caseId==='migration-legacy-role-no-scope';use('legacy');dc(['up','-d','kestra']);await wait();inspect()
+        const deadline=Date.now()+60000;let previous=(await snapshot()).effects.sha256,stableAt=Date.now()
+        for(;;){await new Promise(resolve=>setTimeout(resolve,250));const next=(await snapshot()).effects.sha256;if(next!==previous){previous=next;stableAt=Date.now()}if(Date.now()-stableAt>=5000)break;assert(Date.now()<deadline,'migration source business state did not become stable')}
         return {target,directoryPlan,decisions:[{roleId:'migration-reader',disposition:'MAP',targets:[{project:'kestra',scope}],reason:'Explicit isolated read-only migration test'}]}
       },
       destroy:async()=>{inspect();try{dc(['down','--volumes','--remove-orphans'])}finally{credentialHandles.clear();backups.clear()}},
