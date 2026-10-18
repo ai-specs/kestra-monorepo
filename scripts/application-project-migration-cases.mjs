@@ -455,7 +455,7 @@ class MigrationReviewEvidence {
       let current=migrationUiScopes(configuration,'legacy')
       if(legacyPolicyActive){
         current=applicationProjectFeature(current,true).replace(/(    application-projects:\n      enabled: )true/,'$1false')
-        if(legacyRoleMappingOnly)current=current.replace(/^    management-admin-subjects:.*\n/m,'')
+        if(legacyRoleMappingOnly)current=current.replace(/^    management-admin-subjects:.*\n/m,'    management-admin-subjects: ["'+managerAccount.subject+'"]\n')
       }
       return migrationUiScopes(current,'legacy')
     }
