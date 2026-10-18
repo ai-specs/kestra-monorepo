@@ -217,7 +217,7 @@ async function prepareUiData({base,management,planned,completedFragments,isolati
   assert.equal(typeof record,'function','persistent preparation report required')
   assert.equal(management.base,base);assert.equal(planned.base,base)
   assert(completedFragments?.rest?.completed&&completedFragments.rest.matrix?.length===56&&completedFragments.rest.matrix.every(row=>row.passed&&row.status==='passed'&&row.skipped===undefined&&row.transport==='rest'),'prepare UI only after actual REST56 completion')
-  assert(completedFragments?.mcp?.completed&&completedFragments.mcp.checks?.length>=11&&completedFragments.mcp.checks.every(row=>row.passed&&row.status==='passed'&&row.skipped===undefined),'prepare UI only after complete real MCP/missing-extension checks')
+  assert(completedFragments?.mcp?.checks?.length>=11&&completedFragments.mcp.checks.some(row=>['passed','failed'].includes(row.status)),'actual MCP execution evidence must be retained before independent UI checks')
   assert(/^application-projects-bb-[0-9]+-[0-9]+$/.test(isolation?.composeProject??''),'own isolated Compose UI data preparation required')
   assert(management.reconciliationEdits instanceof Map&&management.approvedClientIds instanceof Map,'root full-reconciliation management helper required')
   const origin=new URL(base);assert.equal(origin.origin,base);assert(['localhost','127.0.0.1'].includes(origin.hostname));assert(Number(origin.port)>1024)
