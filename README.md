@@ -97,6 +97,9 @@ application-projects；UI 的 selector 只用于已批准的第一方成员。
 `--static` 仅检查入口和模块，`--config-check` 仅检查 Compose 配置。
 `--allow-dirty-root` 只用于开发，始终输出 `nonFinal=true`、`completed=false`，不得用于交付。
 失败和未执行项保留在报告中，不计为通过。
+分页验收逐页比较实际授权 ID 和非空页总数。当前宿主在超出末页时返回空结果与
+`total=0`；该空页不用于计算授权总数。删除和输出读取分别包含资源 READ 子操作，
+测试 scope 显式授予 READ+DELETE 或 READ+ACCESS_OUTPUTS，不授予 UPDATE。
 `deployment/application-project-migration-source.json` 是隔离迁移演练的旧正式产物输入，
 由迁移驱动实际消费；它不锁定用户部署，也不代表当前运行版本。驱动再次下载并核对
 旧成功 CI artifact、host provenance 与发布门；失效或不可获取时必须失败，不能用缓存替代。

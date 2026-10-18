@@ -18,7 +18,7 @@ export async function runApplicationProjectAggregates(base,{planned,rest,mcp},re
       const result=await get(client,'/api/v1/main/'+resource+'/search?'+new URLSearchParams({page:String(page),size:'1'}))
       assert(Array.isArray(result.results)&&Number.isSafeInteger(result.total));total??=result.total;assert.equal(total,result.total)
       assert(result.results.length<=1);items.push(...result.results)
-      if(items.length===total){const beyond=await get(client,'/api/v1/main/'+resource+'/search?'+new URLSearchParams({page:String(page+1),size:'1'}));assert.equal(beyond.total,total);assert.deepEqual(beyond.results,[]);return {items,total,pages:page,emptyPage:page+1}}
+      if(items.length===total){const beyond=await get(client,'/api/v1/main/'+resource+'/search?'+new URLSearchParams({page:String(page+1),size:'1'}));assert([0,total].includes(beyond.total));assert.deepEqual(beyond.results,[]);return {items,total,pages:page,emptyPage:page+1,emptyPageTotal:beyond.total}}
       assert(result.results.length&&items.length<total&&page<1000,'list pagination did not converge')
     }
   }

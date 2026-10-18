@@ -179,8 +179,15 @@ export async function main(argv=process.argv.slice(2),runtime={}) {
       const artifacts=JSON.parse(command('gh',['api','repos/ai-specs/kestra-plugin-rbac/actions/runs/'+evidence.pluginRunId+'/artifacts?per_page=100']))
       assert.equal(artifacts.artifacts.filter(item=>item.name==='kestra-rbac-authorizer'&&!item.expired).length,1,'artifact name is ambiguous')
       assert(artifacts.artifacts.some(item=>item.id===evidence.pluginArtifactId),'artifact is not listed in selected run')
-      const downloaded=join(output,'downloaded-plugin');mkdirSync(downloaded,{mode:0o700})
-      command('gh',['run','download',String(evidence.pluginRunId),'-R','ai-specs/kestra-plugin-rbac','--name','kestra-rbac-authorizer','--dir',downloaded],{timeout:180000})
+      let downloaded
+      if(runtime.downloadedArtifact) {
+        assert.equal(runtime.downloadedArtifact.runId,evidence.pluginRunId)
+        assert.equal(runtime.downloadedArtifact.artifactId,evidence.pluginArtifactId)
+        downloaded=realpathSync(runtime.downloadedArtifact.directory)
+      } else {
+        downloaded=join(output,'downloaded-plugin');mkdirSync(downloaded,{mode:0o700})
+        command('gh',['run','download',String(evidence.pluginRunId),'-R','ai-specs/kestra-plugin-rbac','--name','kestra-rbac-authorizer','--dir',downloaded],{timeout:180000})
+      }
       const jar=join(downloaded,'build/libs/kestra-rbac-authorizer.jar')
       for(const name of ['build/libs/kestra-rbac-authorizer.jar','.integration/host-provenance.json','.evidence','build/reports/tests/test','build/test-results/test'])assert(statSync(join(downloaded,name)),'downloaded artifact layout incomplete: '+name)
       assert(readdirSync(join(downloaded,'.evidence')).length,'hidden evidence omitted from artifact')
@@ -407,6 +414,7 @@ export async function main(argv=process.argv.slice(2),runtime={}) {
       return {seededFlows:report.fragments.provisioning.seededFlows,accounts:Object.keys(fixture.rest.accounts).length,observerSources:['database','queue','storage']}
     })
     await stage('shared-rest-mcp-ui-fragments',async()=>{
+      if(runtime.inspectFixture){assert.equal(report.nonFinal,true,'fixture inspection is development only');await runtime.inspectFixture({base:planned.base,fixture,planned,report})}
       await runIntegration(report.resources.base,fixture,null,report,persist)
       assert.equal(report.fragments.rest?.completed,true,'REST matrix did not complete successfully')
       assert.equal(report.fragments.mcp?.completed,true,'MCP checks did not complete successfully; inspect preserved fragment')

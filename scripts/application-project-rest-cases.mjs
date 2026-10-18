@@ -163,7 +163,7 @@ export async function runApplicationProjectRest(base,fixture,record) {
     if(probe.expectedIds){assert.deepEqual(observed.map(item=>item.id).sort(),[...probe.expectedIds].sort());assert.equal(total,probe.expectedIds.length)}
     const query=new URLSearchParams({page:String(page+1),size:'1',['filters[namespace]['+(data.includeDescendants===false?'EQUALS':'PREFIX')+']']:probe.namespace})
     const end=await json(client,prefix+'/flows/search?'+query,label)
-    assert.equal(end.total,total);assert.deepEqual(end.results,[],'page beyond authorized total is not empty')
+    assert([0,total].includes(end.total),'empty-page total contradicts authorized count');assert.deepEqual(end.results,[],'page beyond authorized total is not empty')
     return {items:observed,total,pages,emptyPage:page+1}
   }
   try {
