@@ -77,7 +77,6 @@ export class ProjectManagement {
     assert.equal(projection.upperBound?.project?.id,projectId)
     assert.equal(projection.directoryRevision,projection.upperBound.project.revision,'directoryRevision must equal Project.revision')
     if(previousProject) {
-      assert(projection.upperBound.project.authorizationVersion>previousProject.authorizationVersion,'each identity change must advance epoch')
       assert(projection.upperBound.project.revision>previousProject.revision,'identity revision did not advance')
     }
     assert(Number.isSafeInteger(projection.policyRevision)&&Number.isSafeInteger(projection.directoryRevision))
@@ -96,8 +95,10 @@ export class ProjectManagement {
     const verified=await this.client.verifiedUiIdentity({projectId:applicationProject,subject:this.account.subject,audience:'kestra-ui'})
     // The public OAuth helper exposes epoch, not directoryRevision. Directory
     // revision was verified above against the full authoritative projection.
-    assert.equal(verified.authorizationVersion,confirmed.upperBound.project.authorizationVersion,'fresh signed identity epoch differs')
-    return {requests:[...this.requests],reauthentication:this.reauthentication,directoryRevision:confirmed.directoryRevision,authorizationVersion:confirmed.upperBound.project.authorizationVersion}
+    const shared=await this.request('/api/v1/main/extensions/rbac/identity/projects/'+encodeURIComponent(projectId))
+    assert.equal(verified.authorizationVersion,shared.authorizationVersion,'fresh signed identity epoch differs')
+    if(previousProject)assert(shared.authorizationVersion>previousProject.authorizationVersion,'each identity change must advance epoch')
+    return {requests:[...this.requests],reauthentication:this.reauthentication,directoryRevision:confirmed.directoryRevision,authorizationVersion:shared.authorizationVersion}
   }
   async approveOrdinaryClient({clientId,audiences,projectScopes,registeredProtocolScopes,requestedProtocolScopes}) {
     assert(clientId&&clientId!=='kestra-ui','ordinary client must never inherit first-party UI selector')
