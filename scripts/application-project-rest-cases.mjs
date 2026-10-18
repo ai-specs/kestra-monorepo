@@ -154,7 +154,10 @@ export async function runApplicationProjectRest(base,fixture,record) {
       const query=new URLSearchParams({page:String(++page),size:'1',['filters[namespace]['+(data.includeDescendants===false?'EQUALS':'PREFIX')+']']:probe.namespace})
       value=await json(client,prefix+'/flows/search?'+query,label)
     }
-    assert.equal(total,data.expectedList.length,'total includes missing/unauthorized fixture entries')
+    if(total!==data.expectedList.length) {
+      const unfiltered=await json(client,prefix+'/flows/search?size=1&page=1',label+':unfiltered-diagnostic')
+      throw new Error('authorized list total differs: filtered='+total+', expected='+data.expectedList.length+', unfiltered='+unfiltered.total)
+    }
     assert(data.outsideList.every(item=>!observed.some(actual=>actual.namespace===item.namespace&&actual.id===item.id)),'list leaked an out-of-range sentinel')
     assert.deepEqual(pairs(observed),pairs(data.expectedList),'authorized items differ from exact seeded fixture')
     if(probe.expectedIds){assert.deepEqual(observed.map(item=>item.id).sort(),[...probe.expectedIds].sort());assert.equal(total,probe.expectedIds.length)}
