@@ -381,7 +381,7 @@ export async function main(argv=process.argv.slice(2),runtime={}) {
             const target={host:{image:report.inputs.image,commit:report.inputs.overlayCommit,runId:publication.overlayRunId},plugin:{commit:report.inputs.pluginCommit,sha256:report.inputs.jarSha256,runId:publication.pluginRunId,artifactId:publication.artifactId}}
             // The module independently checks both successful CI runs, promotion,
             // artifact IDs/download hashes and host-contract pins before create.
-            context=await module.createMigrationContext({composeFile:join(repository,'docker-compose.yml'),port:Number(options['--port']??18128)+2,target,legacy:requested.legacy})
+            context=await module.createMigrationContext({composeFile:join(repository,'docker-compose.yml'),port:Number(options['--port']??18128)+2,target,legacy:requested.legacy,downloadedArtifacts:{...runtime.migrationArtifacts,target:{runId:publication.pluginRunId,artifactId:publication.artifactId,directory:resolve(dirname(publication.downloadedJar),'../..')}}})
             report.resources.migrationDirectory=context.directory
             return {target,legacy:requested.legacy,supportedChecks:context.supportedChecks,unsupportedChecks:context.unsupportedChecks}
           })}catch(error){report.fragments.migrationReleaseFailure={status:'failed',error:error.stdout!==undefined?'migration release command failed; inspect retained operation evidence':String(error.message)};await persist()}

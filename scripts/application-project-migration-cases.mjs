@@ -365,8 +365,10 @@ export async function createMigrationContext(options) {
     const artifacts=json('gh',['api','repos/ai-specs/kestra-plugin-rbac/actions/runs/'+plugin.runId+'/artifacts?per_page=100']).artifacts
     assert.equal(artifacts.filter(item=>item.name===artifact.name&&!item.expired).length,1)
     assert(artifacts.some(item=>item.id===plugin.artifactId))
-    const downloaded=join(directory,name);mkdirSync(downloaded,{mode:0o700})
-    run('gh',['run','download',String(plugin.runId),'-R','ai-specs/kestra-plugin-rbac','--name',artifact.name,'--dir',downloaded])
+    let downloaded
+    const existing=options.downloadedArtifacts?.[name]
+    if(existing){assert.equal(existing.runId,plugin.runId);assert.equal(existing.artifactId,plugin.artifactId);downloaded=resolve(existing.directory)}
+    else {downloaded=join(directory,name);mkdirSync(downloaded,{mode:0o700});run('gh',['run','download',String(plugin.runId),'-R','ai-specs/kestra-plugin-rbac','--name',artifact.name,'--dir',downloaded])}
     const jar=join(downloaded,'build/libs/kestra-rbac-authorizer.jar')
     assert.equal(bytesHash(readFileSync(jar)),plugin.sha256)
     const provenance=JSON.parse(readFileSync(join(downloaded,'.integration/host-provenance.json'),'utf8'))
