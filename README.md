@@ -97,6 +97,8 @@ application-projects；UI 的 selector 只用于已批准的第一方成员。
 `--static` 仅检查入口和模块，`--config-check` 仅检查 Compose 配置。
 `--allow-dirty-root` 只用于开发，始终输出 `nonFinal=true`、`completed=false`，不得用于交付。
 失败和未执行项保留在报告中，不计为通过。
+隔离测试将 pending client 的保留时间设为协议允许的 120 分钟，并通过真实 owner 同意和
+S256 换码激活需要编辑的测试 client；该设置不改变生产 Compose 的注册默认值。
 分页验收逐页比较实际授权 ID 和非空页总数。当前宿主在超出末页时返回空结果与
 `total=0`；该空页不用于计算授权总数。删除和输出读取分别包含资源 READ 子操作，
 测试 scope 显式授予 FLOW 的 READ+DELETE，或 EXECUTION 的 READ+LIST+ACCESS_OUTPUTS，
@@ -104,6 +106,16 @@ application-projects；UI 的 selector 只用于已批准的第一方成员。
 `deployment/application-project-migration-source.json` 是隔离迁移演练的旧正式产物输入，
 由迁移驱动实际消费；它不锁定用户部署，也不代表当前运行版本。驱动再次下载并核对
 旧成功 CI artifact、host provenance 与发布门；失效或不可获取时必须失败，不能用缓存替代。
+
+回退检查停止 JVM 和 PostgreSQL 后备份本次测试的数据卷，并保留逻辑 dump 供诊断。
+物理恢复必须核对归档、全部业务字段、策略、身份目录、队列、存储和安装凭据，不能
+忽略恢复时重算的全文索引。迁移前已经注册的 client，其旧 code/refresh 必须返回
+`400 invalid_grant`。回退后新建 client 已不存在时，只在备份集合、签发基线、恢复后
+数据库查询共同证明这一事实，且没有签发新凭据或产生副作用时，接受 `401 invalid_client`。
+
+缺 jar 的隔离环境仍必须开启完整授权门。REST 和工具列表拒绝之外，MCP 调用可以返回
+宿主固定的组件失败结果；只有实际镜像、缺失挂载、启用配置和完整无副作用观测均已
+核对时，才计为组件缺失时失败关闭。普通授权拒绝不接受通用执行失败作为通过证据。
 
 根仓 CI 下载独立插件 CI 的 jar，执行同一组合入口；不以根仓临时编译的 jar 代替独立
 插件发布。私有发布仓的 Actions run 和 artifact 需要额外的跨仓只读访问；根仓 Actions

@@ -639,7 +639,7 @@ export async function runApplicationProjectSecurity(base,fixture={},record) {
     assert(directoryScope?.resourceIntents?.length,'same-name complete directory business scope required')
     const denied=result=>[401,403].includes(result.status)||result.status===200&&(
       result.message?.error?.code===mcpProtocolEvidence.rpcDenial.code&&result.message.error.message===mcpProtocolEvidence.rpcDenial.message
-      ||result.message?.result?.isError===true&&JSON.stringify(result.message.result)===JSON.stringify(mcpProtocolEvidence.toolDenial))
+      ||result.message?.result?.isError===true&&JSON.stringify(semantic(result.message.result))===JSON.stringify(semantic(mcpProtocolEvidence.toolDenial)))
     async function initialize(client,requestId) {
       const result=await client.rpc(null,'initialize',{protocolVersion:'2025-06-18',capabilities:{},clientInfo:{name:'project-isolation-security',version:'1'}},requestId)
       assert.equal(result.status,200);assert(result.session&&result.message?.result&&!result.message.error)
@@ -709,7 +709,7 @@ export async function runApplicationProjectSecurity(base,fixture={},record) {
       const foreignList=listRefusal.response
       await step('foreign-project-list-denied',{status:foreignList.status,emptyList:foreignList.message?.result?.tools?.length===0,sideEffects:listRefusal.observation,error:foreignList.message?.error?{code:foreignList.message.error.code,message:foreignList.message.error.message}:undefined})
       const before=securitySnapshot();let refusal
-      try{refusal=await effects.observeDenied(()=>foreign.rpc(foreignSession,'tools/call',{name:toolName,arguments:{marker:'must-not-execute-'+suffix}},8213),result=>assert(denied(result),'foreign project borrowed main project write grant'),{windowMs:fixture.effectsWindowMs??5000,intervalMs:250})}
+      try{refusal=await effects.observeDenied(()=>foreign.rpc(foreignSession,'tools/call',{name:toolName,arguments:{marker:'must-not-execute-'+suffix}},8213),async result=>{await step('foreign-project-call-response',{status:result.status,message:result.message});assert(denied(result),'foreign project borrowed main project write grant')},{windowMs:fixture.effectsWindowMs??5000,intervalMs:250})}
       finally{const after=securitySnapshot();await step('foreign-project-state',{before:before.hash,after:after.hash,beforeSources:before.sources,afterSources:after.sources});assert.equal(after.hash,before.hash)}
       await step('foreign-project-call-denied',{status:refusal.response.status,sideEffects:refusal.observation})
       const recovered=await owner.rpc(mainSession,'tools/list',{},8220)

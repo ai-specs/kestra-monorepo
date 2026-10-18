@@ -264,6 +264,15 @@ async function prepareUiData({base,management,planned,completedFragments,isolati
       assert(registered.client_id&&!registered.client_secret);assert.equal(registered.token_endpoint_auth_method,'none')
       management.approvedClientIds.set(registered.client_id,[uiScopeNames.edit])
       await management.approveOrdinaryClient({clientId:registered.client_id,audiences:[base+'/api/v1/main/mcp/default'],projectScopes:[uiScopeNames.edit],registeredProtocolScopes:['openid'],requestedProtocolScopes:['openid']})
+      if(clients.length===0){
+        const owner=new ProductionOAuthClient(base)
+        const issued=await owner.issueMcpScopes(['openid'],undefined,current=>current.login(planned.admin.username,planned.admin.password),{registeredClient:registered})
+        assert.deepEqual(issued.issuedScopes,['openid'])
+        const owned=await owner.request('/'+'oidc/clients/'+encodeURIComponent(registered.client_id))
+        assert.equal(owned.status,200)
+        const details=await owned.json();assert.equal(details.client_id??details.clientId,registered.client_id)
+        await emit({kind:'ui-client-owner-consent-completed',clientId:registered.client_id,productionS256:true,issuedScopes:issued.issuedScopes,ownerOnlyDetailStatus:owned.status})
+      }
       clients.push(registered.client_id);await emit({kind:'ui-member-created',clientId:registered.client_id,firstPartyUi:false,projectScopes:[uiScopeNames.edit]})
     }
     const subjects=[]

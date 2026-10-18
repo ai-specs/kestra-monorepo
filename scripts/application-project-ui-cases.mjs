@@ -55,6 +55,20 @@ const canonical = value => Array.isArray(value) ? value.map(canonical).sort((a,b
 const exact = (left, right) => JSON.stringify(canonical(left)) === JSON.stringify(canonical(right))
 const ensure = (value, message) => {if (!value) throw new Error(message)}
 
+export function sanitizeApplicationProjectUiEvidence(value, secrets = []) {
+  const sanitizeText = input => {
+    let text = input
+    for (const secret of secrets) if (typeof secret === 'string' && secret.length) text = text.replaceAll(secret,'[redacted]')
+    return text.replace(/eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+/g,'[redacted-jwt]')
+      .replace(/((?:[?&#]|%3[fF]|%26)(?:from|code|state|access_token|id_token|refresh_token|password|client_secret)(?:=|%3[dD]))[^\s&#"'<>]*/gi,'$1[redacted]')
+      .replace(/Bearer\s+[^\s,;]+/gi,'Bearer [redacted]')
+  }
+  if (typeof value === 'string') return sanitizeText(value)
+  if (Array.isArray(value)) return value.map(item => sanitizeApplicationProjectUiEvidence(item,secrets))
+  if (value && typeof value === 'object') return Object.fromEntries(Object.entries(value).map(([name,item]) => [name,/^(?:interaction|nonce|csrf|code_verifier|password|client_secret|access_token|id_token|refresh_token|authorization)$/i.test(name) && (typeof item === 'string' || typeof item === 'number') ? '[redacted]' : sanitizeApplicationProjectUiEvidence(item,secrets)]))
+  return value
+}
+
 export async function runApplicationProjectUi(page, base, fixture, record) {
   const planned = ['preconditions','production-ui-login-canonical-path','menu-access-management','ui-initial-english-preference',
     ...['projects','scopes','clients','assignments'].map(section => 'actual-content-' + section),
@@ -65,6 +79,9 @@ export async function runApplicationProjectUi(page, base, fixture, record) {
     ...['projects','scopes','clients','assignments'].flatMap(section => ['equals','contains','and','or'].map(operator => 'ui-filter-' + section + '-' + operator)),
     'ui-narrow-and-keyboard-focus','console-page-request-errors-have-explicit-sources']
   const report = {version:1, completed:false, planned, rows:[], documents:[], diagnostics:[], requests:[], artifacts:[], failure:null}
+  const diagnostic = fixture?.diagnostic ?? null
+  if (diagnostic) report.nonFinal = true
+  let diagnosticStarted = !diagnostic?.startAt
   // The composition runner can merge report.ui directly into its final ui section.
   report.ui = report.rows
   let activeCase = 'preconditions'
@@ -85,9 +102,16 @@ export async function runApplicationProjectUi(page, base, fixture, record) {
   const scopeSection = 'section[aria-labelledby="local-scope-title"]'
   const rootSelector = '[data-test="extension-container"]'
   const url = path => new URL(path, origin.origin).href
-  const errorText = error => String(error?.message ?? error).replaceAll(fixture?.admin?.password ?? '\u0000', '[redacted]')
-  const persist = async () => {if (typeof record === 'function') await record(clone(report))}
-  const documentState = () => page.evaluate(() => ({url:location.href,path:location.pathname,timeOrigin:performance.timeOrigin,title:document.title}))
+  const sanitize = value => sanitizeApplicationProjectUiEvidence(value,[fixture?.admin?.password,fixture?.zeroAccount?.password])
+  const errorText = error => sanitize(String(error?.message ?? error))
+  const persist = async () => {if (typeof record === 'function') await record(sanitize(clone(report)))}
+  const documentState = async () => {
+    const state = await page.evaluate(() => ({url:location.href,path:location.pathname,timeOrigin:performance.timeOrigin,title:document.title}))
+    const diagnostics = await page.diagnostics()
+    const document = diagnostics.documents?.findLast(item => item.frameId === diagnostics.topFrame)
+    ensure(typeof document?.id === 'string' && document.id,'adapter diagnostics is missing the current top-frame document identity')
+    return sanitize({...state,documentId:document.id})
+  }
   async function collectDiagnostics() {
     const result = await page.diagnostics()
     ensure(Array.isArray(result?.events), 'adapter diagnostics must return events from all document generations')
@@ -100,6 +124,8 @@ export async function runApplicationProjectUi(page, base, fixture, record) {
     }
   }
   async function run(name, operation) {
+    if (name === diagnostic?.startAt) diagnosticStarted = true
+    if (!diagnosticStarted && !['preconditions','production-ui-login-canonical-path','menu-access-management','ui-initial-english-preference'].includes(name)) return
     activeCase = name
     const combination = name.match(/^ui-theme-language-(light|dark-2|dark|system)-(.+)$/)
     const row = {name,case:combination ? 'theme-language' : name,...(combination ? {theme:combination[1],locale:combination[2]} : {}),passed:false,status:'running',startedAt:new Date().toISOString()}
@@ -118,7 +144,9 @@ export async function runApplicationProjectUi(page, base, fixture, record) {
       row.status = 'failed'
       row.error = errorText(error)
       try {row.document = await documentState(); await collectDiagnostics()} catch (captureError) {row.captureError = errorText(captureError)}
-      throw error
+      if (!diagnostic?.continueAfterFailure || ['preconditions','production-ui-login-canonical-path','menu-access-management','ui-initial-english-preference'].includes(name)) throw error
+      report.failure ??= {case:name,message:errorText(error)}
+      try {row.failureArtifact = await page.screenshot()} catch (captureError) {row.artifactCaptureError = errorText(captureError)}
     } finally {row.finishedAt = new Date().toISOString(); await persist()}
   }
   async function request(path, method = 'GET', body, revision) {
@@ -133,9 +161,11 @@ export async function runApplicationProjectUi(page, base, fixture, record) {
       }
       const response = await fetch(path, {method,headers,credentials:'same-origin',redirect:'error',...(body === undefined ? {} : {body:JSON.stringify(body)})})
       const data = await response.json().catch(() => null)
-      return {ok:response.ok,status:response.status,body:data,url:response.url,source:{url:location.href,timeOrigin:performance.timeOrigin}}
+      return {ok:response.ok,status:response.status,body:data,url:response.url,source:{url:location.href,path:location.pathname,timeOrigin:performance.timeOrigin}}
     }, {path:api + path,method,body,revision})
-    report.requests.push({case:activeCase,method,path:api + path,status:result.status,source:result.source,code:result.body?.code})
+    const source = await documentState()
+    ensure(source.timeOrigin === result.source.timeOrigin,'request source document changed before attribution')
+    report.requests.push({case:activeCase,method,path:api + path,status:result.status,source:{...result.source,documentId:source.documentId},code:result.body?.code})
     return result
   }
   async function readPolicy() {
@@ -159,6 +189,21 @@ export async function runApplicationProjectUi(page, base, fixture, record) {
     await page.waitForFunction(({path,rootSelector}) => {
       const root = document.querySelector(rootSelector)?.shadowRoot
       return location.pathname === path && root?.querySelector('main')?.getAttribute('aria-busy') === 'false' && Boolean(root.querySelector('.kel-tabs'))
+    }, {path,rootSelector})
+    await page.waitForFunction(({path,rootSelector}) => {
+      const root = document.querySelector(rootSelector)?.shadowRoot
+      const table = root?.querySelector('.management-data-table')
+      if (!table) return true
+      const rows = root.querySelectorAll('tbody tr').length
+      const pagination = root.querySelector('.kel-pagination')
+      const text = pagination?.querySelector('.kel-pagination__total')?.textContent ?? ''
+      const total = Number(text.match(/\d+/)?.[0])
+      const sizeInput = pagination?.querySelector('.kel-pagination__sizes input')
+      const sizeText = sizeInput?.value || pagination?.querySelector('.kel-pagination__sizes')?.textContent || ''
+      const size = Number(sizeText.match(/\d+/)?.[0])
+      const current = Number(pagination?.querySelector('.kel-pager .is-active')?.textContent)
+      if (Number.isFinite(total) && size > 0 && current > 0) return rows === Math.min(size,Math.max(0,total-(current-1)*size))
+      return rows > 0 || Boolean(root.querySelector('.kel-empty,.kel-table__empty-block'))
     }, {path,rootSelector})
     const state = await extensionState()
     ensure(!state.errors.length, 'stable extension contains an error: ' + state.errors.join('; '))
@@ -218,6 +263,30 @@ export async function runApplicationProjectUi(page, base, fixture, record) {
     const evidence = {reason,before,final,subject:caps.body.subject,needsReconciliation:caps.body.needsReconciliation === true,identityManagement:caps.body.identityManagement,localPolicyManagement:caps.body.localPolicyManagement}
     report.rows.push({case:'production-reauthentication',name:'production-reauthentication-' + report.rows.length,passed:true,status:'passed',evidence})
     return caps.body
+  }
+  async function saveDirectoryForm(selector,path) {
+    const before = await documentState()
+    const previous = new Set((await page.diagnostics()).events.map(event => event.id))
+    await page.click(selector)
+    const deadline = Date.now() + 30000
+    let response
+    while (Date.now() < deadline) {
+      const events = (await page.diagnostics()).events
+      response = events.find(event => !previous.has(event.id) && ['http-response','http-error'].includes(event.kind) && event.documentId === before.documentId && event.method === 'PUT' && event.url === url(api + path))
+      if (response) break
+      await new Promise(resolve => setTimeout(resolve,100))
+    }
+    ensure(response,'native directory save produced no attributable HTTP response')
+    report.requests.push({case:activeCase,method:'PUT',path:api + path,status:response.status,requestId:response.requestId,source:before,transport:'native-ui'})
+    ensure(response.status >= 200 && response.status < 300,'native directory save failed: HTTP ' + response.status + ' ' + path)
+    await page.waitForFunction(() => document.querySelector('[data-test="extension-container"]')?.shadowRoot?.querySelector('main')?.getAttribute('aria-busy') === 'false')
+    const state = await page.evaluate(() => {
+      const root = document.querySelector('[data-test="extension-container"]').shadowRoot
+      return {reauthenticationRequired:Boolean(root.querySelector('[data-test="reauthenticate"]')),savedResult:root.querySelector('[data-test="saved-result"]')?.textContent,errors:[...root.querySelectorAll('[role="alert"]')].filter(node => !node.querySelector('[data-test="reauthenticate"]')).map(node => node.textContent.trim())}
+    })
+    ensure(!state.errors.length,'directory save contains an error: ' + state.errors.join('; '))
+    ensure(state.reauthenticationRequired && state.savedResult,'successful identity save must expose the saved result and require production reauthentication')
+    return {status:response.status,requestId:response.requestId,source:before,...state}
   }
   async function afterDirectoryMutation(reason) {
     const stale = await request('/capabilities')
@@ -314,6 +383,14 @@ export async function runApplicationProjectUi(page, base, fixture, record) {
       if (!button || button.disabled) throw new Error('record action is not interactive')
       return {index:[...root.querySelectorAll('tbody button')].indexOf(button),name:button.textContent.trim()}
     }, identifier)
+    await page.focus('tbody button')
+    await page.waitForFunction(() => {
+      const root = document.querySelector('[data-test="extension-container"]')?.shadowRoot
+      const button = root?.querySelector('tbody button')
+      if (!button || root.activeElement !== button) return false
+      const rect = button.getBoundingClientRect()
+      return rect.left >= 0 && rect.right <= innerWidth && rect.top >= 0 && rect.bottom <= innerHeight
+    })
     await page.click('tbody button')
     return target
   }
@@ -361,6 +438,10 @@ export async function runApplicationProjectUi(page, base, fixture, record) {
   }
   try {
     await run('preconditions', async () => {
+      if (diagnostic) {
+        ensure(diagnostic.nonFinal === true && typeof diagnostic.startAt === 'string' && planned.includes(diagnostic.startAt),'diagnostic start requires explicit nonFinal and a planned case')
+        ensure(typeof diagnostic.continueAfterFailure === 'boolean','diagnostic continuation must be explicit')
+      }
       for (const method of ['goto','reload','click','fill','selectOption','focus','press','evaluate','waitForFunction','setViewport','setColorScheme','screenshot','diagnostics']) ensure(typeof page[method] === 'function', 'missing shared adapter method: ' + method)
       ensure(typeof record === 'function','record callback is required')
       for (const name of ['projectId','scope','clientId','subject','unknownScope']) ensure(typeof fixture[name] === 'string' && fixture[name], 'missing fixture ' + name)
@@ -401,6 +482,11 @@ export async function runApplicationProjectUi(page, base, fixture, record) {
     })
     await run('menu-access-management', async () => {
       await page.waitForFunction(ui => [...document.querySelectorAll('a[href]')].some(item => new URL(item.href).pathname.startsWith(ui + '/extensions/rbac')) || document.querySelector('[data-test="extension-container"]'), ui)
+      const sidebarCollapsed=await page.evaluate(()=>document.querySelector('#side-menu')?.classList.contains('is-collapsed')===true)
+      if(sidebarCollapsed){
+        await page.click('[data-testid="topnav-sidebar-toggle"]')
+        await page.waitForFunction(()=>{const sidebar=document.querySelector('#side-menu');return sidebar&&!sidebar.classList.contains('is-collapsed')&&sidebar.getBoundingClientRect().width>100})
+      }
       const menu = await page.evaluate(ui => {
         const link = [...document.querySelectorAll('a[href]')].find(item => new URL(item.href).pathname.startsWith(ui + '/extensions/rbac'))
         if (!link) throw new Error('Access management menu entry missing')
@@ -526,8 +612,7 @@ export async function runApplicationProjectUi(page, base, fixture, record) {
       restores.push({path:memberPath,kind:'client',original})
       await open(project + '/clients/' + key(fixture.clientId))
       await page.click('[data-test="member-approved"]')
-      await page.click('[data-test="save-member"]')
-      await page.waitForFunction(() => document.querySelector('[data-test="extension-container"]')?.shadowRoot?.querySelector('main')?.getAttribute('aria-busy') === 'false')
+      await saveDirectoryForm('[data-test="save-member"]',memberPath)
       await afterDirectoryMutation('client approval changed')
       const after = await request(memberPath)
       ensure(after.ok && after.body.firstPartyUi === false && after.body.approved === !original.approved && after.body.revision > original.revision,'client approval form did not persist changed approval')
@@ -536,8 +621,7 @@ export async function runApplicationProjectUi(page, base, fixture, record) {
       ensure(await page.evaluate(expected => document.querySelector('[data-test="extension-container"]').shadowRoot.querySelector('form input[type="checkbox"]').checked === expected,after.body.approved),'client approval lost on refresh')
       // Restore approval before further business checks, through the actual form.
       await page.click('[data-test="member-approved"]')
-      await page.click('[data-test="save-member"]')
-      await page.waitForFunction(() => document.querySelector('[data-test="extension-container"]')?.shadowRoot?.querySelector('main')?.getAttribute('aria-busy') === 'false')
+      await saveDirectoryForm('[data-test="save-member"]',memberPath)
       await afterDirectoryMutation('client approval restored')
       ensure((await request(memberPath)).body.approved === original.approved,'client approval form could not restore approved state')
       return {before:original.approved,changed:after.body.approved,refreshVerified:true,restored:true}
@@ -551,8 +635,7 @@ export async function runApplicationProjectUi(page, base, fixture, record) {
       await open(project + '/assignments/' + key(fixture.subject))
       const selector = 'form input[type="checkbox"][value=' + quote(fixture.scope) + ']'
       await page.click(selector)
-      await page.click('[data-test="save-assignment"]')
-      await page.waitForFunction(() => document.querySelector('[data-test="extension-container"]')?.shadowRoot?.querySelector('main')?.getAttribute('aria-busy') === 'false')
+      await saveDirectoryForm('[data-test="save-assignment"]',assignmentPath)
       await afterDirectoryMutation('subject scope revoked')
       const revoked = await request(assignmentPath)
       ensure(revoked.ok && !revoked.body.projectScopes.includes(fixture.scope) && revoked.body.revision > original.revision,'subject scope revocation did not persist')
@@ -560,8 +643,7 @@ export async function runApplicationProjectUi(page, base, fixture, record) {
       await stable(ui + '/extensions/rbac/' + project + '/assignments/' + key(fixture.subject))
       ensure(await page.evaluate(scope => !document.querySelector('[data-test="extension-container"]').shadowRoot.querySelector('form input[value="' + CSS.escape(scope) + '"]').checked,fixture.scope),'revoked scope was checked after refresh')
       await page.click(selector)
-      await page.click('[data-test="save-assignment"]')
-      await page.waitForFunction(() => document.querySelector('[data-test="extension-container"]')?.shadowRoot?.querySelector('main')?.getAttribute('aria-busy') === 'false')
+      await saveDirectoryForm('[data-test="save-assignment"]',assignmentPath)
       await afterDirectoryMutation('subject scope granted')
       const granted = await request(assignmentPath)
       ensure(granted.ok && granted.body.projectScopes.includes(fixture.scope),'subject grant form did not persist')
@@ -622,6 +704,7 @@ export async function runApplicationProjectUi(page, base, fixture, record) {
             search:await styles('.ks-search input',true),
             header:await styles('th',true),cell:await styles('tbody td',true)
           }
+          report.rows.at(-1).evidence = {theme,locale,computedStyles:observed,translation:{lang:state.lang,navigation:actualNavigation},references:{tab:referenceTab,button:referenceButton,search:referenceSearch,header:referenceHeader,cell:referenceCell},partial:true}
           for (const field of ['fontSize','fontWeight','radius']) ensure(observed.tab[field] === referenceTab[field],'MCP tab style mismatch: ' + field)
           for (const field of ['fontSize','radius']) ensure(observed.button[field] === referenceButton[field],'MCP button style mismatch: ' + field)
           ensure(observed.search.fontSize === referenceSearch.fontSize,'Namespaces search typography mismatch')
@@ -780,12 +863,17 @@ export async function runApplicationProjectUi(page, base, fixture, record) {
     await run('console-page-request-errors-have-explicit-sources', async () => {
       await collectDiagnostics()
       const unexpected = report.diagnostics.filter(event => !event.expected && ['console-error','page-error','request-failed','http-error'].includes(event.kind))
-      const allowed = event => report.requests.some(request => (fixture.expectedRequestErrors ?? []).some(rule => rule.case === request.case && rule.method === request.method && rule.status === request.status && rule.path === request.path && (!rule.code || rule.code === request.code)) && event.url === url(request.path) && event.status === request.status)
+      const allowed = event => {
+        if (!['http-error','console-error'].includes(event.kind) || !event.requestId) return false
+        const response = report.diagnostics.find(item => item.kind === 'http-error' && item.requestId === event.requestId && item.documentId === event.documentId && item.url === event.url && item.status === event.status)
+        if (!response) return false
+        return report.requests.some(request => request.source.documentId && request.source.documentId === event.documentId && response.method === request.method && event.url === url(request.path) && event.status === request.status && (fixture.expectedRequestErrors ?? []).some(rule => rule.case === request.case && rule.method === request.method && rule.status === request.status && rule.path === request.path && (!rule.code || rule.code === request.code)))
+      }
       const failures = unexpected.filter(event => !allowed(event))
       ensure(!failures.length,'unclassified console/page/request failures: ' + JSON.stringify(failures))
       return {events:report.diagnostics.length,explicitlyExpected:report.diagnostics.filter(event => event.expected).length,unclassified:failures.length}
     })
-    report.completed = true
+    report.completed = !diagnostic
   } catch (error) {
     report.failure = {case:activeCase,message:errorText(error)}
     throw error

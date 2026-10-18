@@ -127,7 +127,7 @@ async function applyIdentity(env,input,success=true) {
 }
 async function credentialProbe(env,handle,phase) {
   const result=await env.credentials.probe(handle,{phase})
-  const evidence=Object.fromEntries(['kind','status','observedAt','credentialSha256','authenticated','authenticationInvalidated','authenticationCheck','authorizationError','issued','issuance','sideEffectsSha256','beforeSideEffectsSha256','protocolError','paired','identity','lifetime','rotation','timing'].map(key=>[key,result[key]]))
+  const evidence=Object.fromEntries(['kind','status','observedAt','credentialSha256','authenticated','authenticationInvalidated','authenticationCheck','authorizationError','issued','issuance','sideEffectsSha256','beforeSideEffectsSha256','protocolError','paired','identity','lifetime','rotation','timing','clientId','clientPresent','backupClientPresent','createdAfterBackup','capturedClientPresent','rollbackRestored'].map(key=>[key,result[key]]))
   try {
     sha(result.credentialSha256);sha(result.sideEffectsSha256)
     assert(Number.isInteger(result.status));assert(Number.isFinite(result.observedAt))
@@ -140,7 +140,10 @@ async function credentialProbe(env,handle,phase) {
       assert(result.status<500,'service unavailability is not credential revocation')
       assert(Number.isFinite(result.timing?.firstRequestAt)&&Number.isFinite(result.timing?.serviceAvailableAt))
       assert(result.timing.firstRequestAt>=result.timing.serviceAvailableAt)
-      if(['code','refresh'].includes(result.kind)){assert.equal(result.status,400);assert.equal(result.protocolError,'invalid_grant')}
+      if(['code','refresh'].includes(result.kind)){
+        const missingClient=result.status===401&&result.protocolError==='invalid_client'&&result.clientPresent===false&&result.backupClientPresent===false&&result.capturedClientPresent===true&&result.createdAfterBackup===true&&result.rollbackRestored===true
+        assert(missingClient||(result.status===400&&result.protocolError==='invalid_grant'),'token endpoint refusal must distinguish missing post-backup client from revoked pre-existing credential')
+      }
       else {assert.equal(result.authenticationInvalidated,true);assert(result.authenticationCheck?.status===401||result.authenticationCheck?.loginRedirect===true)}
       assert.equal(result.authenticated,false);assert.equal(result.issued,false)
     }
@@ -237,14 +240,18 @@ export async function runApplicationProjectMigration(base,context,record) {
           await env.compose('stop',{release:context.release});await env.restore(backup.handle)
           await env.compose('start-legacy',{release:context.release});const restored=state(await env.snapshot());assert.deepEqual(restored,before);row.evidence.restored=restored
           row.evidence.newCredentialsAfterRestore={}
+          const credentialFailures=[]
           for(const type of kinds){
-            const observed=await credentialProbe(env,fresh[type],'after')
-            assert.equal(observed.credentialSha256,freshBefore[type].credentialSha256)
-            assert.equal(observed.sideEffectsSha256,restored.effects.sha256)
-            row.evidence.newCredentialsAfterRestore[type]={before:freshBefore[type],after:observed}
+            try {
+              const observed=await credentialProbe(env,fresh[type],'after')
+              assert.equal(observed.credentialSha256,freshBefore[type].credentialSha256)
+              assert.equal(observed.sideEffectsSha256,restored.effects.sha256)
+              row.evidence.newCredentialsAfterRestore[type]={before:freshBefore[type],after:observed,status:'passed'}
+            }catch(error){row.evidence.newCredentialsAfterRestore[type]={before:freshBefore[type],after:error.probeEvidence,status:'failed',failure:{name:error.name,message:redactFailure(error.message)}};credentialFailures.push(error)}
           }
           const allowed=await env.probeAccount('subject',{phase:'rollback'});assert.equal(allowed.status,200);row.evidence.rollbackLoginStatus=allowed.status
           assert.equal(state(await env.snapshot()).effects.sha256,restored.effects.sha256)
+          if(credentialFailures.length)throw credentialFailures[0]
         } else if(noScopeKind) {
           const accountKind=row.id==='migration-legacy-role-no-scope'?'role':'subject'
           const probe=await env.probeAccount(accountKind,{phase:'new'})
@@ -256,7 +263,7 @@ export async function runApplicationProjectMigration(base,context,record) {
         assert.equal(state(await env.snapshot()).effects.sha256,after.effects.sha256)
       }
       row.passed=true;row.status='passed'
-    } catch(error) {row.passed=false;row.status='failed';if(error.probeEvidence)row.evidence.failedCredentialProbe=error.probeEvidence;if(error.partialEvidence)row.evidence.partialDenial=error.partialEvidence;if(error.migrationManagerEvidence)row.evidence.managerProjection=error.migrationManagerEvidence;row.evidence.failure={name:error.name,message:redactFailure(error.message),locations:String(error.stack??'').split('\n').filter(line=>line.trim().startsWith('at ')).slice(0,8).map(redactFailure)}}
+    } catch(error) {row.passed=false;row.status='failed';if(error.restoreEvidence)row.evidence.restoreComparison=error.restoreEvidence;if(error.probeEvidence)row.evidence.failedCredentialProbe=error.probeEvidence;if(error.partialEvidence)row.evidence.partialDenial=error.partialEvidence;if(error.migrationManagerEvidence)row.evidence.managerProjection=error.migrationManagerEvidence;row.evidence.failure={name:error.name,message:redactFailure(error.message),locations:String(error.stack??'').split('\n').filter(line=>line.trim().startsWith('at ')).slice(0,8).map(redactFailure)}}
     finally {
       if(env)row.evidence.timeline=structuredClone(env.timeline??[])
       if(env)try {await env.assertOwned();await env.destroy()}catch {report.cleanup.push({caseId:row.id,status:'failed'})}
@@ -275,7 +282,8 @@ export async function runApplicationProjectMigration(base,context,record) {
  * 两个 jar 都从指定成功 CI 下载并验证 provenance；目标本地 host pin 由根 driver 核对。
  * 本工厂仅需 Actions read，不请求仓库 Contents read。
  * 具体适配入口由 storageMigrationCheckIds 列出；全部 14 项均有具体适配；未运行不代表通过。
- * backup()/restore() 是实际全库 pg_dump + storage tar；rollback 检查同时要求
+ * backup()/restore() 使用停止 PostgreSQL 后的完整 owned 数据卷 tar 与 storage tar，
+ * 保留逻辑 pg_dump 作为诊断证据；rollback 检查同时要求
  * 六类新凭据回退后失效和旧账号重新登录，不能仅凭备份恢复操作标为通过。
  * 返回上下文不会创建容器；create() 才为单一用例创建全新资源。
  * 每个 env 提供 backup/restore，可由后续真实旧凭据适配复用。
@@ -320,7 +328,9 @@ export async function createMigrationContext(options) {
   assert(Number.isInteger(options.port)&&options.port>1024&&options.port<65536,'explicit reserved test port required')
   const sourceFile=resolve(options.composeFile)
   assert(existsSync(sourceFile))
-  const directory=mkdtempSync(join(tmpdir(),'application-project-migration-'));chmodSync(directory,0o700)
+  const directory=options.workDirectory?resolve(options.workDirectory):mkdtempSync(join(tmpdir(),'application-project-migration-'))
+  if(options.workDirectory)mkdirSync(directory,{mode:0o700})
+  chmodSync(directory,0o700)
   // Deliberately do not inherit Compose settings, bootstrap credentials or .env.
   const processEnv=Object.fromEntries(['PATH','HOME','DOCKER_CONFIG','GH_CONFIG_DIR','GH_HOST','GH_TOKEN','GITHUB_TOKEN','TMPDIR'].filter(key=>process.env[key]!==undefined).map(key=>[key,process.env[key]]))
   const operations=[]
@@ -472,6 +482,33 @@ class MigrationReviewEvidence {
     }
     const wait=async()=>{const until=Date.now()+180000;while(Date.now()<until){try{const res=await fetch(base+'/ping',{signal:AbortSignal.timeout(2000)});await res.body?.cancel();if(res.ok)return}catch{}await new Promise(resolve=>setTimeout(resolve,500))}throw new Error('isolated host startup timeout')}
     const pg=()=>{const id=dc(['ps','-q','postgres']).stdout;assert.match(id,/^[a-f0-9]{12,64}$/);return id}
+    const postgresVolume=()=>{
+      const container=json('docker',['inspect',pg()])[0]
+      assert.equal(container.Config.Labels['com.docker.compose.project'],project)
+      const mounts=container.Mounts.filter(mount=>mount.Type==='volume')
+      assert.equal(mounts.length,1)
+      const mount=mounts[0];assert.equal(mount.Destination,'/var/lib/postgresql')
+      assert(postgres.volumes.some(volume=>config.volumes[volume.source]?.name===mount.Name&&volume.target===mount.Destination))
+      assert.equal(json('docker',['volume','inspect',mount.Name])[0].Labels['com.docker.compose.project'],project)
+      const pgdata=container.Config.Env.find(value=>value.startsWith('PGDATA='))?.slice(7)
+      assert.equal(pgdata,'/var/lib/postgresql/18/docker')
+      const image=json('docker',['image','inspect',container.Image])[0]
+      const imageDigest=image.RepoDigests.find(value=>/^postgres@sha256:[a-f0-9]{64}$/.test(value));assert(imageDigest)
+      const ownership=run('docker',['exec','--user','0:0',container.Id,'stat','-c','%u:%g:%a',pgdata])
+      return {containerId:container.Id,volume:mount.Name,mountPath:mount.Destination,pgdata,imageId:container.Image,imageDigest,ownership,project}
+    }
+    const physicalArchive=(database,args,extra={})=>{
+      assert.equal(database.project,project)
+      assert.equal(json('docker',['volume','inspect',database.volume])[0].Labels['com.docker.compose.project'],project)
+      assert.equal(run('docker',['ps','-q','--filter','volume='+database.volume]),'','physical maintenance requires every volume consumer stopped')
+      return exec('docker',['run','--rm','-i','--network','none','--user','0:0','--label','com.docker.compose.project='+project,'--mount','type=volume,source='+database.volume+',target='+database.mountPath,...args.slice(0,2),database.imageDigest,...args.slice(2)],extra)
+    }
+    const archiveDatabase=database=>physicalArchive(database,['--entrypoint','tar','--sort=name','--numeric-owner','--format=gnu','-cpf','-','-C',database.mountPath,'.'],{binary:true}).stdout
+    const startPostgres=async()=>{
+      dc(['start','postgres'])
+      const deadline=Date.now()+60000
+      for(;;){if(exec('docker',['exec',pg(),'pg_isready','-U','kestra','-d','kestra'],{allowFailure:true}).exitCode===0)return;assert(Date.now()<deadline,'restored PostgreSQL startup timeout');await new Promise(resolve=>setTimeout(resolve,500))}
+    }
     const sql=query=>run('docker',['exec',pg(),'psql','-X','-U','kestra','-d','kestra','-v','ON_ERROR_STOP=1','-Atc',query])
     const exists=table=>sql("SELECT to_regclass('public."+table+"') IS NOT NULL")==='t'
     const tableRows=table=>exists(table)?JSON.parse(sql('SELECT COALESCE(json_agg(x ORDER BY x::text),\'[]\'::json) FROM (SELECT row_to_json(t) x FROM '+table+' t) q')):[]
@@ -487,8 +524,9 @@ class MigrationReviewEvidence {
       const storageCommand=['sh','-c',"set -eu; entries=$(find /app/storage -type f ! -name .oidc-installation -exec sha256sum {} +); printf '%s\\n' \"$entries\" | LC_ALL=C sort"]
       const storage=running?run('docker',['exec','--user','0:0',running,...storageCommand]):dc(['run','--rm','-T','--no-deps','--user','0:0','--entrypoint',...storageCommand.slice(0,1),'maintenance',...storageCommand.slice(1)]).stdout
       const queue=Object.fromEntries(['queues','execution_queued'].map(table=>[table,exists(table)?sql("SELECT COALESCE(string_agg(value::text,'|' ORDER BY value::text),'') FROM "+table+" WHERE value::text LIKE '%scope.acceptance.%'"):'']))
+      const database=Object.fromEntries(['flows','executions','triggers','kv_metadata','execution_outputs'].map(table=>[table,tableRows(table)]))
       return {policyStateSha256:digest(Object.fromEntries(['rbac_policy_head','rbac_policy_snapshot','rbac_project_policy_head','rbac_project_policy_snapshot'].map(table=>[table,tableRows(table)]))),directoryStateSha256:digest(Object.fromEntries(['oidc_project_state','oidc_project_bootstrap','oidc_project_invalidation'].map(table=>[table,tableRows(table)]))),schemaSha256:digest(JSON.parse(sql("SELECT COALESCE(json_agg(t ORDER BY table_name,column_name),'[]'::json) FROM (SELECT table_name,column_name,data_type,is_nullable FROM information_schema.columns WHERE table_schema='public') t"))),legacy:policy('rbac_policy'),local:policy('rbac_project_policy'),directory:{revision:directory.reduce((sum,item)=>sum+(item.project?.revision??0),0),sha256:digest(directory)},
-        effects:{sha256:digest({database:Object.fromEntries(['flows','executions','triggers','kv_metadata','execution_outputs'].map(table=>[table,tableRows(table)])),queue,storage:bytesHash(storage)})},installation:{sha256:bytesHash(receipt)}}
+        effects:{sha256:digest({database,queue,storage:bytesHash(storage)}),sources:{database:Object.fromEntries(Object.entries(database).map(([table,rows])=>[table,{sha256:digest(rows),count:rows.length,columns:Object.fromEntries([...new Set(rows.flatMap(row=>Object.keys(row)))].sort().map(column=>[column,digest(rows.map(row=>row[column]))]))}])),queue:Object.fromEntries(Object.entries(queue).map(([table,value])=>[table,{sha256:bytesHash(value),bytes:Buffer.byteLength(value)}])),storage:{sha256:bytesHash(storage),files:storage?storage.split('\n').length:0}}},installation:{sha256:bytesHash(receipt)}}
     }
     const login=async(account=planned.admin)=>{const client=new ProductionOAuthClient(base);await client.login(account.username,account.password);return client}
     const loginIdentity=async(account,mode)=>{
@@ -525,7 +563,7 @@ class MigrationReviewEvidence {
       const result=JSON.parse(text);assert(Number.isFinite(result.createdAt)&&Number.isFinite(result.expiresAt));assert(result.expiresAt>Date.now())
       return {...result,source:'isolated-database-read-only',credentialSha256:bytesHash(secret)}
     }
-    const backups=new Map(),credentialHandles=new Map(),timeline=[]
+    const backups=new Map(),credentialHandles=new Map(),timeline=[];let activeBackupClientHashes=new Set(),rollbackRestored=false
     let activeRelease='legacy'
     const instance={base,identity,timeline,files:{write,read},cli:(name,args)=>cli(name,args),snapshot,
       verifyReview:async({review,target})=>{
@@ -596,7 +634,9 @@ class MigrationReviewEvidence {
             if(phase==='new')assert.deepEqual([...signed.projectScopes].sort(),[...projectScopes].sort())
             const paired={...exchangeReceipt,subject:signed.subject,scopes:signed.scopes};assert.equal(paired.status,200);assert.equal(paired.lifetime.inactive,true)
             
-            if(requested.includes('refresh'))put('refresh',{form:new URLSearchParams({grant_type:'refresh_token',client_id:exchange.get('client_id'),refresh_token:tokens.refresh_token,resource:exchange.get('resource')}),identity:signed,lifetime:lifetimeFromDatabase('refresh',tokens.refresh_token)})
+            const capturedClientId=exchange?.get('client_id')??registration?.clientId
+            const capturedClientPresent=capturedClientId?sql("SELECT count(*) FROM oidc_client WHERE client_id='"+capturedClientId.replaceAll("'","''")+"'")==='1':false
+            if(requested.includes('refresh'))put('refresh',{form:new URLSearchParams({grant_type:'refresh_token',client_id:exchange.get('client_id'),refresh_token:tokens.refresh_token,resource:exchange.get('resource')}),identity:signed,clientId:exchange.get('client_id'),capturedClientPresent,createdAfterBackup:phase==='new'&&capturedClientPresent,lifetime:lifetimeFromDatabase('refresh',tokens.refresh_token)})
             if(requested.includes('mcp-session')||requested.includes('access')) {
               const initialized=await client.rpc(null,'initialize',{protocolVersion:'2025-06-18',capabilities:{},clientInfo:{name:'migration-acceptance',version:'1'}},1)
               assert.equal(initialized.status,200);assert(initialized.session&&initialized.message?.result)
@@ -610,7 +650,7 @@ class MigrationReviewEvidence {
               // redirect. Do not mistake the UI JWT for the provider session.
               const response=await client.request('/oidc/login',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:new URLSearchParams({username:planned.admin.username,password:planned.admin.password,from:authorize})})
               assert.equal(response.status,303);await response.body?.cancel();assert(cookies.get('oidc_session'))
-              assert(cookieLifetimes.get('oidc_session'));put('idp-session',{cookie:cookies.get('oidc_session'),authorize,lifetime:cookieLifetimes.get('oidc_session')})
+              assert(cookieLifetimes.get('oidc_session'));put('idp-session',{cookie:cookies.get('oidc_session'),authorize,identity:signed,lifetime:cookieLifetimes.get('oidc_session')})
             }
             if(requested.includes('code')) {
               // Same client/owner/scopes/PKCE path twice. First exchange really
@@ -621,7 +661,7 @@ class MigrationReviewEvidence {
               catch(error){if(error!==stopExchange)throw error}
               assert(heldExchange?.get('code'));assert.notEqual(heldExchange.get('code'),exchange.get('code'))
               const lifetime=lifetimeFromDatabase('code',heldExchange.get('code'));assert.equal(lifetime.inactive,false)
-              put('code',{form:heldExchange,paired,unconsumed:true,lifetime})
+              put('code',{form:heldExchange,paired,unconsumed:true,clientId:heldExchange.get('client_id'),capturedClientPresent,createdAfterBackup:phase==='new'&&capturedClientPresent,lifetime})
             }
           }
           if(requested.includes('ui-cookie')){await authenticate(client);assert(cookies.get('JWT'));const signed=await verifyCredentialJwt(client,cookies.get('JWT'),'kestra-ui',phase);const cookieLifetime=cookieLifetimes.get('JWT');put('ui-cookie',{jwt:cookies.get('JWT'),identity:signed,lifetime:{createdAt:signed.createdAt,expiresAt:Math.min(signed.expiresAt,cookieLifetime?.expiresAt??signed.expiresAt),source:'verified-ui-jwt-and-cookie'}})}
@@ -667,7 +707,16 @@ class MigrationReviewEvidence {
             return fetch(new URL(path,base),{redirect:'manual',signal:AbortSignal.timeout(15000),...options})
           }
           if(credential.kind==='ui-cookie')response=await send('/api/v1/main/flows/search?namespace=scope.acceptance.a',{headers:{Cookie:'JWT='+credential.jwt}})
-          else if(credential.kind==='idp-session')response=await send(credential.authorize,{headers:{Cookie:'oidc_session='+credential.cookie}})
+          else if(credential.kind==='idp-session'){
+            let authorize=credential.authorize
+            if(phase==='after'&&activeRelease==='legacy'&&credential.identity?.project){
+              const fresh=new ProductionOAuthClient(base),entry=await fresh.request('/oauth/login/kestra')
+              assert.equal(entry.status,302)
+              const location=new URL(entry.headers.get('location'),base);assert.equal(location.origin,base);assert.equal(location.pathname,'/oidc/authorize');assert.equal(location.searchParams.get('client_id'),'kestra-ui')
+              authorize=location.toString();await entry.body?.cancel()
+            }
+            response=await send(authorize,{headers:{Cookie:'oidc_session='+credential.cookie}})
+          }
           else if(['access','mcp-session'].includes(credential.kind)) {
             response=await send(resource,{method:'POST',headers:{Authorization:'Bearer '+credential.access,'Content-Type':'application/json',Accept:'application/json, text/event-stream',...(credential.session?{'Mcp-Session-Id':credential.session,'MCP-Protocol-Version':'2025-06-18'}:{})},body:JSON.stringify({jsonrpc:'2.0',id:77,method:'tools/list'})})
           } else {
@@ -750,7 +799,10 @@ class MigrationReviewEvidence {
               if(phase==='before')assert(consent,'provider cookie must reach actual consent')
               issuance.consent=consent;issued=issued||(phase==='after'&&consent)
             } else await response.body?.cancel()
-            if(['code','refresh'].includes(credential.kind))authenticated=denied?false:response.ok?true:null
+            if(['code','refresh'].includes(credential.kind)){
+              const missingClient=response.status===401&&protocolError==='invalid_client'&&credential.clientId&&credential.capturedClientPresent===true&&credential.createdAfterBackup===true&&rollbackRestored
+              authenticated=denied||missingClient?false:response.ok?true:null
+            }
             else authenticated=authenticationCheck.status===401||authenticationCheck.loginRedirect?false:authenticationCheck.status>=200&&authenticationCheck.status<300?true:null
             denied=denied||status===403
           }
@@ -760,7 +812,9 @@ class MigrationReviewEvidence {
           const secret=credential.jwt??credential.cookie??credential.form?.get(credential.kind==='code'?'code':'refresh_token')??(credential.kind==='mcp-session'?credential.access+'\n'+credential.session:credential.access)
           const authenticationInvalidated=!['code','refresh'].includes(credential.kind)&&Boolean(authenticationCheck?.status===401||authenticationCheck?.loginRedirect)
           const timing={maintenanceStoppedAt:stopped?.at??null,offlineMaintenanceMs:available&&stopped?available.at-stopped.at:null,firstRequestAt:firstRequestAt??null,serviceAvailableAt:available?.at??null,identityApplyCompletedAt:applied?.at??null,msSinceIdentityApplyCompletion:firstRequestAt!==undefined&&applied?firstRequestAt-applied.at:null,msSinceServiceAvailable:firstRequestAt!==undefined&&available?firstRequestAt-available.at:null,mode:'offline-maintenance',onlineRevocationDeadlineClaimed:false}
-          return {kind:credential.kind,status,observedAt,timing,authenticationCheck,authenticationInvalidated,issuance,lifetime:{...credential.lifetime,baselineAt:credential.baselineAt},...(credential.rotation?{rotation:credential.rotation}:{}),credentialSha256:bytesHash(secret),authenticated,authorizationError:denied,issued,sideEffectsSha256:after,beforeSideEffectsSha256:before,...(protocolError?{protocolError}:{}),...(paired?{paired}:{}),...(credential.identity?{identity:credential.identity}:{})}
+          const clientPresent=credential.clientId?sql("SELECT count(*) FROM oidc_client WHERE client_id='"+credential.clientId.replaceAll("'","''")+"'")==='1':undefined
+          const clientHash=credential.clientId?bytesHash(credential.clientId):undefined,backupClientPresent=clientHash?activeBackupClientHashes.has(clientHash):undefined
+          return {kind:credential.kind,status,observedAt,timing,authenticationCheck,authenticationInvalidated,issuance,lifetime:{...credential.lifetime,baselineAt:credential.baselineAt},...(credential.rotation?{rotation:credential.rotation}:{}),...(credential.clientId?{clientId:credential.clientId,createdAfterBackup:credential.createdAfterBackup,capturedClientPresent:credential.capturedClientPresent,clientPresent,backupClientPresent,rollbackRestored}:{}),credentialSha256:bytesHash(secret),authenticated,authorizationError:denied,issued,sideEffectsSha256:after,beforeSideEffectsSha256:before,...(protocolError?{protocolError}:{}),...(paired?{paired}:{}),...(credential.identity?{identity:credential.identity}:{})}
         },
       },
       assertOwned:async()=>inspect(),
@@ -784,26 +838,48 @@ class MigrationReviewEvidence {
       },
       backup:async()=>{
         inspect();assert(!dc(['ps','--status','running','-q','kestra']).stdout,'stop JVM before consistent backup')
+        const startedAt=Date.now(),observations=[]
+        let before=await snapshot(),stableAt=Date.now()
+        observations.push({at:Date.now(),effects:before.effects})
+        for(;;){await new Promise(resolve=>setTimeout(resolve,500));const next=await snapshot();observations.push({at:Date.now(),effects:next.effects});if(next.effects.sha256!==before.effects.sha256){before=next;stableAt=Date.now()}else assert.deepEqual(next,before,'stopped backup source changed outside business state');if(Date.now()-stableAt>=5000)break;assert(Date.now()-startedAt<60000,'stopped backup source did not become stable')}
+        timeline.push({event:'backup-source-stable',at:Date.now(),observations})
+        assert(!dc(['ps','--status','running','-q','kestra']).stdout)
         const database=exec('docker',['exec',pg(),'pg_dump','-U','kestra','-d','kestra','-Fc'],{binary:true}).stdout
+        timeline.push({event:'backup-database-archived',at:Date.now(),sha256:bytesHash(database)})
+        const physical=postgresVolume();physical.serverVersion=sql('SHOW server_version');assert.match(physical.serverVersion,/^18[.]/)
+        const backupClientRows=JSON.parse(sql("SELECT COALESCE(json_agg(client_id ORDER BY client_id),'[]'::json) FROM oidc_client"));activeBackupClientHashes=new Set(backupClientRows.map(value=>bytesHash(value)));physical.backupClientHashes=[...activeBackupClientHashes].sort()
+        assert.equal(sql('SHOW data_directory'),physical.pgdata)
+        dc(['stop','postgres']);timeline.push({event:'backup-postgres-stopped',at:Date.now(),...physical})
+        const pgdata=archiveDatabase(physical)
+        timeline.push({event:'backup-physical-database-archived',at:Date.now(),sha256:bytesHash(pgdata),...physical})
         const storage=dc(['run','--rm','-T','--no-deps','--entrypoint','tar','maintenance','-cf','-','-C','/app/storage','.'],{binary:true}).stdout
-        const before=await snapshot(),handle=randomBytes(16).toString('hex')
-        const dbFile=join(work,handle+'.dump'),storageFile=join(work,handle+'.tar');writeFileSync(dbFile,database,{mode:0o600});writeFileSync(storageFile,storage,{mode:0o600})
-        backups.set(handle,{dbFile,storageFile,before,databaseHash:bytesHash(database),storageHash:bytesHash(storage)})
-        return {handle,policySha256:before.legacy.sha256,identitySha256:bytesHash(database),installationSha256:before.installation.sha256,archiveSha256:bytesHash(storage)}
+        timeline.push({event:'backup-storage-archived',at:Date.now(),sha256:bytesHash(storage)})
+        await startPostgres()
+        const after=await snapshot();assert.deepEqual(after,before,'backup source changed during pg_dump/tar')
+        timeline.push({event:'backup-source-confirmed',at:Date.now(),before,after,backupClientHashes:physical.backupClientHashes})
+        const handle=randomBytes(16).toString('hex')
+        const dbFile=join(work,handle+'.dump'),pgdataFile=join(work,handle+'.pgdata.tar'),storageFile=join(work,handle+'.tar');writeFileSync(dbFile,database,{mode:0o600});writeFileSync(pgdataFile,pgdata,{mode:0o600});writeFileSync(storageFile,storage,{mode:0o600})
+        backups.set(handle,{dbFile,pgdataFile,physical,storageFile,before,databaseHash:bytesHash(database),pgdataHash:bytesHash(pgdata),storageHash:bytesHash(storage)})
+        return {handle,policySha256:before.legacy.sha256,identitySha256:bytesHash(pgdata),installationSha256:before.installation.sha256,archiveSha256:bytesHash(storage)}
       },
       restore:async handle=>{
         inspect();assert(!dc(['ps','--status','running','-q','kestra']).stdout)
         const saved=backups.get(handle);assert(saved,'only own backup handles accepted')
         timeline.push({event:'backup-restore-started',at:Date.now()})
-        const database=readFileSync(saved.dbFile),storage=readFileSync(saved.storageFile)
-        assert.equal(bytesHash(database),saved.databaseHash);assert.equal(bytesHash(storage),saved.storageHash)
-        run('docker',['exec',pg(),'psql','-X','-U','kestra','-d','postgres','-v','ON_ERROR_STOP=1','-c','DROP DATABASE kestra WITH (FORCE)'])
-        run('docker',['exec',pg(),'createdb','-U','kestra','kestra'])
-        exec('docker',['exec','-i',pg(),'pg_restore','-U','kestra','-d','kestra','--exit-on-error'],{input:database})
+        const database=readFileSync(saved.dbFile),pgdata=readFileSync(saved.pgdataFile),storage=readFileSync(saved.storageFile)
+        assert.equal(bytesHash(database),saved.databaseHash);assert.equal(bytesHash(pgdata),saved.pgdataHash);assert.equal(bytesHash(storage),saved.storageHash)
+        const physical=postgresVolume();assert.deepEqual(physical,Object.fromEntries(Object.entries(saved.physical).filter(([key])=>!['serverVersion','backupClientHashes'].includes(key))))
+        assert.equal(sql('SHOW server_version'),saved.physical.serverVersion)
+        dc(['stop','postgres']);timeline.push({event:'restore-postgres-stopped',at:Date.now(),...physical})
+        physicalArchive(physical,['--entrypoint','sh','-c','set -eu; find /var/lib/postgresql -mindepth 1 -delete; tar --numeric-owner -xpf - -C /var/lib/postgresql'],{input:pgdata})
+        assert.equal(bytesHash(archiveDatabase(physical)),saved.pgdataHash,'restored physical archive must preserve every file and tar metadata')
+        timeline.push({event:'restore-physical-database-verified',at:Date.now(),sha256:saved.pgdataHash,...physical})
         dc(['run','--rm','-T','--no-deps','--entrypoint','find','maintenance','/app/storage','-mindepth','1','-delete'])
         dc(['run','--rm','-T','--no-deps','--entrypoint','tar','maintenance','-xf','-','-C','/app/storage'],{input:storage})
-        assert.deepEqual(await snapshot(),saved.before)
-        timeline.push({event:'backup-restore-completed',at:Date.now()})
+        await startPostgres()
+        const restored=await snapshot()
+        try {assert.deepEqual(restored,saved.before)}catch(error){error.restoreEvidence={before:saved.before,after:restored};throw error}
+        rollbackRestored=true;timeline.push({event:'backup-restore-completed',at:Date.now(),backupClientHashes:[...activeBackupClientHashes].sort()})
       },
       advanceLegacyRevision:async()=>{
         const client=await login(),root='/api/v1/main/extensions/rbac',response=await client.request(root+'/policy');assert.equal(response.status,200);const policy=await response.json()

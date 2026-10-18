@@ -265,6 +265,7 @@ export const mcpProtocolEvidence=Object.freeze({
   arguments:'webserver/src/main/java/io/kestra/mcp/McpToolService.java: buildCallHandler matches argument keys to flow input IDs',
   rpcDenial:{code:-32003,message:'Authorization denied'},
   toolDenial:{isError:true,content:[{type:'text',text:'Not permitted to execute this tool'}]},
+  missingProviderFailure:{isError:true,content:[{type:'text',text:'Failed to execute flow'}]},
 })
 export function planMcpScenarios() {
   // Independent complete scopes are explicitly registered by the shared test
@@ -275,7 +276,7 @@ export function planMcpScenarios() {
   const tools=['acceptance-mcp-allowed','acceptance-mcp-local','acceptance-mcp-directory','acceptance-mcp-subject']
   const scopes={allowed:[scopeNames.writeB],capabilityOnly:[],projectOnly:[scopeNames.writeB],knownUnbound:[scopeNames.writeB,scopeNames.unbound],localRevoke:[revocationScopes.localRevoke],directoryRevoke:[revocationScopes.directoryRevoke],subjectRevoke:[revocationScopes.subjectRevoke]}
   const scenarios=Object.fromEntries(mcpScenarioNames.map(name=>[name,{projectScopes:scopes[name],protocolScopes:name==='projectOnly'?['openid']:[...mcpRegisteredProtocolScopes],expectedTools:name==='allowed'?tools:name==='capabilityOnly'||name==='projectOnly'||name==='knownUnbound'?[]:['acceptance-'+target[name]],
-    call:{name:'acceptance-'+target[name],arguments:{marker:'mcp-acceptance-marker'},namespace:namespaceDomains.b,flowId:target[name],executionIdPath:'result.structuredContent.executionId',expectedExecutionFields:{'inputs.marker':'mcp-acceptance-marker','outputs.marker':'mcp-acceptance-marker','state.current':'SUCCESS'}}}]))
+    call:{name:'acceptance-'+target[name],arguments:{marker:'mcp-acceptance-marker'},namespace:namespaceDomains.b,flowId:target[name],executionIdPath:'result.structuredContent.executionId',expectedExecutionFields:{'inputs.marker':'mcp-acceptance-marker','state.current':'SUCCESS'},expectedOutputs:{marker:'mcp-acceptance-marker'}}}]))
   const seeds=['allowed','localRevoke','directoryRevoke','subjectRevoke'].map(name=>({namespace:namespaceDomains.b,id:target[name],toolName:scenarios[name].call.name,source:mcpFlowSource(namespaceDomains.b,target[name],scenarios[name].call.name)}))
   return {scenarios,seeds,revocationScopes}
 }
@@ -388,7 +389,7 @@ export async function provisionMcpFixture({planned,management,effects,observer,r
       assert(postgres,'explicit own PostgreSQL container ID required')
       const label=execFileSync('docker',['inspect','-f','{{index .Config.Labels "com.docker.compose.project"}}',postgres],{encoding:'utf8'}).trim()
       assert.equal(label,observer.composeProject)
-      const sql=`SELECT json_build_object('id',value->>'id','namespace',value->>'namespace','flowId',value->>'flowId','state',value->'state'->>'current')::text FROM executions WHERE value->>'id'='${id}' AND value->>'namespace'='${namespace}' AND value->>'flowId'='${flowId}'`
+      const sql=`SELECT json_build_object('id',value->>'id','namespace',value->>'namespace','flowId',value->>'flowId','state',value->'state'->>'current','outputsStored',EXISTS(SELECT 1 FROM execution_outputs WHERE key='${id}' AND tenant_id='main' AND (octet_length(value)>0 OR length(uri)>0)))::text FROM executions WHERE value->>'id'='${id}' AND value->>'namespace'='${namespace}' AND value->>'flowId'='${flowId}'`
       return JSON.parse(execFileSync('docker',['exec',postgres,'psql','-X','-U','kestra','-d','kestra','-v','ON_ERROR_STOP=1','-Atc',sql],{encoding:'utf8'}).trim())
     }}
 }

@@ -89,6 +89,7 @@ export async function main(argv=process.argv.slice(2),runtime={}) {
     try{row.evidence=await operation();row.status='passed'}catch(error){row.status='failed';row.error=error.stdout!==undefined||error.stderr!==undefined?'command failed ('+(error.code??error.status??'unknown')+'); raw credential-bearing process output is not retained':String(error.message);throw error}finally{row.finishedAt=new Date().toISOString();await persist()}
   }
   await persist()
+  console.log(JSON.stringify({report:reportPath,completed:false,phase:'started'}))
   try {
     await stage('source-inputs',async()=>{
       const roots={root:resolve(options['--root']??repository),overlay:resolve(options['--overlay']??join(repository,'kestra-overlay')),plugin:resolve(options['--plugin']??join(repository,'kestra-plugin-rbac'))}
@@ -149,7 +150,7 @@ export async function main(argv=process.argv.slice(2),runtime={}) {
       host.volumes.push({type:'bind',source:options.jar,target:'/app/libs/kestra-rbac-authorizer.jar',read_only:true})
       host.environment.KESTRA_CONFIGURATION=host.environment.KESTRA_CONFIGURATION.replaceAll('http://localhost:8080',base).replaceAll('url: '+base+'/oidc/token','url: http://localhost:8080/oidc/token').replaceAll('jwks-uri: '+base+'/oidc/jwks','jwks-uri: http://localhost:8080/oidc/jwks')
       host.environment.KESTRA_CONFIGURATION=applicationProjectFeature(host.environment.KESTRA_CONFIGURATION,false)
-      Object.assign(host.environment,{RBAC_POLICY_JDBC_URL:'jdbc:postgresql://postgres:5432/kestra',RBAC_POLICY_JDBC_USER:'kestra',RBAC_POLICY_JDBC_PASSWORD:env.POSTGRES_PASSWORD,RBAC_POLICY_OPERATOR_SUBJECT:planned.admin.subject})
+      Object.assign(host.environment,{KESTRA_OIDC_REGISTRATION_PENDING_TTL_MINUTES:'120',RBAC_POLICY_JDBC_URL:'jdbc:postgresql://postgres:5432/kestra',RBAC_POLICY_JDBC_USER:'kestra',RBAC_POLICY_JDBC_PASSWORD:env.POSTGRES_PASSWORD,RBAC_POLICY_OPERATOR_SUBJECT:planned.admin.subject})
       composeConfig=config;composeEnvironment=env
       const compose=join(output,'compose.json');saveCompose()
       command('docker',['compose','--env-file','/dev/null','-p',project,'-f',compose,'config','--quiet'],{env})
@@ -365,7 +366,7 @@ export async function main(argv=process.argv.slice(2),runtime={}) {
       report.fragments.missingExtensionRest={readStatus:403,writeStatus:deniedWrite.response.status,sideEffects:deniedWrite.observation,image:report.inputs.image,jarAbsent:true}
       await persist()
       return {base:missingBase,account:missingPlan.admin,scenario:{...missingPlan.mcp.scenarios.allowed,expectedTools:[seed.toolName]},expectedUiAudience:'kestra-ui',effects:observed,denialErrors:[mcpProtocolEvidence.rpcDenial],denialToolCodes:[],denialToolResults:[mcpProtocolEvidence.toolDenial],
-        registeredClient:registration,
+        registeredClient:registration,componentAbsence:report.resources.missingExtension.finalRuntime,componentFailureToolResult:mcpProtocolEvidence.missingProviderFailure,
         management:async()=>{throw new Error('Unexpected new DCR approval in pre-registered missing-extension mode; final service has no management extension')},
         databaseExecution:async()=>{throw new Error('Missing-extension tools must never create an execution')}}
     }
