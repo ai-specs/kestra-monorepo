@@ -13,7 +13,7 @@
  * --run starts only after immutable image promotion and artifact download gates.
  */
 import assert from 'node:assert/strict'
-import {execFileSync} from 'node:child_process'
+import {execFileSync,spawnSync} from 'node:child_process'
 import {createHash,randomBytes} from 'node:crypto'
 import {mkdtempSync,writeFileSync,renameSync,readFileSync,statSync,realpathSync,mkdirSync,readdirSync,appendFileSync,existsSync} from 'node:fs'
 import {tmpdir} from 'node:os'
@@ -457,6 +457,8 @@ export async function main(argv=process.argv.slice(2),runtime={}) {
         const ownIds=compose('ps','-a','-q').split('\n').filter(Boolean)
         if(ownIds.length)report.resources.containersCreated=true
         for(const id of ownIds)assert.equal(command('docker',['inspect','-f','{{index .Config.Labels "com.docker.compose.project"}}',id]),project)
+        const host=compose('ps','-a','-q','kestra')
+        if(host){const logs=spawnSync('docker',['logs',host],{encoding:'utf8',timeout:20000,maxBuffer:16*1024*1024});assert.equal(logs.status,0,'owned host diagnostic collection failed');report.fragments.hostMcpDiagnostics=(logs.stdout+logs.stderr).split('\n').filter(line=>line.includes('MCP_TOOL_CALL_FAILED exception=')).map(line=>line.slice(line.indexOf('MCP_TOOL_CALL_FAILED exception=')))}
         compose('down','--volumes')
         report.resources.cleaned=true
       }catch(error){report.resources.cleaned=false;report.resources.cleanupError='own Compose cleanup failed';report.stages.push({id:'cleanup',status:'failed',error:'own Compose resources require inspection'});process.exitCode=1}
