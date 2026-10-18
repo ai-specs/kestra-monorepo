@@ -50,7 +50,7 @@ export async function main(argv=process.argv.slice(2),runtime={}) {
   const project='application-projects-bb-'+Date.now()+'-'+process.pid
   const hash=bytes=>createHash('sha256').update(bytes).digest('hex')
   const command=(program,args,extra={})=>{
-    try{return execFileSync(program,args,{encoding:'utf8',timeout:60000,maxBuffer:32*1024*1024,stdio:['ignore','pipe','pipe'],...extra}).trim()}
+    try{return execFileSync(program,args,{encoding:'utf8',timeout:60000,maxBuffer:32*1024*1024,stdio:['ignore','pipe','pipe'],env:{...process.env,PATH:process.env.PATH??'/opt/homebrew/opt/node@24/bin:/usr/local/bin:/usr/bin:/bin'},...extra}).trim()}
     catch(error){
       const redact=text=>String(text??'').split('\n').map(line=>/token|password|secret|cookie|authorization|Bearer|eyJ[A-Za-z0-9_-]+\.|[?&](?:state|code)=/i.test(line)?'[credential-bearing line redacted]':line).join('\n')
       appendFileSync(join(output,'command-failures.log'),JSON.stringify({program,args,status:error.status,code:error.code,stdout:redact(error.stdout),stderr:redact(error.stderr)})+'\n',{mode:0o600})
