@@ -76,7 +76,7 @@ application-projects；UI 的 selector 只用于已批准的第一方成员。
 这些命令使用已发布镜像，不编译插件 jar，也不构建 overlay 镜像。
 
 真实组合验收使用新建的独立 Compose 项目、测试账号和测试数据，不使用用户部署卷。
-需要 Docker Compose 2.24.4+、Node.js 24、Python 3、GitHub CLI、私有包读取权限，以及
+需要 Docker Compose 2.24.4+、JDK 25、Node.js 24、Python 3、GitHub CLI、私有包读取权限，以及
 本地 ego-browser 或 CI Playwright。`scripts/blackbox-application-projects.sh` 的正式入口
 核对三个仓库的干净提交、宿主成功发布门和插件实际下载产物。发布证据 JSON 的字段为
 `overlayRunId`、`pluginRunId`、`pluginArtifactId`，值必须来自对应提交的真实成功 run。
