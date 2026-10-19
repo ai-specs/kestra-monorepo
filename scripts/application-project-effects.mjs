@@ -40,6 +40,22 @@ export class ProjectSideEffects {
     const sources = {database: hash(database), queue: hash(queue), storage: hash(storage)}
     return {hash: hash(JSON.stringify(sources)), sources}
   }
+  async waitForStable({windowMs = 5000, timeoutMs = 60000, intervalMs = 250} = {}) {
+    assert(windowMs >= 5000 && timeoutMs >= windowMs && timeoutMs <= 60000)
+    const started = performance.now()
+    let stableSince = started
+    let previous = this.snapshot()
+    const samples = []
+    while (performance.now() - stableSince < windowMs) {
+      assert(performance.now() - started < timeoutMs, 'Allowed operation effects did not become stable within deadline')
+      await wait(intervalMs)
+      const current = this.snapshot()
+      samples.push({elapsedMs: Math.ceil(performance.now() - started), ...current})
+      if (current.hash !== previous.hash) stableSince = performance.now()
+      previous = current
+    }
+    return {windowMs, timeoutMs, samples}
+  }
   async observeDenied(action, verifyResponse, {windowMs = 5000, intervalMs = 250} = {}) {
     assert(windowMs >= 5000 && intervalMs > 0 && intervalMs <= 1000)
     const before = this.snapshot()
