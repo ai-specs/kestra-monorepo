@@ -430,6 +430,13 @@ export async function main(argv=process.argv.slice(2),runtime={}) {
     })
     await stage('shared-rest-mcp-ui-fragments',async()=>{
       if(runtime.inspectFixture){assert.equal(report.nonFinal,true,'fixture inspection is development only');await runtime.inspectFixture({base:planned.base,fixture,planned,report})}
+      if(!compose('ps','--status','running','-q','kestra')){
+        compose('up','-d','kestra');
+        await waitForHost();
+        report.fragments.integrationDeploymentRestart={status:'passed',reason:'main host stopped after migration before MCP/UI integration',restarted:true,image:report.inputs.image};
+        report.resources.containerIds.kestra=compose('ps','-q','kestra');
+        await persist()
+      }
       await runIntegration(report.resources.base,fixture,null,report,persist)
       assert.equal(report.fragments.rest?.completed,true,'REST matrix did not complete successfully')
       assert.equal(report.fragments.mcp?.completed,true,'MCP checks did not complete successfully; inspect preserved fragment')
