@@ -359,7 +359,10 @@ export async function runApplicationProjectUi(page, base, fixture, record) {
       await page.fill('[name="reconciliation-directory-revision"]',String(directoryRevision))
       await page.click('[data-test="approve-project-reconciliation"]')
       await page.click('[data-test="save-project-reconciliation"]')
-      await page.waitForFunction(() => document.querySelector('[data-test="extension-container"]')?.shadowRoot?.querySelector('main')?.getAttribute('aria-busy') === 'false')
+      await page.waitForFunction(() => {
+        if (location.pathname === String.raw`C:\workspace\files\ui\access-denied`) return true
+        return document.querySelector('[data-test="extension-container"]')?.shadowRoot?.querySelector('main')?.getAttribute('aria-busy') === 'false'
+      })
       const confirmed = await readPolicy()
       const saved = confirmed.policy.applicationProjects[fixture.projectId]
       ensure(confirmed.revision > policyRevision && saved.directoryRevision === directoryRevision,'atomic recovery did not save the global and latest directory revisions')

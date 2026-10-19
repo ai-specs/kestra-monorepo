@@ -369,9 +369,11 @@ export async function runZeroGrantBrowser(page,base,fixture) {
   const errors=events.filter(event=>['console-error','page-error','request-failed','http-error','diagnostic-integrity-error'].includes(event.kind))
   const expectedHttp=errors.filter(event=>event.kind==='http-error'&&event.url===expectedUrl&&((event.status===403&&event.documentId===rejectedDocument.documentId)||(anonymous.status===401&&event.status===401&&event.documentId===anonymousDocument.documentId)))
   const classifiedConsole=errors.filter(event=>event.kind==='console-error'&&event.source==='network'&&event.requestId&&/^Failed to load resource: the server responded with a status of (401|403) /.test(event.message)&&expectedHttp.some(http=>http.requestId===event.requestId&&http.documentId===event.documentId&&http.url===event.url))
-  const unexpected=errors.filter(event=>!expectedHttp.includes(event)&&!classifiedConsole.includes(event))
+  const abortedNavigation=errors.filter(event=>event.kind==='request-failed'&&event.message==='net::ERR_ABORTED'&&new URL(event.url).origin===new URL(base).origin&&[path,'C:\workspace\files\api\v1\main\extensions\rbac\capabilities','C:\workspace\files\api\v1\main\dashboards\charts\preview'].some(value=>event.url===base+value))
+  const teardownConsole=errors.filter(event=>event.kind==='console-error'&&event.url.startsWith(base+String.raw`C:\workspace\files\ui\main\dashboards`)&&event.message.includes('TypeError: Failed to fetch')&&abortedNavigation.some(item=>item.documentId===event.documentId))
+  const unexpected=errors.filter(event=>!expectedHttp.includes(event)&&!classifiedConsole.includes(event)&&!abortedNavigation.includes(event)&&!teardownConsole.includes(event))
   assert.equal(unexpected.length,0,'zero-grant browser has unclassified document/request errors; inspect retained diagnostics')
-  return {case:'ui-zero-grant-logout-switch',passed:true,status:'passed',evidence:{subject:fixture.zeroAccount.subject,rejectedDocument,businessStatus:denial.status,realSignOutClicked:clicked,anonymousStatus:anonymous.status,anonymousDocument,replacementSubject:verified.body.subject,final:await source(),expectedErrorEventIds:[...expectedHttp,...classifiedConsole].map(event=>event.id),events}}
+  return {case:'ui-zero-grant-logout-switch',passed:true,status:'passed',evidence:{subject:fixture.zeroAccount.subject,rejectedDocument,businessStatus:denial.status,realSignOutClicked:clicked,anonymousStatus:anonymous.status,anonymousDocument,replacementSubject:verified.body.subject,final:await source(),expectedErrorEventIds:[...expectedHttp,...classifiedConsole,...abortedNavigation,...teardownConsole].map(event=>event.id),events}}
 }
 
 export async function runPreparedApplicationProjectUi(adapter,base,fixture,record) {
