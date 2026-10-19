@@ -288,7 +288,12 @@ export async function createPlaywrightApplicationProjectAdapter(page,options) {
   assert(options && isAbsolute(options.artifactDirectory ?? ''),'artifactDirectory must be an explicit absolute path')
   const session = await page.context().newCDPSession(page)
   const listeners = []
-  const target = selector => page.locator(selector) // strict actions: never first()/nth()
+  const target = selector => {
+    const match = selector.match(/^(.*):text-is\(("(?:[^"\\]|\\.)*")\)$/)
+    if (!match) return page.locator(selector)
+    const text = JSON.parse(match[2]).trim().split(/\s+/).map(part => part.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')).join('\\s+')
+    return page.locator(match[1]).filter({hasText:new RegExp('^\\s*' + text + '\\s*$')})
+  }
   return makeAdapter(page,{
     send:(method,params) => session.send(method,params),
     async attach(receive) {for (const method of PROTOCOL_EVENTS) {const listener = params => receive(method,params); listeners.push([method,listener]); session.on(method,listener)}},

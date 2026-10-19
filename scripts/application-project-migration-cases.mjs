@@ -511,21 +511,37 @@ class MigrationReviewEvidence {
     }
     const sql=query=>run('docker',['exec',pg(),'psql','-X','-U','kestra','-d','kestra','-v','ON_ERROR_STOP=1','-Atc',query])
     const exists=table=>sql("SELECT to_regclass('public."+table+"') IS NOT NULL")==='t'
-    const tableRows=table=>exists(table)?JSON.parse(sql('SELECT COALESCE(json_agg(x ORDER BY x::text),\'[]\'::json) FROM (SELECT row_to_json(t) x FROM '+table+' t) q')):[]
     const cli=(name,args,{legacy=false}={})=>{inspect();return dc(['run','--rm','-T','--no-deps','--user','0:0','--entrypoint','java',legacy?'kestra':'maintenance','-cp','/app/kestra:/app/libs/kestra-rbac-authorizer.jar',name,...args],{allowFailure:true})}
     const write=(name,value)=>{assert.equal(basename(name),name);const destination=join(work,name);if(value===null){assert(!existsSync(destination));return '/work/'+name}writeFileSync(destination,JSON.stringify(value)+'\n',{mode:0o600});return '/work/'+name}
     const read=path=>{assert(path.startsWith('/work/')&&basename(path)===path.slice(6));return JSON.parse(readFileSync(join(work,basename(path)),'utf8'))}
     const snapshot=async()=>{
       inspect()
-      const policy=prefix=>{if(!exists(prefix+'_head'))return {revision:0,sha256:bytesHash('')};const revision=Number(sql('SELECT revision FROM '+prefix+'_head WHERE policy_id=1'));const encoded=revision?sql("SELECT encode(convert_to(document_json,'UTF8'),'base64') FROM "+prefix+'_snapshot WHERE revision='+revision):'';return {revision,sha256:bytesHash(Buffer.from(encoded.replace(/\s/g,''),'base64'))}}
-      const directory=tableRows('oidc_project_state').map(row=>JSON.parse(row.document_json))
+      const tables=['flows','executions','triggers','kv_metadata','execution_outputs','rbac_policy_head','rbac_policy_snapshot','rbac_project_policy_head','rbac_project_policy_snapshot','oidc_project_state','oidc_project_bootstrap','oidc_project_invalidation']
+      const sampled=JSON.parse(run('docker',['exec',pg(),'psql','-X','-q','-U','kestra','-d','kestra','-v','ON_ERROR_STOP=1','-Atc',`BEGIN ISOLATION LEVEL REPEATABLE READ;
+CREATE TEMP TABLE observed_snapshot (name text PRIMARY KEY, payload json) ON COMMIT DROP;
+DO $snapshot$ DECLARE observed_table text; observed_json json; BEGIN
+FOREACH observed_table IN ARRAY ARRAY[${tables.map(table=>"'"+table+"'").join(',')}] LOOP
+IF to_regclass('public.' || observed_table) IS NULL THEN observed_json := '[]'::json;
+ELSE EXECUTE format('SELECT COALESCE(json_agg(x ORDER BY x::text), ''[]''::json) FROM (SELECT row_to_json(t) x FROM %I t) q', observed_table) INTO observed_json; END IF;
+INSERT INTO observed_snapshot VALUES (observed_table, observed_json);
+END LOOP;
+FOREACH observed_table IN ARRAY ARRAY['queues','execution_queued'] LOOP
+IF to_regclass('public.' || observed_table) IS NULL THEN observed_json := to_json(''::text);
+ELSE EXECUTE format('SELECT to_json(COALESCE(string_agg(value::text,''|'' ORDER BY value::text),'''')) FROM %I WHERE value::text LIKE %L', observed_table, '%scope.acceptance.%') INTO observed_json; END IF;
+INSERT INTO observed_snapshot VALUES (observed_table, observed_json);
+END LOOP; END $snapshot$;
+SELECT json_build_object('tables',(SELECT json_object_agg(name,payload) FROM observed_snapshot),'schema',(SELECT COALESCE(json_agg(t ORDER BY table_name,column_name),'[]'::json) FROM (SELECT table_name,column_name,data_type,is_nullable FROM information_schema.columns WHERE table_schema='public') t));
+COMMIT;`]))
+      const rows=table=>sampled.tables[table]
+      const policy=prefix=>{const revision=Number(rows(prefix+'_head').find(row=>Number(row.policy_id)===1)?.revision??0);const stored=revision?rows(prefix+'_snapshot').find(row=>Number(row.revision)===revision):null;if(revision)assert.equal(typeof stored?.document_json,'string','policy head requires its stored snapshot');return {revision,sha256:bytesHash(stored?.document_json??'')}}
+      const directory=rows('oidc_project_state').map(row=>JSON.parse(row.document_json))
       const receipt=dc(['run','--rm','-T','--no-deps','--entrypoint','cat','maintenance','/app/storage/.oidc-installation']).stdout
       const running=dc(['ps','--status','running','-q','kestra']).stdout
       const storageCommand=['sh','-c',"set -eu; entries=$(find /app/storage -type f ! -name .oidc-installation -exec sha256sum {} +); printf '%s\\n' \"$entries\" | LC_ALL=C sort"]
       const storage=running?run('docker',['exec','--user','0:0',running,...storageCommand]):dc(['run','--rm','-T','--no-deps','--user','0:0','--entrypoint',...storageCommand.slice(0,1),'maintenance',...storageCommand.slice(1)]).stdout
-      const queue=Object.fromEntries(['queues','execution_queued'].map(table=>[table,exists(table)?sql("SELECT COALESCE(string_agg(value::text,'|' ORDER BY value::text),'') FROM "+table+" WHERE value::text LIKE '%scope.acceptance.%'"):'']))
-      const database=Object.fromEntries(['flows','executions','triggers','kv_metadata','execution_outputs'].map(table=>[table,tableRows(table)]))
-      return {policyStateSha256:digest(Object.fromEntries(['rbac_policy_head','rbac_policy_snapshot','rbac_project_policy_head','rbac_project_policy_snapshot'].map(table=>[table,tableRows(table)]))),directoryStateSha256:digest(Object.fromEntries(['oidc_project_state','oidc_project_bootstrap','oidc_project_invalidation'].map(table=>[table,tableRows(table)]))),schemaSha256:digest(JSON.parse(sql("SELECT COALESCE(json_agg(t ORDER BY table_name,column_name),'[]'::json) FROM (SELECT table_name,column_name,data_type,is_nullable FROM information_schema.columns WHERE table_schema='public') t"))),legacy:policy('rbac_policy'),local:policy('rbac_project_policy'),directory:{revision:directory.reduce((sum,item)=>sum+(item.project?.revision??0),0),sha256:digest(directory)},
+      const queue=Object.fromEntries(['queues','execution_queued'].map(table=>[table,sampled.tables[table].trim()]))
+      const database=Object.fromEntries(['flows','executions','triggers','kv_metadata','execution_outputs'].map(table=>[table,rows(table)]))
+      return {policyStateSha256:digest(Object.fromEntries(['rbac_policy_head','rbac_policy_snapshot','rbac_project_policy_head','rbac_project_policy_snapshot'].map(table=>[table,rows(table)]))),directoryStateSha256:digest(Object.fromEntries(['oidc_project_state','oidc_project_bootstrap','oidc_project_invalidation'].map(table=>[table,rows(table)]))),schemaSha256:digest(sampled.schema),legacy:policy('rbac_policy'),local:policy('rbac_project_policy'),directory:{revision:directory.reduce((sum,item)=>sum+(item.project?.revision??0),0),sha256:digest(directory)},
         effects:{sha256:digest({database,queue,storage:bytesHash(storage)}),sources:{database:Object.fromEntries(Object.entries(database).map(([table,rows])=>[table,{sha256:digest(rows),count:rows.length,columns:Object.fromEntries([...new Set(rows.flatMap(row=>Object.keys(row)))].sort().map(column=>[column,digest(rows.map(row=>row[column]))]))}])),queue:Object.fromEntries(Object.entries(queue).map(([table,value])=>[table,{sha256:bytesHash(value),bytes:Buffer.byteLength(value)}])),storage:{sha256:bytesHash(storage),files:storage?storage.split('\n').length:0}}},installation:{sha256:bytesHash(receipt)}}
     }
     const login=async(account=planned.admin)=>{const client=new ProductionOAuthClient(base);await client.login(account.username,account.password);return client}
