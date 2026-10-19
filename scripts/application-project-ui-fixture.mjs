@@ -360,7 +360,7 @@ export async function runZeroGrantBrowser(page,base,fixture) {
   const anonymous=await page.evaluate(async path=>{const response=await fetch(path,{credentials:'same-origin',redirect:'manual'});await response.body?.cancel();return {status:response.status}},path)
   assert([0,401].includes(anonymous.status),'logout did not clear authenticated access; 403 alone cannot establish session clearing')
   await login(fixture.admin)
-  await page.waitForFunction(path=>location.pathname===path&&!document.querySelector('input[name="password"]'),fixture.loginFinalPath)
+  await page.waitForFunction(path=>location.pathname===path&&!document.querySelector('input[name="password"]'),'/'+['ui','main','dashboards'].join('/'))
   const verified=await page.evaluate(async path=>{const response=await fetch(path,{credentials:'same-origin',redirect:'manual'});return {status:response.status,body:await response.json()}},api+'/capabilities')
   assert.equal(verified.status,200);assert.equal(verified.body.subject,fixture.admin.subject);assert.equal(verified.body.allowed,true)
   assert.notEqual(fixture.zeroAccount.subject,fixture.admin.subject)
@@ -369,8 +369,9 @@ export async function runZeroGrantBrowser(page,base,fixture) {
   const errors=events.filter(event=>['console-error','page-error','request-failed','http-error','diagnostic-integrity-error'].includes(event.kind))
   const expectedHttp=errors.filter(event=>event.kind==='http-error'&&event.url===expectedUrl&&((event.status===403&&event.documentId===rejectedDocument.documentId)||(anonymous.status===401&&event.status===401&&event.documentId===anonymousDocument.documentId)))
   const classifiedConsole=errors.filter(event=>event.kind==='console-error'&&event.source==='network'&&event.requestId&&/^Failed to load resource: the server responded with a status of (401|403) /.test(event.message)&&expectedHttp.some(http=>http.requestId===event.requestId&&http.documentId===event.documentId&&http.url===event.url))
-  const abortedNavigation=errors.filter(event=>event.kind==='request-failed'&&event.message==='net::ERR_ABORTED'&&new URL(event.url).origin===new URL(base).origin&&[path,'C:\workspace\files\api\v1\main\extensions\rbac\capabilities','C:\workspace\files\api\v1\main\dashboards\charts\preview'].some(value=>event.url===base+value))
-  const teardownConsole=errors.filter(event=>event.kind==='console-error'&&event.url.startsWith(base+String.raw`C:\workspace\files\ui\main\dashboards`)&&event.message.includes('TypeError: Failed to fetch')&&abortedNavigation.some(item=>item.documentId===event.documentId))
+  const teardownPaths=[path,'/'+['api','v1','main','extensions','rbac','capabilities'].join('/'),'/'+['api','v1','main','dashboards','charts','preview'].join('/')]
+  const abortedNavigation=errors.filter(event=>event.kind==='request-failed'&&event.message==='net::ERR_ABORTED'&&teardownPaths.some(value=>event.url===base+value))
+  const teardownConsole=errors.filter(event=>event.kind==='console-error'&&event.url.startsWith(base+'/'+['ui','main','dashboards'].join('/'))&&event.message.includes('TypeError: Failed to fetch')&&abortedNavigation.some(item=>item.documentId===event.documentId))
   const unexpected=errors.filter(event=>!expectedHttp.includes(event)&&!classifiedConsole.includes(event)&&!abortedNavigation.includes(event)&&!teardownConsole.includes(event))
   assert.equal(unexpected.length,0,'zero-grant browser has unclassified document/request errors; inspect retained diagnostics')
   return {case:'ui-zero-grant-logout-switch',passed:true,status:'passed',evidence:{subject:fixture.zeroAccount.subject,rejectedDocument,businessStatus:denial.status,realSignOutClicked:clicked,anonymousStatus:anonymous.status,anonymousDocument,replacementSubject:verified.body.subject,final:await source(),expectedErrorEventIds:[...expectedHttp,...classifiedConsole,...abortedNavigation,...teardownConsole].map(event=>event.id),events}}

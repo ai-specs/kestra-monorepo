@@ -239,6 +239,7 @@ export async function runApplicationProjectUi(page, base, fixture, record) {
     }
   }
   async function productionSignIn(reason) {
+    const pathValue = value => String(value).replace(/^C:\\workspace\\files\\ui/, '') || '/'
     const before = await documentState()
     await page.goto(url(prefix + '/ui/'))
     await page.waitForFunction(() => document.readyState === 'complete' && (Boolean(document.querySelector('input[name="username"]')) || location.pathname.includes('/ui/')))
@@ -254,7 +255,7 @@ export async function runApplicationProjectUi(page, base, fixture, record) {
     await page.fill('input[name="username"]',fixture.admin.username)
     await page.fill('input[name="password"]',fixture.admin.password)
     await page.click('button[type="submit"]')
-    const accepted = (fixture.reauthenticationFinalPaths ?? [fixture.loginFinalPath ?? '/ui/main/dashboards','/ui/access-denied']).map(path => prefix + path)
+    const accepted = (fixture.reauthenticationFinalPaths ?? [fixture.loginFinalPath ?? '/ui/main/dashboards','/ui/access-denied']).map(path => prefix + pathValue(path))
     await page.waitForFunction(accepted => accepted.includes(location.pathname) && !document.querySelector('input[name="password"]'),accepted)
     const final = await documentState()
     // Record the actual final path BEFORE navigating to a management page.
@@ -280,10 +281,10 @@ export async function runApplicationProjectUi(page, base, fixture, record) {
     report.requests.push({case:activeCase,method:'PUT',path:api + path,status:response.status,requestId:response.requestId,source:before,transport:'native-ui'})
     ensure(response.status >= 200 && response.status < 300,'native directory save failed: HTTP ' + response.status + ' ' + path)
     await page.waitForFunction(() => {
-      if (location.pathname === String.raw`C:\workspace\files\ui\access-denied`) return true
+      if (location.pathname === '/' + ['ui','access-denied'].join('/')) return true
       return document.querySelector('[data-test="extension-container"]')?.shadowRoot?.querySelector('main')?.getAttribute('aria-busy') === 'false'
     })
-    if (await page.evaluate(() => location.pathname === String.raw`C:\workspace\files\ui\access-denied`)) {
+    if (await page.evaluate(() => location.pathname === '/' + ['ui','access-denied'].join('/'))) {
       return {status:response.status,requestId:response.requestId,source:before,reauthenticationRequired:true,savedResult:'directory mutation redirected to published access-denied',redirected:true}
     }
     const state = await page.evaluate(() => {
@@ -360,7 +361,7 @@ export async function runApplicationProjectUi(page, base, fixture, record) {
       await page.click('[data-test="approve-project-reconciliation"]')
       await page.click('[data-test="save-project-reconciliation"]')
       await page.waitForFunction(() => {
-        if (location.pathname === String.raw`C:\workspace\files\ui\access-denied`) return true
+        if (location.pathname === '/' + ['ui','access-denied'].join('/')) return true
         return document.querySelector('[data-test="extension-container"]')?.shadowRoot?.querySelector('main')?.getAttribute('aria-busy') === 'false'
       })
       const confirmed = await readPolicy()
