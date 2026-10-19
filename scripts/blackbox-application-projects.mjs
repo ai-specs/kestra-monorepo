@@ -406,6 +406,14 @@ export async function main(argv=process.argv.slice(2),runtime={}) {
       }
       fixture.prepareMissingExtension=prepareMissingExtension
       fixture.prepareUi=async completedFragments=>{
+        const running=compose('ps','--status','running','-q','kestra')
+        if(!running){
+          compose('up','-d','kestra');
+          await waitForHost();
+          report.fragments.uiDeploymentRestart={status:'passed',reason:'main host was stopped after migration/security stages',restarted:true,image:report.inputs.image};
+          await persist()
+          report.resources.containerIds.kestra=compose('ps','-q','kestra')
+        }
         const ui=await prepareApplicationProjectUi({base:planned.base,management:fixture.management,planned,completedFragments,isolation:{composeProject:project,kestraContainer:report.resources.containerIds.kestra,postgresContainer:report.resources.containerIds.postgres},record:async fragment=>{report.fragments.uiPreparation=fragment;await persist()}})
         const privatePath=join(output,'ui-fixture.private.json');writeFileSync(privatePath,JSON.stringify(ui,null,2)+'\n',{mode:0o600});report.resources.uiFixture=privatePath;await persist()
         Object.defineProperty(ui,'targetRuntime',{value:{management:fixture.management,planned,effects},enumerable:false})
