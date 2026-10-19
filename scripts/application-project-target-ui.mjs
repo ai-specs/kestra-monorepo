@@ -52,7 +52,10 @@ export async function runTargetProjectBrowser(page,base,fixture,{management,plan
       return {status:response.status,body:await response.json().catch(()=>null)}
     },{path:api+path,method,body,revision});report.requests.push({path:api+path,method,status:result.status});await persist();return result
   }
-  async function save(selector) {
+  async function save(selector,expectedMethod,expectedPath) {
+    const previousEvents=new Set((await page.diagnostics()).events.map(event=>event.id))
+    const initialDiagnostics=await page.diagnostics()
+    const sourceDocument=initialDiagnostics.documents.findLast(document=>document.frameId===initialDiagnostics.topFrame)
     const token='save-'+randomBytes(8).toString('hex')
     // Observe before the native click, so a fast busy transition cannot be
     // missed. Annotation and observation never dispatch UI events.
@@ -75,7 +78,19 @@ export async function runTargetProjectBrowser(page,base,fixture,{management,plan
     },{root,token})
     try {
       await page.click(selector)
+      const deadline=Date.now()+30000
+      let response
+      while(Date.now()<deadline){
+        response=(await page.diagnostics()).events.find(event=>!previousEvents.has(event.id)&&event.documentId===sourceDocument?.id&&['http-response','http-error'].includes(event.kind)&&event.method===expectedMethod&&event.url===base+api+expectedPath)
+        if(response)break
+        await new Promise(resolve=>setTimeout(resolve,50))
+      }
+      assert(response,'native target save produced no exact HTTP response')
+      report.requests.push({path:api+expectedPath,method:expectedMethod,status:response.status,requestId:response.requestId,documentId:response.documentId})
+      await persist()
+      assert(response.status>=200&&response.status<300,'native target save was rejected HTTP '+response.status)
       await page.waitForFunction(({root,token})=>{
+        if(location.pathname==='/' + ['ui','access-denied'].join('/'))return true
         const shadow=document.querySelector(root)?.shadowRoot,state=window.__applicationProjectTargetSave?.[token]
         if(!shadow||!state||shadow.querySelector('main')?.getAttribute('aria-busy')!=='false')return false
         const completed=Boolean(shadow.querySelector('p.message[role="status"],[data-test="saved-result"],[data-test="reauthenticate"]'))
@@ -103,7 +118,7 @@ export async function runTargetProjectBrowser(page,base,fixture,{management,plan
     }
     await page.fill('[name="reconciliation-directory-revision"]',String(projection.directoryRevision))
     await checked('[data-test="approve-project-reconciliation"]',true)
-    await save('[data-test="save-project-reconciliation"]')
+    await save('[data-test="save-project-reconciliation"]','PUT','/projects/'+applicationProject+'/reconciliation')
     const response=await sameCookie('/projects/'+applicationProject+'/reconciliation')
     assert.equal(response.status,200);assert.equal(response.body.project.directoryRevision,projection.directoryRevision)
     if(extra) {
@@ -130,7 +145,7 @@ export async function runTargetProjectBrowser(page,base,fixture,{management,plan
     const existing=await read('/policy');originalConsoleScopes=clone(existing.policy.applicationProjects[applicationProject].scopes);assert.equal(existing.policy.applicationProjects[id],undefined)
     await open('projects/new','[name="project-id"]')
     await page.fill('[name="project-id"]',id);await page.fill('[name="project-display-name"]','Browser-created explicit target')
-    await save('[data-test="save-identity-project"]');createdTarget=true
+    await save('[data-test="save-identity-project"]','POST','/identity/projects');createdTarget=true
     await login(planned.admin)
     const created=await read('/identity/projects/'+id);assert.equal(created.id,id);assert.equal(created.displayName,'Browser-created explicit target')
     assert.equal((await read('/policy')).policy.applicationProjects[id],undefined,'shared project save must not create a local binding')
@@ -142,11 +157,11 @@ export async function runTargetProjectBrowser(page,base,fixture,{management,plan
     const intent='section[aria-labelledby="identity-scope-title"] .grant'
     await page.selectOption(intent+' select','LOCAL_POLICY');await page.fill(intent+' [name="management-project-ids"]',id)
     await checked(intent+' input[value="READ"]',true);await checked(intent+' input[value="MANAGE"]',true)
-    await save('[data-test="save-identity-scope"]');createdScope=true
+    await save('[data-test="save-identity-scope"]','POST','/identity/projects/'+applicationProject+'/scopes');createdScope=true
     await login(planned.admin)
+    await reconcileConsole(true)
     const shared=await read('/identity/projects/'+applicationProject+'/scopes/'+key(scope))
     semanticEqual(shared.managementIntents,[{domain:'LOCAL_POLICY',actions:['READ','MANAGE'],projectIds:[id]}])
-    await reconcileConsole(true)
     memberOriginal=await read('/identity/projects/'+applicationProject+'/clients/'+key('kestra-ui'))
     await identity('/identity/projects/'+applicationProject+'/clients/'+key('kestra-ui'),'PUT',{clientId:'kestra-ui',approved:true,firstPartyUi:true,audiences:memberOriginal.audiences,allowedProjectScopes:[...memberOriginal.allowedProjectScopes,scope]},memberOriginal.revision)
     assignmentOriginal=await read('/identity/projects/'+applicationProject+'/assignments/detail?subject='+encodeURIComponent(planned.admin.subject))
@@ -163,7 +178,7 @@ export async function runTargetProjectBrowser(page,base,fixture,{management,plan
     await page.fill('[name="local-issuer"]',base)
     await page.fill('section[aria-labelledby="local-project-title"] textarea',audience)
     await checked('section[aria-labelledby="local-project-title"] label.checkbox input',true)
-    await save('[data-test="save-local-project"]')
+    await save('[data-test="save-local-project"]','POST','/projects')
     const bound=await sameCookie('/policy');assert.equal(bound.status,200)
     semanticEqual(bound.body.policy.applicationProjects[id].audiences,[audience]);assert.equal(bound.body.policy.applicationProjects[id].enabled,true)
     await open('projects/'+id+'/bindings/new','[name="binding-scope"]')
@@ -172,7 +187,7 @@ export async function runTargetProjectBrowser(page,base,fixture,{management,plan
     await checked('form label.checkbox input',true)
     await page.click('[data-test="add-grant"]');await page.fill('[name="grant-namespace"]',namespace);await page.selectOption('[name="grant-resource"]','FLOW')
     await checked('.grant input[value="READ"]',true);await checked('.grant input[value="LIST"]',true)
-    await save('[data-test="save-new-local-binding"]')
+    await save('[data-test="save-new-local-binding"]','POST','/projects/'+id+'/scopes')
     const saved=await sameCookie('/projects/'+id+'/scopes/'+key(targetScope));assert.equal(saved.status,200)
     const actual=saved.body.scope??saved.body;assert.equal(actual.description,'Browser-saved target read binding')
     assert(actual.grants.some(grant=>grant.namespace===namespace&&grant.resource==='FLOW'&&grant.actions.includes('READ')&&grant.actions.includes('LIST')))
@@ -224,7 +239,7 @@ export async function runTargetProjectBrowser(page,base,fixture,{management,plan
     if(createdTarget&&assignmentOriginal){
       await login(planned.admin);await open('projects/'+id,'[data-test="save-local-project"]')
       await checked('section[aria-labelledby="local-project-title"] label.checkbox input',false)
-      await save('[data-test="save-local-project"]')
+      await save('[data-test="save-local-project"]','PUT','/projects/'+id)
       const view=await sameCookie('/policy');assert.equal(view.status,200)
       if(view.body.policy.applicationProjects[id])assert.equal(view.body.policy.applicationProjects[id].enabled,false)
     }
@@ -243,7 +258,7 @@ export async function runTargetProjectBrowser(page,base,fixture,{management,plan
       if(policy.policy.applicationProjects[id]){
         const projection=await management.request(reconciliationPath)
         assert.equal(projection.upperBound.project.id,id)
-        assert.equal(projection.upperBound.project.active,false)
+        assert.equal(projection.upperBound.project.enabled,false)
         assert.equal(projection.directoryRevision,shared.revision)
         assert.equal(projection.project.enabled,false,'local target must be disabled before directory reconciliation')
         const candidate={...clone(projection.project),enabled:false,directoryRevision:projection.directoryRevision}
@@ -273,8 +288,8 @@ export async function runTargetProjectBrowser(page,base,fixture,{management,plan
         const shared=await read('/identity/projects/'+id)
         assert.equal(shared.active,false);assert.equal(shared.revision,targetCleanupState.directoryRevision)
         const local=final.policy.applicationProjects[id]
-        if(targetCleanupState.localCreated){assert(local);assert.equal(local.enabled,false);assert.equal(local.directoryRevision,shared.revision)}
-        else assert.equal(local,undefined)
+        assert.equal(local,undefined,'removing the exact target manager scope must hide that local target from the filtered policy')
+        if(targetCleanupState.localCreated){assert.equal(targetCleanupState.enabled,false);assert.equal(targetCleanupState.directoryRevision,shared.revision)}
       }
     }
     report.cleanup.push({passed:true,newTargetRetainedDisabled:createdTarget,newManagementScopeRetainedDisabled:createdScope,mainMembershipAndSubjectRestored:true})

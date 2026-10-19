@@ -292,7 +292,7 @@ export async function createPlaywrightApplicationProjectAdapter(page,options) {
     const match = selector.match(/^(.*):text-is\(("(?:[^"\\]|\\.)*")\)$/)
     if (!match) return page.locator(selector)
     const text = JSON.parse(match[2]).trim().split(/\s+/).map(part => part.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')).join('\\s+')
-    return page.locator(match[1]).filter({hasText:new RegExp('^\\s*' + text + '\\s*$')})
+    return page.locator(match[1]).filter({visible:true,hasText:new RegExp('^\\s*' + text + '\\s*$')})
   }
   return makeAdapter(page,{
     send:(method,params) => session.send(method,params),

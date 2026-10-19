@@ -405,15 +405,20 @@ export async function main(argv=process.argv.slice(2),runtime={}) {
         return module.runApplicationProjectSecurity(planned.base,{secondaryIssuer:{base:secondary.base,account:secondary.account},planned,management:fixture.management,effects,observer:{composeProject:project,postgresContainer:report.resources.containerIds.postgres,kestraContainer:report.resources.containerIds.kestra},release:{pluginPublished:true},effectsWindowMs:5000,revokeWindowMs:60000},recordSecurity)
       }
       fixture.prepareMissingExtension=prepareMissingExtension
+      fixture.checkHostHealth=async stage=>{
+        const host=JSON.parse(command('docker',['inspect',report.resources.containerIds.kestra]))[0]
+        const state={stage,observedAt:new Date().toISOString(),id:host.Id,project:host.Config.Labels['com.docker.compose.project'],image:host.Config.Image,state:Object.fromEntries(['Status','Running','Paused','Restarting','OOMKilled','Dead','Pid','ExitCode','StartedAt','FinishedAt'].map(key=>[key,host.State[key]])),ports:host.NetworkSettings.Ports,restartCount:host.RestartCount}
+        report.fragments.hostHealth??=[];report.fragments.hostHealth.push(state);await persist()
+        assert.equal(state.project,project,'main host project changed at '+stage)
+        assert.equal(state.image,report.inputs.image,'main host image changed at '+stage)
+        assert.equal(state.state.Running,true,'main host stopped at '+stage+'; inspect hostHealth evidence')
+        assert.equal(state.state.Restarting,false,'main host restarting at '+stage)
+        assert(state.ports['8080/tcp']?.some(binding=>binding.HostIp==='127.0.0.1'&&binding.HostPort===new URL(planned.base).port),'main host port changed at '+stage)
+        const response=await fetch(planned.base+'/ping',{signal:AbortSignal.timeout(5000)})
+        state.pingStatus=response.status;await response.body?.cancel();await persist()
+        assert.equal(response.ok,true,'main host ping failed at '+stage)
+      }
       fixture.prepareUi=async completedFragments=>{
-        const running=compose('ps','--status','running','-q','kestra')
-        if(!running){
-          compose('up','-d','kestra');
-          await waitForHost();
-          report.fragments.uiDeploymentRestart={status:'passed',reason:'main host was stopped after migration/security stages',restarted:true,image:report.inputs.image};
-          await persist()
-          report.resources.containerIds.kestra=compose('ps','-q','kestra')
-        }
         const ui=await prepareApplicationProjectUi({base:planned.base,management:fixture.management,planned,completedFragments,isolation:{composeProject:project,kestraContainer:report.resources.containerIds.kestra,postgresContainer:report.resources.containerIds.postgres},record:async fragment=>{report.fragments.uiPreparation=fragment;await persist()}})
         const privatePath=join(output,'ui-fixture.private.json');writeFileSync(privatePath,JSON.stringify(ui,null,2)+'\n',{mode:0o600});report.resources.uiFixture=privatePath;await persist()
         Object.defineProperty(ui,'targetRuntime',{value:{management:fixture.management,planned,effects},enumerable:false})
@@ -430,13 +435,6 @@ export async function main(argv=process.argv.slice(2),runtime={}) {
     })
     await stage('shared-rest-mcp-ui-fragments',async()=>{
       if(runtime.inspectFixture){assert.equal(report.nonFinal,true,'fixture inspection is development only');await runtime.inspectFixture({base:planned.base,fixture,planned,report})}
-      if(!compose('ps','--status','running','-q','kestra')){
-        compose('up','-d','kestra');
-        await waitForHost();
-        report.fragments.integrationDeploymentRestart={status:'passed',reason:'main host stopped after migration before MCP/UI integration',restarted:true,image:report.inputs.image};
-        report.resources.containerIds.kestra=compose('ps','-q','kestra');
-        await persist()
-      }
       await runIntegration(report.resources.base,fixture,null,report,persist)
       assert.equal(report.fragments.rest?.completed,true,'REST matrix did not complete successfully')
       assert.equal(report.fragments.mcp?.completed,true,'MCP checks did not complete successfully; inspect preserved fragment')

@@ -368,13 +368,14 @@ export async function runZeroGrantBrowser(page,base,fixture) {
   const expectedUrl=base+path
   const errors=events.filter(event=>['console-error','page-error','request-failed','http-error','diagnostic-integrity-error'].includes(event.kind))
   const expectedHttp=errors.filter(event=>event.kind==='http-error'&&event.url===expectedUrl&&((event.status===403&&event.documentId===rejectedDocument.documentId)||(anonymous.status===401&&event.status===401&&event.documentId===anonymousDocument.documentId)))
-  const classifiedConsole=errors.filter(event=>event.kind==='console-error'&&event.source==='network'&&event.requestId&&/^Failed to load resource: the server responded with a status of (401|403) /.test(event.message)&&expectedHttp.some(http=>http.requestId===event.requestId&&http.documentId===event.documentId&&http.url===event.url))
+  const zeroLoginConfigDenial=errors.filter(event=>event.kind==='http-error'&&event.status===403&&event.method==='GET'&&event.url===base+'/'+['api','v1','configs'].join('/')&&event.documentUrl===base+'/'+['ui',''].join('/'))
+  const classifiedConsole=errors.filter(event=>event.kind==='console-error'&&event.source==='network'&&event.requestId&&/^Failed to load resource: the server responded with a status of (401|403) /.test(event.message)&&[...expectedHttp,...zeroLoginConfigDenial].some(http=>http.requestId===event.requestId&&http.documentId===event.documentId&&http.url===event.url))
   const teardownPaths=[path,'/'+['api','v1','main','extensions','rbac','capabilities'].join('/'),'/'+['api','v1','main','dashboards','charts','preview'].join('/')]
-  const abortedNavigation=errors.filter(event=>event.kind==='request-failed'&&event.message==='net::ERR_ABORTED'&&teardownPaths.some(value=>event.url===base+value))
+  const abortedNavigation=errors.filter(event=>event.kind==='request-failed'&&event.message==='net::ERR_ABORTED'&&(teardownPaths.some(value=>event.url===base+value)||event.resourceType==='Script'&&event.url.startsWith(base+'/'+['ui','assets',''].join('/'))||event.url.startsWith('https://api.kestra.io/v1/feeds?'))&&events.some(item=>item.kind==='document-navigation'&&item.documentId!==event.documentId&&Math.abs(Date.parse(item.observedAt)-Date.parse(event.observedAt))<1000))
   const teardownConsole=errors.filter(event=>event.kind==='console-error'&&event.url.startsWith(base+'/'+['ui','main','dashboards'].join('/'))&&event.message.includes('TypeError: Failed to fetch')&&abortedNavigation.some(item=>item.documentId===event.documentId))
-  const unexpected=errors.filter(event=>!expectedHttp.includes(event)&&!classifiedConsole.includes(event)&&!abortedNavigation.includes(event)&&!teardownConsole.includes(event))
-  assert.equal(unexpected.length,0,'zero-grant browser has unclassified document/request errors; inspect retained diagnostics')
-  return {case:'ui-zero-grant-logout-switch',passed:true,status:'passed',evidence:{subject:fixture.zeroAccount.subject,rejectedDocument,businessStatus:denial.status,realSignOutClicked:clicked,anonymousStatus:anonymous.status,anonymousDocument,replacementSubject:verified.body.subject,final:await source(),expectedErrorEventIds:[...expectedHttp,...classifiedConsole,...abortedNavigation,...teardownConsole].map(event=>event.id),events}}
+  const unexpected=errors.filter(event=>!expectedHttp.includes(event)&&!zeroLoginConfigDenial.includes(event)&&!classifiedConsole.includes(event)&&!abortedNavigation.includes(event)&&!teardownConsole.includes(event))
+  assert.equal(unexpected.length,0,'zero-grant browser has unclassified document/request errors: '+JSON.stringify(unexpected))
+  return {case:'ui-zero-grant-logout-switch',passed:true,status:'passed',evidence:{subject:fixture.zeroAccount.subject,rejectedDocument,businessStatus:denial.status,realSignOutClicked:clicked,anonymousStatus:anonymous.status,anonymousDocument,replacementSubject:verified.body.subject,final:await source(),expectedErrorEventIds:[...expectedHttp,...zeroLoginConfigDenial,...classifiedConsole,...abortedNavigation,...teardownConsole].map(event=>event.id),events}}
 }
 
 export async function runPreparedApplicationProjectUi(adapter,base,fixture,record) {
@@ -473,7 +474,9 @@ export async function measureCurrentHostReferences(adapter,base,fixture,record=a
     assert.equal(evidence.path,path);measured.pages.push({kind,...evidence});await record(copy(measured))
   }
   measured.events=(await adapter.diagnostics()).events.filter(event=>!known.has(event.id))
-  const failures=measured.events.filter(event=>['console-error','page-error','http-error','request-failed','diagnostic-integrity-error'].includes(event.kind))
+  const navigationAborts=measured.events.filter(event=>event.kind==='request-failed'&&event.message==='net::ERR_ABORTED'&&event.url.startsWith('https://api.kestra.io/v1/feeds?')&&measured.events.some(request=>request.kind==='request'&&request.requestId===event.requestId&&request.documentId===event.documentId&&request.url===event.url)&&measured.events.some(next=>next.kind==='document-navigation'&&next.documentId!==event.documentId&&Math.abs(Date.parse(next.observedAt)-Date.parse(event.observedAt))<1000))
+  measured.expectedErrorEventIds=navigationAborts.map(event=>event.id)
+  const failures=measured.events.filter(event=>['console-error','page-error','http-error','request-failed','diagnostic-integrity-error'].includes(event.kind)&&!navigationAborts.includes(event))
   if(failures.length){measured.status='failed';await record(copy(measured));throw new Error('current host reference pages produced source-attributed errors')}
   measured.status='measured-current-runtime';await record(copy(measured));return measured
 }

@@ -28,7 +28,9 @@ export async function runIntegration(base,fixture,adapter,report,persist) {
     report.fragments.rest=fragment;report.matrix=fragment.matrix;await persist()
   })
   if(fixture.runSecurity)await fixture.runSecurity(async fragment=>{report.fragments.security=fragment;mergeChecks(fragment);await persist()})
+  if(fixture.checkHostHealth)await fixture.checkHostHealth('after-security')
   if(fixture.runMigration)await fixture.runMigration(async fragment=>{report.fragments.migration=fragment;mergeChecks(fragment);await persist()},async row=>{report.fragments.migrationStorageRecovery=row;await persist()})
+  if(fixture.checkHostHealth)await fixture.checkHostHealth('after-migration')
   if(fixture.prepareMcp)fixture.mcp=await fixture.prepareMcp()
   if(fixture.prepareMissingExtension&&fixture.mcp) {
     try {fixture.mcp.missingExtension=await fixture.prepareMissingExtension()}
@@ -39,6 +41,7 @@ export async function runIntegration(base,fixture,adapter,report,persist) {
       await persist()
     }
   }
+  if(fixture.checkHostHealth)await fixture.checkHostHealth('before-mcp')
   if(fixture.mcp)await runApplicationProjectMcp(base,fixture.mcp,async fragment=>{
     report.fragments.mcp=fragment;mergeChecks(fragment);await persist()
   })

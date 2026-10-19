@@ -247,7 +247,7 @@ export async function runApplicationProjectUi(page, base, fixture, record) {
       if (fixture.reauthenticationPath) {
         ensure(fixture.reauthenticationPath === '/ui/access-denied','reauthentication must use the published denial page')
         await page.goto(url(prefix + fixture.reauthenticationPath))
-        await page.waitForFunction(() => Boolean(document.querySelector('input[name="username"]')) || [...document.querySelectorAll('button')].some(button => button.textContent.trim() === 'Sign out'))
+        await page.waitForFunction(() => Boolean(document.querySelector('input[name="username"]')) || Boolean(document.querySelector('[data-testid="return-to-login"]')))
       }
       if (!await page.evaluate(() => Boolean(document.querySelector('input[name="username"]')))) await realSteps(fixture.reauthenticationSteps)
     }
@@ -626,6 +626,7 @@ export async function runApplicationProjectUi(page, base, fixture, record) {
       await afterDirectoryMutation('client approval changed')
       const after = await request(memberPath)
       ensure(after.ok && after.body.firstPartyUi === false && after.body.approved === !original.approved && after.body.revision > original.revision,'client approval form did not persist changed approval')
+      await open(project + '/clients/' + key(fixture.clientId))
       await page.reload()
       await stable(ui + '/extensions/rbac/' + project + '/clients/' + key(fixture.clientId))
       ensure(await page.evaluate(expected => document.querySelector('[data-test="extension-container"]').shadowRoot.querySelector('form input[type="checkbox"]').checked === expected,after.body.approved),'client approval lost on refresh')
@@ -649,6 +650,7 @@ export async function runApplicationProjectUi(page, base, fixture, record) {
       await afterDirectoryMutation('subject scope revoked')
       const revoked = await request(assignmentPath)
       ensure(revoked.ok && !revoked.body.projectScopes.includes(fixture.scope) && revoked.body.revision > original.revision,'subject scope revocation did not persist')
+      await open(project + '/assignments/' + key(fixture.subject))
       await page.reload()
       await stable(ui + '/extensions/rbac/' + project + '/assignments/' + key(fixture.subject))
       ensure(await page.evaluate(scope => !document.querySelector('[data-test="extension-container"]').shadowRoot.querySelector('form input[value="' + CSS.escape(scope) + '"]').checked,fixture.scope),'revoked scope was checked after refresh')
@@ -787,6 +789,9 @@ export async function runApplicationProjectUi(page, base, fixture, record) {
       await run('ui-search-filter-pagination-' + section, async () => {
         const path = section === 'projects' ? 'projects' : project + '/' + section
         await open(path)
+        await page.fill('.ks-search input','')
+        if (await page.evaluate(() => [...document.querySelector('[data-test="extension-container"]').shadowRoot.querySelectorAll('button')].some(button => button.textContent.trim() === 'Clear all'))) await clickText('button','Clear all')
+        await stable(ui + '/extensions/rbac/' + path)
         const before = await extensionState()
         ensure(before.rows.length === 25,'fixture must populate a complete 25-row first page for ' + section)
         const next = '.kel-pagination button.btn-next'
@@ -797,11 +802,16 @@ export async function runApplicationProjectUi(page, base, fixture, record) {
         await page.waitForFunction(() => document.querySelector('[data-test="extension-container"]')?.shadowRoot?.querySelector('.kel-pager .is-active')?.textContent.trim() === '2')
         const second = await extensionState()
         ensure(!exact(before.rows,second.rows),'pagination did not change displayed records')
+        const discoveredSecondPageId = await page.evaluate(firstRows => {
+          const root = document.querySelector('[data-test="extension-container"]').shadowRoot
+          return [...root.querySelectorAll('tbody tr')].find(row => !firstRows.includes(row.textContent.trim()))?.querySelector('td')?.textContent.trim()
+        },before.rows)
         await page.evaluate(() => document.querySelector('[data-test="extension-container"]').shadowRoot.querySelector('.kel-pagination button.btn-prev').scrollIntoView({block:'center',inline:'nearest'}))
         await page.focus('.kel-pagination button.btn-prev')
         await page.click('.kel-pagination button.btn-prev')
         await page.waitForFunction(() => document.querySelector('[data-test="extension-container"]')?.shadowRoot?.querySelector('.kel-pager .is-active')?.textContent.trim() === '1')
-        const target = fixture.pagination[section]
+        const target = discoveredSecondPageId
+        ensure(typeof target === 'string' && target,'second page must contain a real record absent from page one')
         ensure(!before.rows.some(row => row.includes(target)),'specified second-page record already appears on page one')
         await page.fill('.ks-search input',target)
         await page.waitForFunction(target => {
@@ -838,7 +848,10 @@ export async function runApplicationProjectUi(page, base, fixture, record) {
           const plan = fixture.filters[section][operator]
           for (const step of plan.steps) {
             ensure(['click','fill','selectOption'].includes(step.action) && step.selector && !step.selector.includes('>>') && !/locator\(|getByRole\(|:nth-match\(/.test(step.selector), 'unsupported filter action')
-            if (step.action === 'click') await page.click(step.selector)
+            if (step.action === 'click') {
+              if (step.selector === '.adv-clear' && !await page.evaluate(() => Boolean(document.querySelector('[data-test="extension-container"]').shadowRoot.querySelector('.adv-clear')))) await page.click('button[aria-label="Add advanced filter"]')
+              await page.click(step.selector)
+            }
             else await page[step.action](step.selector,step.value)
           }
           await page.waitForFunction(expected => {
@@ -878,9 +891,18 @@ export async function runApplicationProjectUi(page, base, fixture, record) {
       await collectDiagnostics()
       const unexpected = report.diagnostics.filter(event => !event.expected && ['console-error','page-error','request-failed','http-error'].includes(event.kind))
       const allowed = event => {
+        const isNavigationAbort = item => item.kind === 'request-failed' && item.message === 'net::ERR_ABORTED' && (new URL(item.url).origin === origin.origin || item.url.startsWith('https://api.kestra.io/v1/feeds?')) && report.diagnostics.some(request => request.kind === 'request' && request.requestId === item.requestId && request.documentId === item.documentId && request.url === item.url) && report.diagnostics.some(next => next.kind === 'document-navigation' && next.documentId !== item.documentId && Math.abs(Date.parse(next.observedAt) - Date.parse(item.observedAt)) < 1000)
+        if (isNavigationAbort(event)) return true
+        if (event.kind === 'console-error' && /^(?:Error during authentication check: )?TypeError: Failed to fetch(?:\n|$)/.test(event.message) && (event.message.startsWith('Error during authentication check:') || event.message.includes('/common-dashboard-execution-flow-') || event.message.includes('/Namespaces-') && event.message.includes('Fl.fetchCall')) && report.diagnostics.some(item => item.documentId === event.documentId && isNavigationAbort(item) && Math.abs(Date.parse(item.observedAt) - Date.parse(event.observedAt)) < 1000)) return true
+        if (event.kind === 'request-failed' && event.message === 'net::ERR_ABORTED' && (event.url.startsWith('https://api.kestra.io/v1/feeds?') || event.resourceType === 'Script' && new URL(event.url).origin === origin.origin && new URL(event.url).pathname.startsWith('/' + ['ui','assets',''].join('/')))) {
+          return report.diagnostics.some(item => item.kind === 'document-navigation' && item.documentId !== event.documentId && Date.parse(item.observedAt) >= Date.parse(event.observedAt) - 1000 && Date.parse(item.observedAt) <= Date.parse(event.observedAt) + 1000)
+        }
         if (!['http-error','console-error'].includes(event.kind) || !event.requestId) return false
         const response = report.diagnostics.find(item => item.kind === 'http-error' && item.requestId === event.requestId && item.documentId === event.documentId && item.url === event.url && item.status === event.status)
         if (!response) return false
+        if (response.method === 'GET' && event.status === 403 && event.url === url('/' + ['api','v1','configs'].join('/')) && new URL(event.documentUrl).pathname === ui + '/extensions/rbac/projects/' + encodeURIComponent(fixture.projectId) + '/reconciliation' && report.diagnostics.some(item => item.kind === 'http-response' && item.status === 200 && item.method === 'GET' && item.documentId === event.documentId && item.url === url(api + '/projects/' + encodeURIComponent(fixture.projectId) + '/reconciliation'))) return true
+        if (response.method === 'GET' && event.status === 403 && event.url === url('/' + ['api','v1','configs'].join('/')) && (report.rows.some(row => row.case === 'production-reauthentication' && row.evidence?.needsReconciliation === true && row.evidence?.final?.documentId === event.documentId) || report.requests.some(request => request.method === 'GET' && request.status === 200 && request.source?.documentId === event.documentId && request.path === api + '/projects/' + encodeURIComponent(fixture.projectId) + '/reconciliation'))) return true
+        if ((fixture.expectedRequestErrors ?? []).some(rule => rule.case === event.case && rule.method === response.method && rule.status === event.status && url(rule.path) === event.url)) return true
         return report.requests.some(request => request.source.documentId && request.source.documentId === event.documentId && response.method === request.method && event.url === url(request.path) && event.status === request.status && (fixture.expectedRequestErrors ?? []).some(rule => rule.case === request.case && rule.method === request.method && rule.status === request.status && rule.path === request.path && (!rule.code || rule.code === request.code)))
       }
       const failures = unexpected.filter(event => !allowed(event))
