@@ -225,7 +225,8 @@ export async function provisionFixture({planned,effects,observer,record=async()=
   for(const test of projectScopeCases)for(const [index,probe]of test.probes.entries())if(probe.action==='ACCESS_OUTPUTS') {
     const data=resources.probes[test.id+':'+index]
     const response=await client.request('/api/v1/main/executions/'+encodeURIComponent(probe.namespace)+'/'+encodeURIComponent(data.flowId),{method:'POST',body:new FormData()})
-    assert(response.ok,'output execution seed failed');const started=await response.json();assert(started.id)
+    await emit({kind:'output-execution-seed-response',namespace:probe.namespace,flowId:data.flowId,status:response.status})
+    assert(response.ok,'output execution seed failed HTTP '+response.status+' for '+probe.namespace+'/'+data.flowId);const started=await response.json();assert(started.id)
     let stored;const deadline=Date.now()+60000
     do {
       const response=await client.request('/api/v1/main/executions/'+encodeURIComponent(started.id));assert.equal(response.status,200);stored=await response.json()
