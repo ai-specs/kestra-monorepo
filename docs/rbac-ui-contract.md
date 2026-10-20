@@ -1,5 +1,7 @@
 # RBAC UI 授权契约
 
+> UI 行为基线：应用组目标模型优先于本文中与旧应用项目或旧恢复流程有关的描述。实现新页面前必须先核对根仓 `docs/application-group-target-model.md`。
+
 ## 状态
 
 本文定义目标架构与审查条件。版本化 typed SPI、宿主 REST/查询/owner 适配、
