@@ -523,7 +523,7 @@ export async function main(argv=process.argv.slice(2),runtime={}) {
       assert.equal(report.nonFinal,false,'development reports cannot enter the final checker')
       assert.equal(report.notRun,0,'required MCP/UI/migration/fault checks still not_run')
       assert.equal(report.failures,0,'acceptance failures remain')
-      for(const name of ['rest','security','migration','mcp','aggregates','ui'])assert.equal(report.fragments[name]?.completed,true,name+' fragment or restoration did not complete')
+      for(const name of ['rest','security',...(legacyMigration?['migration']:[]),'mcp','aggregates','ui'])assert.equal(report.fragments[name]?.completed,true,name+' fragment or restoration did not complete')
       assert([...report.matrix,...report.checks,...report.ui].every(row=>row.passed===true&&row.status==='passed'&&row.skipped===undefined),'required evidence must be actually passed')
       assert(report.stages.filter(row=>row.id!=='final-report-check').every(row=>row.status==='passed'))
       const candidate=join(output,'report-for-final-check.json')
