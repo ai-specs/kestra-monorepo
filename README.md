@@ -1,5 +1,17 @@
 # Kestra monorepo
 
+## 应用项目授权交付状态（2026-10-19）
+
+当前新模型已在本地开发环境完成最终组合验收。根提交 `85eb764c5656ccc4056c235072dfb83e830f9964` 的 CI `39263232685` 通过，最终报告为 `completed=true`，失败、跳过和未运行均为零。
+
+- 宿主提交：`e10448596ca7fc4564be4621dd60757d6adcc31d`
+- 宿主镜像：`ghcr.io/ai-specs/kestra-overlay@sha256:a20b950733fb85216d2155107c9c3423ffce1b5041faa5d4e475836c7e037ae8`
+- 插件提交：`fa18839a4f0ecbf41a68a198c6a927963113637`
+- 插件 CI：`39246508084`；正式 artifact jar SHA-256：`c5c5acebd6d22e3b8c76ec9a5366cde8e55ff82995a204802899fb75c89a2b7b`
+- 验收覆盖 REST `56/56`、MCP `11/11`、安全 `14/14`、迁移 `14/14`、主题语言 `52/52`、组合 UI `98/98` 和目标管理清理。
+
+本节描述开发环境交付，不要求恢复已经不存在的旧开发卷，也不执行生产流量切换。旧数据恢复与迁移脚本保留在 `.work/application-projects/deployment-cutover-final/`，仅供需要时按新生成的预览和批准 hash 执行；复制演练批准不能直接作为新的迁移批准。
+
 本仓组织 Kestra 部署及独立扩展项目，提供统一的 Docker Compose 配置。
 
 | 项目 | 职责 |
@@ -123,7 +135,8 @@ secret `APPLICATION_PROJECT_RELEASE_READ_TOKEN` 必须具有 overlay 与插件�
 权限。源码 deploy key 与 GHCR packages read 不替代该权限；不得在文档或聊天中提交凭据。
 最终必须实际下载根仓 CI 报告，核对提交、镜像 digest、jar hash、失败和跳过。
 当前实现与历史结果必须分开判断：
-[历史 RBAC 验收记录](docs/rbac-acceptance.md) 不证明新应用项目组合已通过。
+[RBAC 验收记录](docs/rbac-acceptance.md) 的“应用项目完整 scope 验收”节记录本次已通过的
+组合；其他历史章节只证明其指定版本和检查范围。后续版本必须重新核对自己的成功 CI。
 目标模型与当前实现状态见 [应用项目授权模型](kestra-plugin-rbac/docs/application-projects.md)，
 公开宿主机制见 [镜像说明](kestra-overlay/README.md)，插件维护和迁移见
 [插件说明](kestra-plugin-rbac/README.md)。
