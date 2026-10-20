@@ -35,6 +35,13 @@ export function assertApplicationProjectSources(sources,{allowDirtyRoot=false}={
   return {nonFinal:allowDirtyRoot,finalEligible:!allowDirtyRoot}
 }
 
+export function applicationProjectFatalDiagnostics(text) {
+  const lines=String(text??'').replace(/\u001b\[[0-?]*[ -/]*[@-~]/g,'').split('\n')
+  const index=lines.findIndex(line=>/fatal|shutting down|caught an exception/i.test(line))
+  if(index<0)return []
+  return lines.slice(Math.max(0,index-5),Math.max(0,index-5)+100).map(line=>/token|password|secret|cookie|authorization|Bearer|eyJ[A-Za-z0-9_-]+\.|[?&](?:state|code)=/i.test(line)?'[credential-bearing line redacted]':line)
+}
+
 export async function main(argv=process.argv.slice(2),runtime={}) {
   const options={};let mode
   for(let i=0;i<argv.length;i++) {
@@ -480,7 +487,7 @@ export async function main(argv=process.argv.slice(2),runtime={}) {
         for(const id of ownIds)assert.equal(command('docker',['inspect','-f','{{index .Config.Labels "com.docker.compose.project"}}',id]),project)
         const host=compose('ps','-a','-q','kestra')
         if(host){report.fragments.hostRuntimeState=JSON.parse(command('docker',['inspect','-f','{{json .State}}',host]));const logs=spawnSync('docker',['logs',host],{encoding:'utf8',timeout:20000,maxBuffer:16*1024*1024});if(logs.status!==0)report.stages.push({id:'host-diagnostics',status:'failed',error:'owned host diagnostic collection failed'});else report.fragments.hostMcpDiagnostics=(logs.stdout+logs.stderr).split('\n').filter(line=>line.includes('MCP_TOOL_CALL_FAILED exception=')).map(line=>line.slice(line.indexOf('MCP_TOOL_CALL_FAILED exception=')))}
-        if(host){const diagnostic=spawnSync('docker',['logs','--tail','200',host],{encoding:'utf8',timeout:20000,maxBuffer:2*1024*1024});report.fragments.hostExitDiagnostics=(diagnostic.stdout+diagnostic.stderr).replace(/eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+/g,'[redacted-jwt]').split('\n').filter(line=>/shutdown|shutting|stopping|stopped|fatal|outofmemory|exception|error|signal/i.test(line))}
+        if(host){const diagnostic=spawnSync('docker',['logs',host],{encoding:'utf8',timeout:20000,maxBuffer:16*1024*1024});report.fragments.hostFatalDiagnostics=applicationProjectFatalDiagnostics(diagnostic.stdout+diagnostic.stderr);report.fragments.hostExitDiagnostics=(diagnostic.stdout+diagnostic.stderr).replace(/eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+/g,'[redacted-jwt]').split('\n').slice(-200).filter(line=>/shutdown|shutting|stopping|stopped|fatal|outofmemory|exception|error|signal/i.test(line))}
         compose('down','--volumes')
         report.resources.cleaned=true
       }catch(error){report.resources.cleaned=false;report.resources.cleanupError='own Compose cleanup failed';report.stages.push({id:'cleanup',status:'failed',error:'own Compose resources require inspection'});process.exitCode=1}
