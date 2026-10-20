@@ -181,7 +181,7 @@ export async function runApplicationProjectUi(page, base, fixture, record) {
         busy:root?.querySelector('main')?.getAttribute('aria-busy'),text:root?.textContent,
         errors:[...(root?.querySelectorAll('[role="alert"]') ?? [])].filter(item => !item.matches('[data-test="reconciliation-required"]')).map(item => item.textContent.trim()),
         reconciliation:root?.querySelector('[data-test="reconciliation-required"]')?.textContent.trim(),
-        rows:[...(root?.querySelectorAll('tbody tr') ?? [])].map(item => item.textContent.trim()),
+        rows:[...(root?.querySelectorAll('tbody tr')?.length ? root.querySelectorAll('tbody tr') : root?.querySelectorAll('.application-group-card-link') ?? [])].map(item => item.textContent.trim()),
         search:root?.querySelector('.ks-search input')?.value}
     })
   }
@@ -378,6 +378,18 @@ export async function runApplicationProjectUi(page, base, fixture, record) {
 
   async function openRecord(path, identifier) {
     await open(path)
+    if (path === 'projects') {
+      await page.fill('.ks-search input', identifier)
+      await page.waitForFunction(identifier => {
+        const root = document.querySelector('[data-test="extension-container"]')?.shadowRoot
+        const cards = [...(root?.querySelectorAll('.application-group-card-link') ?? [])]
+        return cards.length === 1 && cards[0].querySelector('.application-group-card-id')?.textContent.trim() === identifier
+      }, identifier)
+      await page.focus('.application-group-card-link')
+      await page.waitForFunction(() => document.querySelector('[data-test="extension-container"]')?.shadowRoot?.activeElement?.matches('.application-group-card-link'))
+      await page.click('.application-group-card-link')
+      return {name:identifier,kind:'application-group-card'}
+    }
     await page.fill('.ks-search input', identifier)
     await page.waitForFunction(identifier => {
       const root = document.querySelector('[data-test="extension-container"]')?.shadowRoot
@@ -532,6 +544,22 @@ export async function runApplicationProjectUi(page, base, fixture, record) {
         const expected = section === 'projects' ? project : path + '/' + key(identifier)
         const state = await stable(ui + '/extensions/rbac/' + expected)
         ensure(state.text.includes(identifier),'detail lacks exact identity')
+        if (section === 'projects') {
+          const detail = await page.evaluate(() => {
+            const root = document.querySelector('[data-test="extension-container"]').shadowRoot
+            return {readonly:!!root.querySelector('[data-test="application-group-detail"]'),
+              edit:!!root.querySelector('[data-test="edit-application-group"]'),
+              save:!!root.querySelector('[data-test="save-identity-project"]')}
+          })
+          ensure(detail.readonly && detail.edit && !detail.save,'card did not open a read-only application-group detail')
+          await page.click('[data-test="edit-application-group"]')
+          ensure(await page.evaluate(() => !!document.querySelector('[data-test="extension-container"]').shadowRoot.querySelector('[data-test="save-identity-project"]')),
+            'explicit edit did not open the application-group form')
+          await clickText('button','Cancel')
+          await page.waitForFunction(() => !!document.querySelector('[data-test="extension-container"]')?.shadowRoot?.querySelector('[data-test="application-group-detail"]'))
+          ensure(await page.evaluate(() => !!document.querySelector('[data-test="extension-container"]').shadowRoot.querySelector('[data-test="application-group-detail"]')),
+            'cancel did not restore read-only application-group detail')
+        }
         if (section === 'scopes') ensure(await page.evaluate(() => Boolean(document.querySelector('[data-test="extension-container"]').shadowRoot.querySelector('#identity-scope-title')) && Boolean(document.querySelector('[data-test="extension-container"]').shadowRoot.querySelector('#local-scope-title'))),'scope does not show both independent sides')
         return {identifier,path:state.path}
       })
@@ -788,6 +816,7 @@ export async function runApplicationProjectUi(page, base, fixture, record) {
     for (const section of ['projects','scopes','clients','assignments']) {
       await run('ui-search-filter-pagination-' + section, async () => {
         const path = section === 'projects' ? 'projects' : project + '/' + section
+        const rowSelector = section === 'projects' ? '.application-group-card-link' : 'tbody tr'
         await open(path)
         await page.fill('.ks-search input','')
         if (await page.evaluate(() => [...document.querySelector('[data-test="extension-container"]').shadowRoot.querySelectorAll('button')].some(button => button.textContent.trim() === 'Clear all'))) await clickText('button','Clear all')
@@ -802,10 +831,11 @@ export async function runApplicationProjectUi(page, base, fixture, record) {
         await page.waitForFunction(() => document.querySelector('[data-test="extension-container"]')?.shadowRoot?.querySelector('.kel-pager .is-active')?.textContent.trim() === '2')
         const second = await extensionState()
         ensure(!exact(before.rows,second.rows),'pagination did not change displayed records')
-        const discoveredSecondPageId = await page.evaluate(firstRows => {
+        const discoveredSecondPageId = await page.evaluate(({firstRows,rowSelector}) => {
           const root = document.querySelector('[data-test="extension-container"]').shadowRoot
-          return [...root.querySelectorAll('tbody tr')].find(row => !firstRows.includes(row.textContent.trim()))?.querySelector('td')?.textContent.trim()
-        },before.rows)
+          const row = [...root.querySelectorAll(rowSelector)].find(item => !firstRows.includes(item.textContent.trim()))
+          return row?.querySelector(rowSelector === '.application-group-card-link' ? '.application-group-card-id' : 'td')?.textContent.trim()
+        },{firstRows:before.rows,rowSelector})
         await page.evaluate(() => document.querySelector('[data-test="extension-container"]').shadowRoot.querySelector('.kel-pagination button.btn-prev').scrollIntoView({block:'center',inline:'nearest'}))
         await page.focus('.kel-pagination button.btn-prev')
         await page.click('.kel-pagination button.btn-prev')
@@ -814,29 +844,29 @@ export async function runApplicationProjectUi(page, base, fixture, record) {
         ensure(typeof target === 'string' && target,'second page must contain a real record absent from page one')
         ensure(!before.rows.some(row => row.includes(target)),'specified second-page record already appears on page one')
         await page.fill('.ks-search input',target)
-        await page.waitForFunction(target => {
-          const rows = [...document.querySelector('[data-test="extension-container"]').shadowRoot.querySelectorAll('tbody tr')]
+        await page.waitForFunction(({target,rowSelector}) => {
+          const rows = [...document.querySelector('[data-test="extension-container"]').shadowRoot.querySelectorAll(rowSelector)]
           return rows.length === 1 && rows[0].textContent.includes(target)
-        },target)
+        },{target,rowSelector})
         await page.fill('.ks-search input','__application_project_no_match__')
-        await page.waitForFunction(() => document.querySelector('[data-test="extension-container"]').shadowRoot.querySelectorAll('tbody tr').length === 0)
+        await page.waitForFunction(rowSelector => document.querySelector('[data-test="extension-container"]').shadowRoot.querySelectorAll(rowSelector).length === 0,rowSelector)
         await page.fill('.ks-search input','')
-        await page.waitForFunction(() => document.querySelector('[data-test="extension-container"]').shadowRoot.querySelectorAll('tbody tr').length === 25)
+        await page.waitForFunction(rowSelector => document.querySelector('[data-test="extension-container"]').shadowRoot.querySelectorAll(rowSelector).length === 25,rowSelector)
         await clickText('button','Add filters')
         const fieldKey = section === 'projects' ? 'id' : section === 'scopes' ? 'scope' : section === 'clients' ? 'clientId' : 'subject'
         const names = {id:'Project ID',scope:'OAuth2 scope',clientId:'Client ID',subject:'User identity'}
         await page.click('button[aria-label=' + quote('Add filter for ' + names[fieldKey]) + ']')
         await page.fill('.edit-popup input',target)
-        await page.waitForFunction(target => {
+        await page.waitForFunction(({target,rowSelector}) => {
           const root = document.querySelector('[data-test="extension-container"]').shadowRoot
-          return root.querySelectorAll('tbody tr').length === 1 && root.querySelector('tbody').textContent.includes(target)
-        },target)
+          return root.querySelectorAll(rowSelector).length === 1 && root.querySelector(rowSelector).textContent.includes(target)
+        },{target,rowSelector})
         await page.click('.edit-popup button[aria-label="Close"]')
         await page.reload()
         await stable(ui + '/extensions/rbac/' + path)
         ensure((await extensionState()).rows.length === 1,'condition did not survive refresh')
         await clickText('button','Clear all')
-        await page.waitForFunction(() => document.querySelector('[data-test="extension-container"]').shadowRoot.querySelectorAll('tbody tr').length === 25)
+        await page.waitForFunction(rowSelector => document.querySelector('[data-test="extension-container"]').shadowRoot.querySelectorAll(rowSelector).length === 25,rowSelector)
         return {firstPageCount:before.rows.length,secondPageChanged:true,otherPageSearch:target,empty:true,conditionRefresh:true,clear:true}
       })
     }
@@ -854,15 +884,22 @@ export async function runApplicationProjectUi(page, base, fixture, record) {
             }
             else await page[step.action](step.selector,step.value)
           }
-          await page.waitForFunction(expected => {
+          await page.waitForFunction(({expected,section}) => {
             const root = document.querySelector('[data-test="extension-container"]')?.shadowRoot
-            const ids = [...(root?.querySelectorAll('tbody tr') ?? [])].map(row => row.querySelector('td')?.textContent.trim()).sort()
+            const ids = section === 'projects'
+              ? [...(root?.querySelectorAll('.application-group-card-id') ?? [])].map(item => item.textContent.trim()).sort()
+              : [...(root?.querySelectorAll('tbody tr') ?? [])].map(row => row.querySelector('td')?.textContent.trim()).sort()
             return JSON.stringify(ids) === JSON.stringify([...expected].sort())
-          },plan.expectedIds)
+          },{expected:plan.expectedIds,section})
           const observed = await extensionState()
           await page.reload()
           await stable(ui + '/extensions/rbac/' + path)
-          const restored = await page.evaluate(() => [...document.querySelector('[data-test="extension-container"]').shadowRoot.querySelectorAll('tbody tr')].map(row => row.querySelector('td')?.textContent.trim()).sort())
+          const restored = await page.evaluate(section => {
+            const root = document.querySelector('[data-test="extension-container"]').shadowRoot
+            return section === 'projects'
+              ? [...root.querySelectorAll('.application-group-card-id')].map(item => item.textContent.trim()).sort()
+              : [...root.querySelectorAll('tbody tr')].map(row => row.querySelector('td')?.textContent.trim()).sort()
+          },section)
           ensure(exact(restored,[...plan.expectedIds].sort()), 'filter result was not restored after refresh')
           return {operator,expectedIds:plan.expectedIds,rows:observed.rows,refreshed:true}
         })

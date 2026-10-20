@@ -2,8 +2,9 @@
  * Call after provisionFixture, before MCP/UI mutations, with no concurrent writers:
  * runApplicationProjectSecurity(base,{planned,management,effects,observer,release},record).
  * observer={composeProject,postgresContainer,kestraContainer}; IDs are docker IDs.
- * secondaryIssuer={base,account} reuses the driver's cached isolated missing-jar
- * topology; its production UI must issue project kestra / audience kestra-ui /
+ * secondaryIssuer={base,account} uses the driver's second issuer with the
+ * published jar before that same deployment switches to missing-jar mode;
+ * its production UI must issue group kestra / audience kestra-ui /
  * known writeB scope. This module supplies all cross-issuer business assertions.
  * release.pluginPublished must be true only after the caller verified/downloaded the
  * successful plugin CI artifact. Missing release evidence leaves every row not_run.
@@ -18,6 +19,7 @@ import {createHash,randomBytes} from 'node:crypto'
 import {ProductionOAuthClient} from './production-oauth-client.mjs'
 import {applicationProject,scopeNames,namespaceDomains} from './application-project-cases.mjs'
 import {mcpFlowSource,mcpProtocolEvidence} from './application-project-fixture.mjs'
+import {applicationPermission} from './application-project-policy.mjs'
 import {runApplicationProjectOauth,oauthCheckIds} from './application-project-oauth-cases.mjs'
 
 export const securityCheckIds=Object.freeze([
@@ -39,7 +41,7 @@ const delay=ms=>new Promise(resolve=>setTimeout(resolve,ms))
 const semantic=value=>Array.isArray(value)?value.map(semantic).sort((a,b)=>String(JSON.stringify(a)).localeCompare(String(JSON.stringify(b)))):value&&typeof value==='object'?Object.fromEntries(Object.entries(value).filter(([name,item])=>!(name==='namespace'&&item===null&&value.scope==='TENANT')).sort(([a],[b])=>a.localeCompare(b)).map(([k,v])=>[k,semantic(v)])):value
 const same=(actual,expected,message)=>assert.deepEqual(semantic(actual),semantic(expected),message)
 const scopeInput=(name,value)=>({name,...structuredClone(value)})
-const directoryScopeInput=value=>Object.fromEntries(['scope','description','active','resourceIntents','managementIntents'].map(name=>[name,structuredClone(value[name])]))
+const directoryScopeInput=value=>Object.fromEntries(['scope','name','description','active','resourceIntents','managementIntents'].map(name=>[name,structuredClone(value[name])]))
 class Unavailable extends Error {}
 
 export async function runApplicationProjectSecurity(base,fixture={},record) {
@@ -86,7 +88,7 @@ export async function runApplicationProjectSecurity(base,fixture={},record) {
     // excluded: production login changes them; project state and policy must not.
     const state=sql(`SELECT json_build_object(
       'invalidation',(SELECT md5(coalesce(string_agg(row_to_json(t)::text,'|' ORDER BY singleton),'')) FROM oidc_project_invalidation t),
-      'directory',(SELECT md5(coalesce(string_agg(row_to_json(t)::text,'|' ORDER BY project_id),'')) FROM oidc_project_state t),
+      'directory',(SELECT md5(coalesce(string_agg(row_to_json(t)::text,'|' ORDER BY application_group_id),'')) FROM oidc_project_state t),
       'policyHead',(SELECT md5(coalesce(string_agg(row_to_json(t)::text,'|' ORDER BY policy_id),'')) FROM rbac_project_policy_head t),
       'policySnapshots',(SELECT md5(coalesce(string_agg(row_to_json(t)::text,'|' ORDER BY revision),'')) FROM rbac_project_policy_snapshot t))::text`)
     const business=effects.snapshot()
@@ -327,18 +329,18 @@ export async function runApplicationProjectSecurity(base,fixture={},record) {
   await check('management-target-action-cross-scope-denied',async()=>{
     const suffix=randomBytes(5).toString('hex')
     const targetA='security-read-a-'+suffix,targetB='security-manage-b-'+suffix
-    const readScope='kestra:security:'+suffix+':target-a',manageScope='kestra:security:'+suffix+':target-b'
+    const readScope='security-'+suffix+'-target-a',manageScope='security-'+suffix+'-target-b'
     const account={username:'security-split-'+suffix,subject:'security-split-'+suffix,password:randomBytes(24).toString('base64url')+'aA1!'}
     passwords.push(account.password)
     const originalProjection=await get(await manager(),recoveryPath)
     const originalScopes=structuredClone(originalProjection.project.scopes)
     let expectedScopes=structuredClone(originalScopes),userCreated=false,assignmentCreated=false,uiOriginal,uiChanged=false
-    const targets=[],directoryScopes=[],cleanupFailures=[]
+    const targets=[],directoryScopes=[],declaredScopes=[],cleanupFailures=[]
     const cleanupAttempt=async(name,run)=>{try{await restore(name,run)}catch(error){cleanupFailures.push(safe(error))}}
     const uiPath=identityPath+'/clients/'+key(planned.expectedAudience)
     const assignmentPath=identityPath+'/assignments/detail?subject='+encodeURIComponent(account.subject)
     const localDefinition=(target,actions)=>({description:'Independent exact security management target '+target,enabled:true,grants:[],managementGrants:[{domain:'LOCAL_POLICY',actions:[...actions].sort(),projectIds:[target]}]})
-    const sharedDefinition=(name,local)=>({scope:name,description:local.description,active:true,resourceIntents:[],managementIntents:structuredClone(local.managementGrants)})
+    const sharedDefinition=(key,local)=>({scope:key,name:key.replaceAll('-', ' '),description:local.description,active:true,resourceIntents:[],managementIntents:structuredClone(local.managementGrants)})
     async function syncMain(desired=expectedScopes) {
       const client=await manager(),projection=await get(client,recoveryPath)
       same(projection.project.scopes,expectedScopes,'concurrent local changes must not be overwritten')
@@ -395,6 +397,12 @@ export async function runApplicationProjectSecurity(base,fixture={},record) {
       uiOriginal=await get(await manager(),uiPath)
       const uiBody={clientId:uiOriginal.clientId,approved:uiOriginal.approved,firstPartyUi:uiOriginal.firstPartyUi,audiences:uiOriginal.audiences,allowedProjectScopes:[...new Set([...uiOriginal.allowedProjectScopes,readScope,manageScope])]}
       uiChanged=true;await directoryWrite(uiPath,'PUT',uiBody,uiOriginal.revision)
+      for(const scope of [readScope,manageScope]) {
+        const declared=await request(await manager(),api+'/application-groups/'+applicationProject+'/applications/'+key('kestra-ui')+'/scope-declarations/'+scope,
+          'POST',{permissions:[applicationPermission(scope)]})
+        assert.equal(declared.status,201)
+        declaredScopes.push(scope)
+      }
       await syncMain({...expectedScopes,[readScope]:r,[manageScope]:m})
       const user=await request(await manager(),api+'/users','POST',{username:account.username,name:'Security split target test account',email:account.username+'@acceptance.invalid',password:account.password})
       assert.equal(user.status,201);userCreated=true;assert.equal(user.value.subject,account.subject);await syncMain()
@@ -438,13 +446,17 @@ export async function runApplicationProjectSecurity(base,fixture={},record) {
       // reachability. Scope A was narrowed to READ, so use a fresh, separately
       // created cleanup scope, never widen that scope back or infer admin bypass.
       if(targets.some(t=>t.localCreated))await cleanupAttempt('split-targets-inactive',async()=>{
-        const cleanupScope='kestra:security:'+suffix+':cleanup'
+        const cleanupScope='security-'+suffix+'-cleanup'
         const cleanupDefinition={description:'Explicit isolated cleanup authority',enabled:true,grants:[],managementGrants:[{domain:'LOCAL_POLICY',actions:['MANAGE'],projectIds:targets.filter(t=>t.localCreated).map(t=>t.id).sort()}]}
         const project=await get(await manager(),identityPath)
         directoryScopes.push(cleanupScope)
         await directoryWrite(identityPath+'/scopes','POST',sharedDefinition(cleanupScope,cleanupDefinition),project.revision)
         const ui=await get(await manager(),uiPath)
         await directoryWrite(uiPath,'PUT',{clientId:ui.clientId,approved:ui.approved,firstPartyUi:ui.firstPartyUi,audiences:ui.audiences,allowedProjectScopes:[...ui.allowedProjectScopes,cleanupScope]},ui.revision)
+        const declared=await request(await manager(),api+'/application-groups/'+applicationProject+'/applications/'+key('kestra-ui')+'/scope-declarations/'+cleanupScope,
+          'POST',{permissions:[applicationPermission(cleanupScope)]})
+        assert.equal(declared.status,201)
+        declaredScopes.push(cleanupScope)
         await syncMain({...expectedScopes,[cleanupScope]:cleanupDefinition})
         const assignment=await get(await manager(),assignmentPath)
         await directoryWrite(assignmentPath,'PUT',{issuer:base,subject:account.subject,projectScopes:[cleanupScope]},assignment.revision)
@@ -472,6 +484,11 @@ export async function runApplicationProjectSecurity(base,fixture={},record) {
       if(uiChanged&&uiOriginal)await cleanupAttempt('split-ui-client-membership',async()=>{
         const current=await get(await manager(),uiPath)
         await directoryWrite(uiPath,'PUT',{clientId:uiOriginal.clientId,approved:uiOriginal.approved,firstPartyUi:uiOriginal.firstPartyUi,audiences:uiOriginal.audiences,allowedProjectScopes:uiOriginal.allowedProjectScopes},current.revision)
+      })
+      for(const scope of declaredScopes)await cleanupAttempt('split-application-declaration-'+scope,async()=>{
+        const path=api+'/application-groups/'+applicationProject+'/applications/'+key('kestra-ui')+'/scope-declarations/'+scope
+        const current=await get(await manager(),path)
+        assert.equal((await request(await manager(),path,'DELETE',undefined,current.revision)).status,200)
       })
       for(const name of directoryScopes)await cleanupAttempt('split-directory-scope-disabled-'+name,async()=>{
         const path=identityPath+'/scopes/'+key(name),scope=await get(await manager(),path)
@@ -632,7 +649,7 @@ export async function runApplicationProjectSecurity(base,fixture={},record) {
     const flowId='security-project-token-'+suffix,toolName='security-project-token-'+suffix
     const flowPath='/api/v1/main/flows/'+encodeURIComponent(namespaceDomains.b)+'/'+flowId
     const owner=new ProductionOAuthClient(base),foreign=new ProductionOAuthClient(base)
-    let projectCreated=false,mainMemberPath,foreignMemberPath,mainApproved=false,foreignApproved=false,assigned=false,flowCreated=false
+    let projectCreated=false,mainMemberPath,foreignMemberPath,foreignClientId,mainApproved=false,foreignApproved=false,assigned=false,flowCreated=false
     const cleanupFailures=[]
     const cleanup=async(name,run)=>{try{await restore(name,run)}catch(error){cleanupFailures.push(safe(error))}}
     const protocolScopes=['openid','mcp:flows:read','mcp:executions:write']
@@ -694,10 +711,14 @@ export async function runApplicationProjectSecurity(base,fixture={},record) {
       await foreign.login(account.username,account.password)
       const issued=await foreign.issueMcpScopes([...protocolScopes,scopeNames.writeB],async registration=>{
         foreignMemberPath=projectApi+'/clients/'+key(registration.clientId)
+        foreignClientId=registration.clientId
         const current=await get(await manager(),projectApi)
         foreignApproved=true
         const approved=await request(await manager(),projectApi+'/clients','POST',{clientId:registration.clientId,approved:true,firstPartyUi:false,audiences:registration.audiences,allowedProjectScopes:[scopeNames.writeB]},current.revision)
         assert.equal(approved.status,200)
+        const declaration=await request(await manager(),api+'/application-groups/'+id+'/applications/'+key(registration.clientId)+'/scope-declarations/'+scopeNames.writeB,
+          'POST',{permissions:[applicationPermission(scopeNames.writeB)]})
+        assert.equal(declaration.status,201)
       },async client=>{await client.login(account.username,account.password)})
       const identity=await foreign.verifiedAccessIdentity({projectId:id,subject:account.subject,expectedProjectScopes:[scopeNames.writeB],expectedProtocolScopes:protocolScopes})
       assert.equal(identity.issuer,mainIdentity.issuer);same(identity.audiences,mainIdentity.audiences);same(identity.projectScopes,mainIdentity.projectScopes);same(identity.protocolScopes,mainIdentity.protocolScopes)
@@ -722,6 +743,9 @@ export async function runApplicationProjectSecurity(base,fixture={},record) {
         const revoked=await request(await manager(),path,'PUT',{issuer:base,subject:account.subject,projectScopes:[]},assignment.revision);assert.equal(revoked.status,200)
       })
       if(foreignApproved)await cleanup('wrong-project-member-removed',async()=>{
+        const declarationPath=api+'/application-groups/'+id+'/applications/'+key(foreignClientId)+'/scope-declarations/'+scopeNames.writeB
+        const declaration=await get(await manager(),declarationPath)
+        assert.equal((await request(await manager(),declarationPath,'DELETE',undefined,declaration.revision)).status,200)
         const member=await get(await manager(),foreignMemberPath)
         assert.equal((await request(await manager(),foreignMemberPath,'DELETE',undefined,member.revision)).status,200)
       })

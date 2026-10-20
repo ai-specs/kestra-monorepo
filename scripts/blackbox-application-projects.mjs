@@ -20,11 +20,12 @@ import {tmpdir} from 'node:os'
 import {dirname,resolve,join} from 'node:path'
 import {fileURLToPath,pathToFileURL} from 'node:url'
 import {prepareApplicationProjectUi,runPreparedApplicationProjectUi,planApplicationProjectUi} from './application-project-ui-fixture.mjs'
-import {scopeNames} from './application-project-cases.mjs'
+import {applicationProject,namespaceDomains,scopeNames} from './application-project-cases.mjs'
 import {initialEvidence,runIntegration} from './application-project-integration-cases.mjs'
 import {ProductionOAuthClient} from './production-oauth-client.mjs'
 import {ProjectSideEffects} from './application-project-effects.mjs'
 import {planFixture,planRestResources,directoryActivationPlan,provisionFixture,fixtureGaps,applicationProjectFeature,mcpProtocolEvidence,missingExtensionTopology} from './application-project-fixture.mjs'
+import {applicationDeclarations} from './application-project-policy.mjs'
 
 /** Development can relax only root cleanliness, never independent release inputs. */
 export function assertApplicationProjectSources(sources,{allowDirtyRoot=false}={}) {
@@ -270,7 +271,11 @@ export async function main(argv=process.argv.slice(2),runtime={}) {
       const path=writePlan('local-policy.json',planned.policy)
       cli('io.kestra.extensions.rbac.store.ProjectPolicyCommand','validate',path)
       cli('io.kestra.extensions.rbac.store.ProjectPolicyCommand','initialize',path)
-      return {schemaVersion:2,policySha256:hash(JSON.stringify(planned.policy)),operatorSubject:planned.admin.subject}
+      const declaration=applicationDeclarations(planned,'kestra-ui')
+      const declarationPath=writePlan('application-declarations.json',declaration)
+      cli('io.kestra.extensions.rbac.store.ApplicationScopeDeclarationCommand','validate',declarationPath)
+      cli('io.kestra.extensions.rbac.store.ApplicationScopeDeclarationCommand','initialize',declarationPath)
+      return {schemaVersion:2,policySha256:hash(JSON.stringify(planned.policy)),declarationSha256:hash(JSON.stringify(declaration)),declarationScopes:declaration.scopes.length,operatorSubject:planned.admin.subject}
     })
     await stage('feature-on-restart-jvm',async()=>{
       const host=composeConfig.services.kestra
@@ -284,17 +289,18 @@ export async function main(argv=process.argv.slice(2),runtime={}) {
       assert(identity.projectScopes.includes(planned.observerScope))
       return {authenticated:login.authenticated,callbackPath:login.callbackPath,project:identity.project,subject:identity.subject,projectScopes:identity.projectScopes,authorizationVersion:identity.authorizationVersion}
     })
-    let missingExtensionPromise
-    const prepareMissingExtension=()=>missingExtensionPromise??=(prepareMissingExtensionOnce())
-    const prepareMissingExtensionOnce=async()=>{
+    let secondaryIssuerPromise,missingExtensionPromise
+    const prepareSecondaryIssuer=()=>secondaryIssuerPromise??=(prepareSecondaryIssuerOnce())
+    const prepareMissingExtension=()=>missingExtensionPromise??=prepareSecondaryIssuer().then(secondary=>secondary.makeMissing())
+    const prepareSecondaryIssuerOnce=async()=>{
       const missingProject='application-projects-bb-'+(Date.now()+1)+'-'+process.pid
       assert.notEqual(missingProject,project)
       const missingPort=Number(options['--port']??18128)+1;assert(missingPort<65536)
       const missingBase='http://localhost:'+missingPort
       const missingPlan=planFixture(missingBase)
       const dir=join(output,'missing-extension');mkdirSync(dir,{mode:0o700})
-      // A separate CLI-only service consumes the verified jar. The runtime
-      // service never receives a classpath extension mount, even during setup.
+      // The same second issuer first verifies cross-issuer rejection with the
+      // published extension, then removes the jar for missing-component checks.
       const config=missingExtensionTopology({sourceConfig:composeConfig,sourceBase:planned.base,base:missingBase,port:missingPort,directory:dir,planned:missingPlan})
       const host=config.services.kestra
       const file=join(dir,'compose.json')
@@ -304,7 +310,7 @@ export async function main(argv=process.argv.slice(2),runtime={}) {
       const planFile=(name,value)=>{writeFileSync(join(dir,name),JSON.stringify(value,null,2)+'\n',{mode:0o600});return '/work/'+name}
       save();dc('config','--quiet')
       additionalDeployments.push({project:missingProject,compose:dc,base:missingBase})
-      report.resources.missingExtension={composeProject:missingProject,base:missingBase,composeFile:file,containersCreated:false,image:report.inputs.image,cliJarSha256:report.inputs.jarSha256,finalJarMounted:false}
+      report.resources.missingExtension={composeProject:missingProject,base:missingBase,composeFile:file,containersCreated:false,image:report.inputs.image,cliJarSha256:report.inputs.jarSha256,finalJarMounted:null}
       await persist()
       dc('up','-d','postgres','kestra');report.resources.missingExtension.containersCreated=true
       const wait=async()=>{const until=Date.now()+180000;for(;;){try{const response=await fetch(missingBase+'/ping',{signal:AbortSignal.timeout(3000)});await response.body?.cancel();if(response.ok)return}catch{}assert(Date.now()<until,'missing-extension host startup timeout');await new Promise(resolve=>setTimeout(resolve,1000))}}
@@ -348,7 +354,27 @@ export async function main(argv=process.argv.slice(2),runtime={}) {
       const policy=planFile('local-policy.json',missingPlan.policy)
       offline('io.kestra.extensions.rbac.store.ProjectPolicyCommand','validate',policy)
       offline('io.kestra.extensions.rbac.store.ProjectPolicyCommand','initialize',policy)
+      for(const [index,declaration] of [applicationDeclarations(missingPlan,'kestra-ui'),applicationDeclarations(missingPlan,registration.client_id,[scopeNames.writeB])].entries()) {
+        const declarationPath=planFile('application-declarations-'+index+'.json',declaration)
+        offline('io.kestra.extensions.rbac.store.ApplicationScopeDeclarationCommand','validate',declarationPath)
+        offline('io.kestra.extensions.rbac.store.ApplicationScopeDeclarationCommand','initialize',declarationPath)
+      }
+      const formalJar=composeConfig.services.kestra.volumes.find(item=>item.target==='/app/libs/kestra-rbac-authorizer.jar')?.source
+      assert(formalJar,'published extension mount required for second-issuer identity test')
+      host.volumes.push({type:'bind',source:formalJar,target:'/app/libs/kestra-rbac-authorizer.jar',read_only:true})
       host.environment.KESTRA_CONFIGURATION=applicationProjectFeature(host.environment.KESTRA_CONFIGURATION,true);save()
+      dc('up','-d','kestra');await wait()
+      const secondaryClient=new ProductionOAuthClient(missingBase)
+      await secondaryClient.login(missingPlan.admin.username,missingPlan.admin.password)
+      const secondaryIdentity=await secondaryClient.verifiedUiIdentity({projectId:applicationProject,subject:missingPlan.admin.subject,audience:'kestra-ui'})
+      assert(secondaryIdentity.projectScopes.includes(scopeNames.writeB),'second issuer did not sign the shared test scope')
+      report.resources.secondaryIssuer={base:missingBase,image:report.inputs.image,jarSha256:report.inputs.jarSha256,
+        signedScope:scopeNames.writeB,subject:missingPlan.admin.subject,issuer:secondaryIdentity.issuer}
+      await persist()
+      return {base:missingBase,account:missingPlan.admin,makeMissing:async()=>{
+      dc('stop','kestra')
+      host.volumes=host.volumes.filter(item=>item.target!=='/app/libs/kestra-rbac-authorizer.jar')
+      save()
       assert(!host.volumes.some(item=>item.target==='/app/libs/kestra-rbac-authorizer.jar'),'final missing mode must not mount the jar')
       dc('up','-d','kestra');await wait()
       const kestra=dc('ps','-q','kestra')
@@ -367,6 +393,7 @@ export async function main(argv=process.argv.slice(2),runtime={}) {
 
       const observed=new ProjectSideEffects({postgresContainer:ids.postgres,kestraContainer:kestra,composeProject:missingProject})
       report.resources.missingExtension.finalFeatureEnabled=true
+      report.resources.missingExtension.finalJarMounted=false
       report.resources.missingExtension.preRegisteredClientId=registration.client_id
       const deniedClient=new ProductionOAuthClient(missingBase);await deniedClient.login(missingPlan.admin.username,missingPlan.admin.password)
       const flowPath='/api/v1/main/flows/'+encodeURIComponent(seed.namespace)+'/'+encodeURIComponent(seed.id)
@@ -375,14 +402,15 @@ export async function main(argv=process.argv.slice(2),runtime={}) {
       const deniedWrite=await observed.observeDenied(()=>deniedClient.request(flowPath,{method:'PUT',headers:{'Content-Type':'application/x-yaml'},body:changedSource}),async response=>{assert.equal(response.status,403);await response.body?.cancel()},{windowMs:5000,intervalMs:250})
       report.fragments.missingExtensionRest={readStatus:403,writeStatus:deniedWrite.response.status,sideEffects:deniedWrite.observation,image:report.inputs.image,jarAbsent:true}
       await persist()
-      return {base:missingBase,account:missingPlan.admin,scenario:{...missingPlan.mcp.scenarios.allowed,expectedTools:[seed.toolName]},expectedUiAudience:'kestra-ui',effects:observed,denialErrors:[mcpProtocolEvidence.rpcDenial],denialToolCodes:[],denialToolResults:[mcpProtocolEvidence.toolDenial],
+      return {base:missingBase,account:missingPlan.admin,scenario:{...missingPlan.mcp.scenarios.allowed,projectScopes:[],expectedTools:[seed.toolName]},expectedUiAudience:'kestra-ui',effects:observed,denialErrors:[mcpProtocolEvidence.rpcDenial],denialToolCodes:[],denialToolResults:[mcpProtocolEvidence.toolDenial],
         registeredClient:registration,componentAbsence:report.resources.missingExtension.finalRuntime,componentFailureToolResult:mcpProtocolEvidence.missingProviderFailure,
         management:async()=>{throw new Error('Unexpected new DCR approval in pre-registered missing-extension mode; final service has no management extension')},
         databaseExecution:async()=>{throw new Error('Missing-extension tools must never create an execution')}}
+      }}
     }
     let fixture
     await stage('public-accounts-and-real-rest-seeds',async()=>{
-      const effects=new ProjectSideEffects({composeProject:project,postgresContainer:report.resources.containerIds.postgres,kestraContainer:report.resources.containerIds.kestra})
+      let effects=new ProjectSideEffects({composeProject:project,postgresContainer:report.resources.containerIds.postgres,kestraContainer:report.resources.containerIds.kestra})
       fixture=await provisionFixture({planned,effects,observer:{postgresContainer:report.resources.containerIds.postgres,composeProject:project},record:async fragment=>{report.fragments.provisioning=fragment;await persist()}})
       if(legacyMigration)fixture.runMigration=async(recordMigration,recordRecovery)=>{
         await fixture.checkHostHealth('before-planned-migration-pause')
@@ -476,8 +504,46 @@ export async function main(argv=process.argv.slice(2),runtime={}) {
         const module=await import('./application-project-security-cases.mjs')
         assert.equal(typeof module.runApplicationProjectSecurity,'function','published driver security module signature missing')
         assert(report.stages.some(row=>row.id==='publication-gate'&&row.status==='passed'),'security driver requires actual successful artifact gate')
-        const secondary=await prepareMissingExtension()
-        return module.runApplicationProjectSecurity(planned.base,{secondaryIssuer:{base:secondary.base,account:secondary.account},planned,management:fixture.management,effects,observer:{composeProject:project,postgresContainer:report.resources.containerIds.postgres,kestraContainer:report.resources.containerIds.kestra},release:{pluginPublished:true},effectsWindowMs:5000,revokeWindowMs:60000},recordSecurity)
+        const secondary=await prepareSecondaryIssuer()
+        const security=await module.runApplicationProjectSecurity(planned.base,{secondaryIssuer:{base:secondary.base,account:secondary.account},planned,management:fixture.management,effects,observer:{composeProject:project,postgresContainer:report.resources.containerIds.postgres,kestraContainer:report.resources.containerIds.kestra},release:{pluginPublished:true},effectsWindowMs:5000,revokeWindowMs:60000},recordSecurity)
+        if(security.completed && security.checks.every(row=>row.status==='passed')) {
+          const recovery={reason:'restart isolated JVM after dependency fault injection and verify allowed read',startedAt:new Date().toISOString(),checks:[],restarted:false}
+          report.fragments.securityHostRecovery=recovery;await persist()
+          const current=compose('ps','-aq','kestra')
+          const host=JSON.parse(command('docker',['inspect',current]))[0]
+          assert.equal(host.Config.Labels['com.docker.compose.project'],project,'recovery container is not owned by this Compose')
+          assert.equal(host.Config.Image,report.inputs.image,'recovery source image differs from the published input')
+          recovery.oldContainerId=current
+          recovery.before={running:host.State.Running,exitCode:host.State.ExitCode,startedAt:host.State.StartedAt}
+          if(host.State.Running)compose('restart','kestra')
+          else {
+            const logs=command('docker',['logs',current])
+            const expectedFault=logs.includes('[FlowInterface] fatal error while consuming messages')
+              && logs.includes('canceling statement due to user request')
+            recovery.checks.push({at:new Date().toISOString(),oldContainerId:current,exitCode:host.State.ExitCode,expectedFault,logSha256:hash(logs)})
+            assert(expectedFault && host.State.ExitCode===0,'unexpected host exit after fault injection')
+            compose('up','-d','kestra')
+          }
+          await waitForHost()
+          const resumed=compose('ps','-q','kestra')
+          const inspected=JSON.parse(command('docker',['inspect',resumed]))[0]
+          assert.equal(inspected.Config.Labels['com.docker.compose.project'],project)
+          assert.equal(inspected.Config.Image,report.inputs.image)
+          assert.equal(inspected.State.Running,true)
+          assert.notEqual(inspected.State.StartedAt,host.State.StartedAt,'isolated JVM did not restart after fault injection')
+          report.resources.containerIds.kestra=resumed
+          effects=new ProjectSideEffects({composeProject:project,postgresContainer:report.resources.containerIds.postgres,kestraContainer:resumed})
+          fixture.setEffects(effects)
+          recovery.restarted=true;recovery.resumedContainerId=resumed
+          recovery.resumedAt=inspected.State.StartedAt;await persist()
+          const verified=new ProductionOAuthClient(planned.base)
+          await verified.login(planned.admin.username,planned.admin.password)
+          const response=await verified.request('/api/v1/main/flows/'+encodeURIComponent(namespaceDomains.b)+'/allowed-id?source=true')
+          assert.equal(response.status,200,'host did not restore allowed business read after fault injection')
+          await response.body?.cancel()
+          recovery.allowedReadStatus=response.status;recovery.finishedAt=new Date().toISOString();await persist()
+        }
+        return security
       }
       fixture.prepareMissingExtension=prepareMissingExtension
       fixture.checkHostHealth=async stage=>{

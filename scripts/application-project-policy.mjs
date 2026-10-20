@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict'
+import {createHash} from 'node:crypto'
 import {scopeNames, namespaceDomains, applicationProject, projectScopeCases} from './application-project-cases.mjs'
 
 const complete = (namespace, resource, actions, descendants = true, ids = []) => ({scope: 'NAMESPACE', tenant: 'main', namespace, descendants,
@@ -40,18 +41,31 @@ export function localApplicationPolicy({issuer, audiences, directoryRevision}) {
   // mixing it with a known scope must be denied, rather than using a known subset.
   return {schemaVersion: 2, applicationProjects: {[applicationProject]: {issuer, audiences: [...audiences], enabled: true, directoryRevision, scopes}}}
 }
+const roleName = key => key.replace(/^acceptance-/, '').split('-').map(word => word[0].toUpperCase() + word.slice(1)).join(' ')
 export function directoryScopeInputs(localPolicy) {
   const project = localPolicy.applicationProjects[applicationProject]
-  const definitions = Object.entries(project.scopes).map(([name, definition]) => ({scope: name, description: definition.description, active: definition.enabled,
+  const definitions = Object.entries(project.scopes).map(([key, definition]) => ({scope: key, name: roleName(key), description: definition.description, active: definition.enabled,
     resourceIntents: definition.grants.map(grant => ({vocabularyVersion: 'kestra-resources-v1', resourceType: grant.resource,
       namespaces: grant.scope === 'TENANT' ? {kind: 'ALL', exact: [], subtrees: []}
         : {kind: 'RESTRICTED', exact: grant.descendants ? [] : [grant.namespace], subtrees: grant.descendants ? [grant.namespace] : []},
       resourceIds: {kind: grant.allIds ? 'ALL' : 'RESTRICTED', ids: [...grant.ids]}, actions: [...grant.actions]})),
     managementIntents: definition.managementGrants.map(grant => ({domain: grant.domain, actions: [...grant.actions], projectIds: [...(grant.projectIds ?? [])]})),
   }))
-  definitions.push({scope: scopeNames.unbound, description: 'Known directory role without a local binding', active: true,
+  definitions.push({scope: scopeNames.unbound, name: 'Unbound role', description: 'Known directory role without a local binding', active: true,
     resourceIntents: [{vocabularyVersion: 'kestra-resources-v1', resourceType: 'FLOW', namespaces: {kind: 'RESTRICTED', exact: [namespaceDomains.a], subtrees: []}, resourceIds: {kind: 'ALL', ids: []}, actions: ['READ', 'LIST']}], managementIntents: []})
   return definitions
 }
 export const projectTestAccounts = Object.freeze(projectScopeCases.map((item, index) => Object.freeze({caseId: item.id,
   username: 'scope-test-' + String(index + 1).padStart(2, '0'), password: 'ProjectScopeTest123!', projectScopes: item.scopes})))
+
+export const applicationPermission = (scopeKey, roleName = scopeKey) => ({key: 'access-' + createHash('sha256').update(scopeKey).digest('hex').slice(0, 20), name: 'Access ' + roleName})
+export function applicationDeclarations(fixture, clientId, keys = fixture.projectScopeCatalog) {
+  const definitions = new Map(fixture.directoryScopes.map(scope => [scope.scope, scope]))
+  const scopes = keys.map(key => {
+    const definition = definitions.get(key)
+    assert(definition, 'declaration references an unknown application-group scope')
+    return {key, permissions: [applicationPermission(key, definition.name)]}
+  })
+  assert.equal(new Set(scopes.map(scope => scope.key)).size, scopes.length)
+  return {applicationGroupId: applicationProject, clientId, scopes}
+}

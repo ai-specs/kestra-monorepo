@@ -125,7 +125,7 @@ export class ProductionOAuthClient {
     assert(this.#tokens.access_token && this.#tokens.refresh_token)
     return {clientId: this.#client.client_id, resource: this.#resource, issuedScopes: this.#tokens.scope?.split(' ').filter(Boolean) ?? []}
   }
-  async verifiedAccessIdentity({projectClaim = "kestra_project_v1", projectId, subject, expectedProjectScopes, expectedProtocolScopes}) {
+  async verifiedAccessIdentity({projectClaim = "kestra_application_group_v1", projectId, subject, expectedProjectScopes, expectedProtocolScopes}) {
     assert(this.#tokens && this.#discovery)
     const [headerSegment, payloadSegment, signatureSegment, extra] = this.#tokens.access_token.split('.')
     assert(!extra && headerSegment && payloadSegment && signatureSegment)
@@ -145,24 +145,24 @@ export class ProductionOAuthClient {
     assert(projectClaim && Object.hasOwn(claims, projectClaim), 'Use the documented published project claim name')
     const project = claims[projectClaim]
     assert(project && typeof project === 'object' && !Array.isArray(project), 'Signed project claim must use the published envelope')
-    assert.equal(project.project_id, projectId)
+    assert.equal(project.application_group_id, projectId)
     assert.equal(project.client_id, this.#client.client_id)
     assert(Number.isSafeInteger(project.authorization_version) && project.authorization_version > 0)
-    for (const name of ['project_scopes', 'protocol_scopes']) {
+    for (const name of ['application_group_scopes', 'protocol_scopes']) {
       assert(Array.isArray(project[name]) && project[name].every(value => typeof value === 'string' && value.length))
       assert.equal(new Set(project[name]).size, project[name].length, 'Signed scope classification contains duplicates')
     }
-    assert(!project.project_scopes.some(value => project.protocol_scopes.includes(value)), 'Project and protocol scopes overlap')
+    assert(!project.application_group_scopes.some(value => project.protocol_scopes.includes(value)), 'Project and protocol scopes overlap')
     const scopes = typeof claims.scope === 'string' ? claims.scope.split(' ').filter(Boolean) : claims.scope
     assert(Array.isArray(scopes), 'Signed access token scope missing')
-    assert.deepEqual([...scopes].sort(), [...project.project_scopes, ...project.protocol_scopes].sort(), 'Signed project claim differs from issued scopes')
-    if (expectedProjectScopes !== undefined) assert.deepEqual([...project.project_scopes].sort(), [...expectedProjectScopes].sort())
+    assert.deepEqual([...scopes].sort(), [...project.application_group_scopes, ...project.protocol_scopes].sort(), 'Signed project claim differs from issued scopes')
+    if (expectedProjectScopes !== undefined) assert.deepEqual([...project.application_group_scopes].sort(), [...expectedProjectScopes].sort())
     if (expectedProtocolScopes !== undefined) assert.deepEqual([...project.protocol_scopes].sort(), [...expectedProtocolScopes].sort())
-    return {subject: claims.sub, issuer: claims.iss, audiences, project: project.project_id,
+    return {subject: claims.sub, issuer: claims.iss, audiences, project: project.application_group_id,
       clientId: project.client_id, authorizationVersion: project.authorization_version,
-      projectScopes: project.project_scopes, protocolScopes: project.protocol_scopes, scopes}
+      projectScopes: project.application_group_scopes, protocolScopes: project.protocol_scopes, scopes}
   }
-  async verifiedUiIdentity({projectId, subject, audience, projectClaim = 'kestra_project_v1'}) {
+  async verifiedUiIdentity({projectId, subject, audience, projectClaim = 'kestra_application_group_v1'}) {
     // authentication:idtoken stores the actual OIDC ID token in the JWT cookie.
     // Any deployment using another cookie format must fail this probe explicitly.
     if (!this.#discovery) await this.discover()
@@ -186,16 +186,16 @@ export class ProductionOAuthClient {
     assert.deepEqual(audiences,[audience])
     const project = claims[projectClaim]
     assert(project && typeof project === 'object' && !Array.isArray(project))
-    assert.equal(project.project_id,projectId)
+    assert.equal(project.application_group_id,projectId)
     assert.equal(project.client_id,audience)
     assert(Number.isSafeInteger(project.authorization_version) && project.authorization_version > 0)
-    for (const field of ['project_scopes','protocol_scopes']) {
+    for (const field of ['application_group_scopes','protocol_scopes']) {
       assert(Array.isArray(project[field]) && project[field].every(value => typeof value === 'string' && value.length))
       assert.equal(new Set(project[field]).size,project[field].length)
     }
-    assert(!project.project_scopes.some(scope => project.protocol_scopes.includes(scope)))
-    return {subject:claims.sub,issuer:claims.iss,audiences,project:project.project_id,clientId:project.client_id,
-      projectScopes:project.project_scopes,protocolScopes:project.protocol_scopes,authorizationVersion:project.authorization_version}
+    assert(!project.application_group_scopes.some(scope => project.protocol_scopes.includes(scope)))
+    return {subject:claims.sub,issuer:claims.iss,audiences,project:project.application_group_id,clientId:project.client_id,
+      projectScopes:project.application_group_scopes,protocolScopes:project.protocol_scopes,authorizationVersion:project.authorization_version}
   }
   async refresh() {
     assert(this.#tokens && this.#client && this.#discovery)

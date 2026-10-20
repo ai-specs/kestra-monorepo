@@ -1,5 +1,11 @@
 # Kestra monorepo
 
+## 应用组重构状态（2026-10-21）
+
+当前实施规范见 `docs/application-group-target-model.md`，差异与验收门见 `implementation-gap-report.md`。本轮已发布部分宿主契约与插件声明元数据，并在本地开发模式下执行 `new-install` 组合检查：REST `56/56`、MCP `11/11`、安全 `15/15`、UI `98/98`。该报告标记 `nonFinal=true`，根仓当前提交的正式 CI 尚待核对。旧 `projects` API、共享 scope 意图、完整恢复和部分用户文案仍与目标模型冲突；下文旧“应用项目”流程只描述历史发布版本，不是新应用组的生产启用说明。不得将这次局部检查当成目标模型完整交付。
+
+> 当前应用组实施规范见 `docs/application-group-target-model.md`。下方“应用项目授权交付状态”是指定旧提交的历史验收记录；旧名称、旧 API、旧恢复与迁移流程不是新安装目标的使用说明。新模型差异和发布门见 `implementation-gap-report.md`。
+
 ## 应用项目授权交付状态（2026-10-19）
 
 当前新模型已在本地开发环境完成最终组合验收。根提交 `85eb764c5656ccc4056c235072dfb83e830f9964` 的 CI `39263232685` 通过，最终报告为 `completed=true`，失败、跳过和未运行均为零。
@@ -79,7 +85,7 @@ cp /tmp/kestra-rbac-artifact/build/libs/kestra-rbac-authorizer.jar deployment/li
 不得覆盖初始化已有策略，也不得仅换 jar 作为完整回退。
 
 完成身份目录激活和本地迁移后，在 `.env` 设置 `KESTRA_RBAC_ENABLED=true` 与
-`KESTRA_OIDC_UI_SCOPES=openid,profile,email,kestra:project-scopes`，再执行
+`KESTRA_OIDC_UI_SCOPES=openid,profile,email,kestra:application-group-scopes`，再执行
 `docker compose up -d` 更新容器配置。Compose 同时启用 typed、完整评估及
 application-projects；UI 的 selector 只用于已批准的第一方成员。
 关闭 RBAC 时必须同时将 UI scopes 恢复为 `openid,profile,email`。首次安装的默认

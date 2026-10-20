@@ -11,11 +11,11 @@ const clone=value=>structuredClone(value)
 export const canonicalTargetValue=value=>Array.isArray(value)?value.map(canonicalTargetValue).sort((a,b)=>JSON.stringify(a).localeCompare(JSON.stringify(b))):value&&typeof value==='object'?Object.fromEntries(Object.entries(value).sort(([a],[b])=>a.localeCompare(b)).map(([name,item])=>[name,canonicalTargetValue(item)])):value
 const semanticEqual=(actual,expected,message)=>assert.deepEqual(canonicalTargetValue(actual),canonicalTargetValue(expected),message)
 
-export const targetUiCheckIds=Object.freeze(['ui-create-project-explicit-local-policy-target','ui-subject-revoke'])
+export const targetUiCheckIds=Object.freeze(['ui-application-declaration-crud','ui-subject-revoke'])
 export async function runTargetProjectBrowser(page,base,fixture,{management,planned,effects},record) {
   assert.equal(typeof record,'function')
   const report={completed:false,checks:targetUiCheckIds.map(id=>({id,passed:false,status:'not_run',evidence:{}})),requests:[],logins:[],cleanup:[]}
-  const id='ui-target-'+randomBytes(6).toString('hex'),scope='kestra:acceptance:'+id+'-manage-v1',targetScope='kestra:acceptance:'+id+'-read-v1'
+  const id='ui-target-'+randomBytes(6).toString('hex'),scope='acceptance-'+id+'-manage-v1',targetScope='acceptance-'+id+'-read-v1'
   const namespace='ui.acceptance.target',audience=base+'/api/v1/main/mcp/default'
   let memberOriginal,assignmentOriginal,createdScope=false,createdTarget=false,subjectOriginal,revokedAccount,originalConsoleScopes,targetCleanupState
   const secrets=new Set([planned.admin,fixture.zeroAccount,...Object.values(planned.accounts??{}),...Object.values(planned.mcpAccounts??{})].map(account=>account?.password).filter(Boolean))
@@ -142,56 +142,43 @@ export async function runTargetProjectBrowser(page,base,fixture,{management,plan
   try {
     const row=report.checks[0];row.status='running';await persist()
     await login(planned.admin)
-    const existing=await read('/policy');originalConsoleScopes=clone(existing.policy.applicationProjects[applicationProject].scopes);assert.equal(existing.policy.applicationProjects[id],undefined)
-    await open('projects/new','[name="project-id"]')
-    await page.fill('[name="project-id"]',id);await page.fill('[name="project-display-name"]','Browser-created explicit target')
-    await save('[data-test="save-identity-project"]','POST','/identity/projects');createdTarget=true
+    const clientPath='projects/'+applicationProject+'/clients/'+key('kestra-ui')
+    const declarationPath='/application-groups/'+applicationProject+'/applications/'+key('kestra-ui')+'/scope-declarations/'+encodeURIComponent(fixture.scope)
+    await open(clientPath,'[data-test="application-declarations"]')
+    const section='[data-scope="'+fixture.scope+'"]'
+    const before=await sameCookie(declarationPath)
+    assert.equal(before.status,200)
+    const original=before.body.permissions
+    assert(original.length>0 && original[0].key && original[0].name)
+    const renamed='Browser reviewed '+original[0].name
+    await page.fill(section+' .application-permission-row:first-of-type input',renamed)
+    await save(section+' .buttons button:first-child','PUT',declarationPath)
+    const saved=await sameCookie(declarationPath)
+    assert.equal(saved.status,200)
+    assert(saved.body.revision>before.body.revision)
+    assert.equal(saved.body.permissions[0].key,original[0].key)
+    assert.equal(saved.body.permissions[0].name,renamed)
+    await open(clientPath,'[data-test="application-declarations"]')
+    const displayed=await page.evaluate(({root,section})=>document.querySelector(root).shadowRoot.querySelector(section+' .application-permission-row:first-of-type input')?.value,{root,section})
+    assert.equal(displayed,renamed,'refresh lost application permission name')
+    await page.click(section+' .buttons button:nth-child(2)')
+    await page.waitForFunction(({root,section})=>Boolean(document.querySelector(root).shadowRoot.querySelector(section+' [role="alertdialog"]')),{root,section})
+    await save(section+' [role="alertdialog"] button:first-of-type','DELETE',declarationPath)
     await login(planned.admin)
-    const created=await read('/identity/projects/'+id);assert.equal(created.id,id);assert.equal(created.displayName,'Browser-created explicit target')
-    assert.equal((await read('/policy')).policy.applicationProjects[id],undefined,'shared project save must not create a local binding')
-    await reconcileConsole(false)
-    // New stable scope; no old management scope meaning is expanded.
-    await open('projects/'+applicationProject+'/scopes/new','[name="identity-scope"]')
-    await page.fill('[name="identity-scope"]',scope);await page.fill('[name="identity-scope-description"]','Explicit target-only management')
-    await page.click('#identity-scope-title + form button:text-is("Add management intent")')
-    const intent='section[aria-labelledby="identity-scope-title"] .grant'
-    await page.selectOption(intent+' select','LOCAL_POLICY');await page.fill(intent+' [name="management-project-ids"]',id)
-    await checked(intent+' input[value="READ"]',true);await checked(intent+' input[value="MANAGE"]',true)
-    await save('[data-test="save-identity-scope"]','POST','/identity/projects/'+applicationProject+'/scopes');createdScope=true
-    await login(planned.admin)
-    await reconcileConsole(true)
-    const shared=await read('/identity/projects/'+applicationProject+'/scopes/'+key(scope))
-    semanticEqual(shared.managementIntents,[{domain:'LOCAL_POLICY',actions:['READ','MANAGE'],projectIds:[id]}])
-    memberOriginal=await read('/identity/projects/'+applicationProject+'/clients/'+key('kestra-ui'))
-    await identity('/identity/projects/'+applicationProject+'/clients/'+key('kestra-ui'),'PUT',{clientId:'kestra-ui',approved:true,firstPartyUi:true,audiences:memberOriginal.audiences,allowedProjectScopes:[...memberOriginal.allowedProjectScopes,scope]},memberOriginal.revision)
-    assignmentOriginal=await read('/identity/projects/'+applicationProject+'/assignments/detail?subject='+encodeURIComponent(planned.admin.subject))
-    await identity('/identity/projects/'+applicationProject+'/assignments/detail?subject='+encodeURIComponent(planned.admin.subject),'PUT',{issuer:base,subject:planned.admin.subject,projectScopes:[...assignmentOriginal.projectScopes,scope]},assignmentOriginal.revision)
-    const client=await management.login()
-    const registered=await client.request('/oidc/register',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({redirect_uris:['http://127.0.0.1:19997/callback'],token_endpoint_auth_method:'none',grant_types:['authorization_code','refresh_token'],response_types:['code'],scope:'openid',client_name:'Browser target membership'})})
-    assert.equal(registered.status,201);const registration=await registered.json();assert(registration.client_id&&!registration.client_secret)
-    await management.login();const target=await management.request(api+'/identity/projects/'+id)
-    await management.request(api+'/identity/projects/'+id+'/scopes','POST',{scope:targetScope,description:'Target business read',active:true,resourceIntents:[{vocabularyVersion:'kestra-resources-v1',resourceType:'FLOW',namespaces:{kind:'RESTRICTED',exact:[namespace],subtrees:[]},resourceIds:{kind:'ALL',ids:[]},actions:['READ','LIST']}],managementIntents:[]},target.revision)
-    await management.login();const currentTarget=await management.request(api+'/identity/projects/'+id)
-    await management.request(api+'/identity/projects/'+id+'/clients','POST',{clientId:registration.client_id,approved:true,firstPartyUi:false,audiences:[audience],allowedProjectScopes:[targetScope]},currentTarget.revision)
-    await login(planned.admin)
-    await open('projects/'+id,'[name="local-issuer"]')
-    await page.fill('[name="local-issuer"]',base)
-    await page.fill('section[aria-labelledby="local-project-title"] textarea',audience)
-    await checked('section[aria-labelledby="local-project-title"] label.checkbox input',true)
-    await save('[data-test="save-local-project"]','POST','/projects')
-    const bound=await sameCookie('/policy');assert.equal(bound.status,200)
-    semanticEqual(bound.body.policy.applicationProjects[id].audiences,[audience]);assert.equal(bound.body.policy.applicationProjects[id].enabled,true)
-    await open('projects/'+id+'/bindings/new','[name="binding-scope"]')
-    await page.selectOption('[name="binding-scope"]',targetScope)
-    await page.fill('[name="local-scope-description"]','Browser-saved target read binding')
-    await checked('form label.checkbox input',true)
-    await page.click('[data-test="add-grant"]');await page.fill('[name="grant-namespace"]',namespace);await page.selectOption('[name="grant-resource"]','FLOW')
-    await checked('.grant input[value="READ"]',true);await checked('.grant input[value="LIST"]',true)
-    await save('[data-test="save-new-local-binding"]','POST','/projects/'+id+'/scopes')
-    const saved=await sameCookie('/projects/'+id+'/scopes/'+key(targetScope));assert.equal(saved.status,200)
-    const actual=saved.body.scope??saved.body;assert.equal(actual.description,'Browser-saved target read binding')
-    assert(actual.grants.some(grant=>grant.namespace===namespace&&grant.resource==='FLOW'&&grant.actions.includes('READ')&&grant.actions.includes('LIST')))
-    row.passed=true;row.status='passed';row.evidence={targetId:id,scope,sharedCreatedByBrowser:true,newScopeTargetIds:[id],uiMemberExplicitlyApproved:true,subjectExplicitlyGranted:true,targetAudience:audience,localProjectSavedByBrowser:true,bindingSavedByBrowser:true,policyRevision:bound.body.revision}
+    const revoked=await sameCookie(declarationPath)
+    assert.equal(revoked.status,404,'deleted declaration still visible')
+    await open(clientPath,'[data-test="application-declarations"]')
+    const missing=await page.evaluate(({root,section})=>document.querySelector(root).shadowRoot.querySelector(section)===null,{root,section})
+    assert(missing,'deleted declaration remained on the application page')
+    await page.selectOption('.application-declarations form select',fixture.scope)
+    await page.fill('.application-declarations form label:nth-of-type(2) input',original[0].key)
+    await page.fill('.application-declarations form label:nth-of-type(3) input',original[0].name)
+    await save('.application-declarations form button[type="submit"]','POST',declarationPath)
+    const restored=await read(declarationPath)
+    semanticEqual(restored.permissions,original,'recreated declaration changed permission metadata')
+    row.passed=true;row.status='passed';row.evidence={groupId:applicationProject,clientId:'kestra-ui',scope:fixture.scope,
+      permissionKey:original[0].key,originalName:original[0].name,updatedName:renamed,
+      updateRevision:saved.body.revision,deletedWithRealUi:true,recreatedWithRealUi:true}
   }catch(error){report.checks[0].status='failed';report.checks[0].evidence.error=safe(error)}finally{await persist()}
   try {
     const row=report.checks[1];row.status='running';await persist()
@@ -201,7 +188,7 @@ export async function runTargetProjectBrowser(page,base,fixture,{management,plan
     await management.login();const created=await management.request(api+'/users','POST',{username,name:'UI runtime revocation',email:username+'@acceptance.invalid',password})
     await management.reconcile(applicationProject)
     const project=await management.request(api+'/identity/projects/'+applicationProject)
-    const reference='kestra:acceptance:ui-reference-v1'
+    const reference='acceptance-ui-reference-v1'
     await management.mutateIdentity(api+'/identity/projects/'+applicationProject+'/assignments','POST',{issuer:base,subject:created.subject,projectScopes:[reference]},project.revision)
     const account={username,password,subject:created.subject};revokedAccount=account
     await login(account)
@@ -279,7 +266,7 @@ export async function runTargetProjectBrowser(page,base,fixture,{management,plan
     if(revokedAccount){await management.login();const user=await management.request(api+'/users/detail?subject='+encodeURIComponent(revokedAccount.subject));await management.request(api+'/users/state','PUT',{subject:revokedAccount.subject,active:false},user.revision);await management.reconcile(applicationProject)}
     if(assignmentOriginal){await management.login();const path=api+'/identity/projects/'+applicationProject+'/assignments/detail?subject='+encodeURIComponent(planned.admin.subject),current=await management.request(path);await identity(path.slice(api.length),'PUT',{issuer:base,subject:planned.admin.subject,projectScopes:assignmentOriginal.projectScopes},current.revision)}
     if(memberOriginal){await management.login();const path=api+'/identity/projects/'+applicationProject+'/clients/'+key('kestra-ui'),current=await management.request(path);await identity(path.slice(api.length),'PUT',{clientId:'kestra-ui',approved:memberOriginal.approved,firstPartyUi:true,audiences:memberOriginal.audiences,allowedProjectScopes:memberOriginal.allowedProjectScopes},current.revision)}
-    if(createdScope){await management.login();const path=api+'/identity/projects/'+applicationProject+'/scopes/'+key(scope),current=await management.request(path);const local=planned.policy.applicationProjects[applicationProject].scopes[scope];if(local)management.reconciliationEdits.set(scope,{...local,enabled:false});await management.mutateIdentity(path,'PUT',{scope,description:current.description,active:false,resourceIntents:current.resourceIntents,managementIntents:current.managementIntents},current.revision)}
+    if(createdScope){await management.login();const path=api+'/identity/projects/'+applicationProject+'/scopes/'+key(scope),current=await management.request(path);const local=planned.policy.applicationProjects[applicationProject].scopes[scope];if(local)management.reconciliationEdits.set(scope,{...local,enabled:false});await management.mutateIdentity(path,'PUT',{scope,name:current.name,description:current.description,active:false,resourceIntents:current.resourceIntents,managementIntents:current.managementIntents},current.revision)}
     if(originalConsoleScopes){
       const final=await read('/policy')
       for(const [name,definition]of Object.entries(originalConsoleScopes))semanticEqual(final.policy.applicationProjects[applicationProject].scopes[name],definition,'existing console scope was changed: '+name)

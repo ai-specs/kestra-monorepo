@@ -114,7 +114,32 @@ export async function runApplicationProjectMcp(base,fixture,record) {
     await check('mcp-same-session-directory-revoke',()=>revoke('directoryRevoke','revoke-directory-scope'))
     await check('mcp-subject-revoke',()=>revoke('subjectRevoke','revoke-subject-scopes'))
     await check('refresh-cannot-restore-revoked-scope',async()=>{assert.equal(revoked.length,3,'all three revocation modes must reach refresh checks');const results=[];for(const s of revoked){const status=await s.client.refresh();assert(status<500&&status!==404,'refresh infrastructure failure is not revocation');if(status===200){const actual=await s.client.verifiedAccessIdentity({projectId:applicationProject,subject:s.account.subject});if(s.revocationKind==='revoke-local-scope'){assert.deepEqual(sorted(actual.projectScopes),sorted(s.spec.projectScopes),'local grants change must not rewrite identity assignments')}else assert(!actual.projectScopes.some(scope=>s.spec.projectScopes.includes(scope)),'refresh restored a revoked identity project scope')}else assert([400,401,403].includes(status),'unexpected refresh status');results.push({subject:s.account.subject,status,list:await denyList(s),call:await denyCall(s)})}return {results}})
-    await check('mcp-missing-extension',async()=>{const config=fixture.missingExtension;assert(config?.base&&config.base!==base,'separate isolated missing-jar deployment required');assert(config.componentAbsence?.jarAbsent===true&&config.componentAbsence.featureEnabled===true,'actual enabled runtime and absent jar evidence required');const otherEffects=config.effects instanceof ProjectSideEffects?config.effects:new ProjectSideEffects(config.effects);const s=await session('missing',config,config.base);return {identity:s.identity,componentAbsence:config.componentAbsence,list:await denyList(s),call:await denyCall(s,otherEffects,true)}})
+    await check('mcp-missing-extension',async()=>{
+      const config=fixture.missingExtension
+      assert(config?.base&&config.base!==base,'separate isolated missing-jar deployment required')
+      assert(config.componentAbsence?.jarAbsent===true&&config.componentAbsence.featureEnabled===true,'actual enabled runtime and absent jar evidence required')
+      const client=new ProductionOAuthClient(config.base)
+      await login(client,config.account)
+      const issued=await client.issueMcpScopes(config.scenario.protocolScopes,async()=>{throw new Error('Missing extension cannot approve a new client')},
+        async current=>login(current,config.account),{registeredClient:config.registeredClient})
+      const identity=await client.verifiedAccessIdentity({projectId:applicationProject,subject:config.account.subject,
+        expectedProjectScopes:[],expectedProtocolScopes:config.scenario.protocolScopes})
+      assert.deepEqual(sorted(issued.issuedScopes),sorted(config.scenario.protocolScopes),'missing provider issued application scope')
+      const initialized=await client.rpc(null,'initialize',{protocolVersion:'2025-06-18',capabilities:{},clientInfo:{name:'missing-extension',version:'1'}},rpcId++)
+      assert([200,401,403].includes(initialized.status),'missing component returned an unexpected initialize status')
+      if(initialized.status===200)assert(initialized.session&&initialized.message?.result&&!initialized.message.error,'missing component returned invalid MCP session')
+      const sessionId=initialized.status===200?initialized.session:null
+      const listing=await client.rpc(sessionId,'tools/list',{},rpcId++)
+      assert(denied(listing,config)||listing.status===200&&!listing.message?.error&&Array.isArray(listing.message?.result?.tools)&&listing.message.result.tools.length===0,'missing component exposed tools')
+      const otherEffects=config.effects instanceof ProjectSideEffects?config.effects:new ProjectSideEffects(config.effects)
+      const call=await otherEffects.observeDenied(()=>client.rpc(sessionId,'tools/call',
+        {name:config.scenario.call.name,arguments:config.scenario.call.arguments},rpcId++),
+        response=>assert(denied(response,config)||response.status===200&&response.message?.result?.isError===true&&jsonEqual(response.message.result,config.componentFailureToolResult),
+          'missing component executed a protected tool'),{windowMs:config.effectsWindowMs??5000,intervalMs:250})
+      return {identity,componentAbsence:config.componentAbsence,initializeStatus:initialized.status,
+        list:{status:listing.status,empty:listing.message?.result?.tools?.length===0},
+        call:{status:call.response.status,sideEffects:call.observation}}
+    })
   }catch(error){report.preconditionFailure=safe(error)}
   finally{
     for(const value of restorations.reverse()){try{const restored=await value.restore();const verified=await receipt(restored,value.client,value.account,value.config);report.mutations.push({kind:'restore',label:value.label,...verified})}catch(error){report.checks.push({id:'cleanup-'+value.label,passed:false,status:'failed',error:safe(error),evidence:{}})}}

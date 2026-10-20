@@ -1,5 +1,6 @@
 .DS_Store
 .env
+/.env.bak-*
 .work/
 deployment/libs/*.jar
 deployment/plugins/*.jar

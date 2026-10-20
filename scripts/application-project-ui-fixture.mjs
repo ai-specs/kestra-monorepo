@@ -11,6 +11,7 @@ import {applicationProject,scopeNames} from './application-project-cases.mjs'
 import {ProductionOAuthClient} from './production-oauth-client.mjs'
 import {runTargetProjectBrowser,targetUiCheckIds} from './application-project-target-ui.mjs'
 import {flowSource} from './application-project-fixture.mjs'
+import {applicationPermission} from './application-project-policy.mjs'
 import {applicationProjectUiLocales,applicationProjectUiThemes} from './application-project-ui-cases.mjs'
 import {createEgoApplicationProjectAdapter,runApplicationProjectBrowser} from './application-project-browser-adapters.mjs'
 
@@ -23,13 +24,13 @@ const equal=(a,b)=>assert.deepEqual(canonical(a),canonical(b))
 const click=selector=>({action:'click',selector})
 const fill=(selector,value)=>({action:'fill',selector,value})
 const option=text=>click('[role="option"]:text-is('+JSON.stringify(text)+')')
-export const uiScopeNames=Object.freeze({edit:'kestra:acceptance:ui-edit-v1',reference:'kestra:acceptance:ui-reference-v1'})
+export const uiScopeNames=Object.freeze({edit:'acceptance-ui-edit-v1',reference:'acceptance-ui-reference-v1'})
 export const uiNamespaces=Object.freeze({initial:'ui.acceptance.initial',edited:'ui.acceptance.edited',reference:'ui.acceptance.reference'})
 export const uiLanguageNames=Object.freeze({en:'English',fr:'French',de:'German',pl:'Polish',it:'Italian',es:'Spanish',pt:'Portuguese',pt_BR:'Portuguese (Brazil)',ru:'Russian',zh_CN:'Chinese',ja:'Japanese',ko:'Korean',hi:'Hindi'})
 // Reviewed translation expectations, embedded to avoid a runtime source dependency.
 export const uiLocaleText=Object.freeze({
   "en": {
-    "projects": "Projects",
+    "projects": "Application groups",
     "scopes": "Project scopes",
     "clients": "Member clients",
     "assignments": "Scope assignments",
@@ -37,7 +38,7 @@ export const uiLocaleText=Object.freeze({
     "search": "Search"
   },
   "de": {
-    "projects": "Projekte",
+    "projects": "Anwendungsgruppen",
     "scopes": "Projekt-Scopes",
     "clients": "Mitgliedsclients",
     "assignments": "Scope-Zuweisungen",
@@ -45,7 +46,7 @@ export const uiLocaleText=Object.freeze({
     "search": "Suchen"
   },
   "es": {
-    "projects": "Proyectos",
+    "projects": "Grupos de aplicaciones",
     "scopes": "Scopes del proyecto",
     "clients": "Clientes miembros",
     "assignments": "Asignaciones de scopes",
@@ -53,7 +54,7 @@ export const uiLocaleText=Object.freeze({
     "search": "Buscar"
   },
   "fr": {
-    "projects": "Projets",
+    "projects": "Groupes d’applications",
     "scopes": "Scopes du projet",
     "clients": "Clients membres",
     "assignments": "Attributions de scopes",
@@ -61,7 +62,7 @@ export const uiLocaleText=Object.freeze({
     "search": "Rechercher"
   },
   "hi": {
-    "projects": "परियोजनाएँ",
+    "projects": "एप्लिकेशन समूह",
     "scopes": "परियोजना स्कोप",
     "clients": "सदस्य क्लाइंट",
     "assignments": "स्कोप आवंटन",
@@ -69,7 +70,7 @@ export const uiLocaleText=Object.freeze({
     "search": "खोजें"
   },
   "it": {
-    "projects": "Progetti",
+    "projects": "Gruppi di applicazioni",
     "scopes": "Scope del progetto",
     "clients": "Client membri",
     "assignments": "Assegnazioni scope",
@@ -77,7 +78,7 @@ export const uiLocaleText=Object.freeze({
     "search": "Cerca"
   },
   "ja": {
-    "projects": "プロジェクト",
+    "projects": "アプリケーショングループ",
     "scopes": "プロジェクトスコープ",
     "clients": "メンバークライアント",
     "assignments": "スコープ付与",
@@ -85,7 +86,7 @@ export const uiLocaleText=Object.freeze({
     "search": "検索"
   },
   "ko": {
-    "projects": "프로젝트",
+    "projects": "애플리케이션 그룹",
     "scopes": "프로젝트 범위",
     "clients": "구성원 클라이언트",
     "assignments": "범위 부여",
@@ -93,7 +94,7 @@ export const uiLocaleText=Object.freeze({
     "search": "검색"
   },
   "pl": {
-    "projects": "Projekty",
+    "projects": "Grupy aplikacji",
     "scopes": "Zakresy projektu",
     "clients": "Klienci projektu",
     "assignments": "Przypisania zakresów",
@@ -101,7 +102,7 @@ export const uiLocaleText=Object.freeze({
     "search": "Szukaj"
   },
   "pt": {
-    "projects": "Projetos",
+    "projects": "Grupos de aplicações",
     "scopes": "Scopes do projeto",
     "clients": "Clientes membros",
     "assignments": "Atribuições de scopes",
@@ -109,7 +110,7 @@ export const uiLocaleText=Object.freeze({
     "search": "Pesquisar"
   },
   "pt_BR": {
-    "projects": "Projetos",
+    "projects": "Grupos de aplicativos",
     "scopes": "Escopos do projeto",
     "clients": "Clientes membros",
     "assignments": "Atribuições de escopos",
@@ -117,7 +118,7 @@ export const uiLocaleText=Object.freeze({
     "search": "Pesquisar"
   },
   "ru": {
-    "projects": "Проекты",
+    "projects": "Группы приложений",
     "scopes": "Области проекта",
     "clients": "Клиенты проекта",
     "assignments": "Назначения областей",
@@ -125,7 +126,7 @@ export const uiLocaleText=Object.freeze({
     "search": "Поиск"
   },
   "zh_CN": {
-    "projects": "项目",
+    "projects": "应用组",
     "scopes": "项目 scope",
     "clients": "成员 client",
     "assignments": "scope 授予",
@@ -134,19 +135,19 @@ export const uiLocaleText=Object.freeze({
   }
 })
 export const uiTranslationSourceHashes=Object.freeze({
-  "en": "138c2c0d6259121a352d7246700d4eada6fbb4aa4c711c581fe9de5acb5990a3",
-  "de": "a128d3935ea560976afbc9d635ed8a6f11ab29648b7514fdfe98edd61b492295",
-  "es": "25f7ca7dd3ec8171315ba8495ae24e8a588602e6829a85545d77791275d34d8c",
-  "fr": "22b6d17492887bf084a44925bc64c97dd4d1ac72d5587561b0d667909ca07b09",
-  "hi": "1d6d73f6d2f41df02e7e519df4a3272a4aec7c56189c2e4ee3adf64e5d76cceb",
-  "it": "c68308506fd900e600860169f1c50d6884746d5f0c165f03f5ffc15013b99d55",
-  "ja": "c78e97511c4d1e97901f06e9d4088fcfd138003f87e0d4a102e0c018f71f483d",
-  "ko": "0623d72a0a732da98a5318039afa4f95d149ba6e3110182140cb8022a26ecbde",
-  "pl": "c9773a58939791e357a34df25d5b31fb939cd735c22d155adbb09dc3a15ca94c",
-  "pt": "3a9802dcd88d1f811bf5da444e19972dcfa436fe8fd346746b35e3bae4a6685e",
-  "pt_BR": "056f09c67dfeeccc9458c585beb23a92bd779a22692a6323225c662ba7cdd511",
-  "ru": "93b63adbb5d02c8a20d88baa2146bf9d340844c0791b24209c9d6495eacdf032",
-  "zh_CN": "94de42468a1832911ef3881942bd3fba230e27d712958afccf0a268028e15849"
+  "en": "20d787eccbbba5fe2ab61d2a40249d3a3dd73f52252dba5f3b3969ce758bbe00",
+  "de": "0270006ec1f13b9257aafb433f3f817e61e587e940b2c575b2365043d2ec252b",
+  "es": "6955cd4d161776936831e0d1067ee81bf754334818f8f102144a07189f3f3b65",
+  "fr": "b10a4bd3d19730569f13268e312a01023a3362e194a582405374cbf365e771b9",
+  "hi": "1ab3fba9e57884f6d99f5e1e4dd288450bcbb64a1aadf73b00ec016b1302dc01",
+  "it": "2fb237df67604ba0d969a479d80d22fe658bda35172289502fe80af46442ac73",
+  "ja": "6862ce7eaff66698b7c23110f453d3c6e4a89f828fe4ec9ec610cc97254499f5",
+  "ko": "25fead5812859f735e7cc3355d8918ca5d956ef969247e33c22d5f2a56320fdf",
+  "pl": "4c064a24fc6322784fd262ffba14aa41a7963abe2fdbee2d7b743ad0a0d9f74b",
+  "pt": "ccf236863565b5aa43447e5c5c4d8f1b7089148ec77b921a9cb35003d8e5be9b",
+  "pt_BR": "aafc05732133aa31618eb0d276cfb08631a71e6ec2b75a198608839ad44ebc79",
+  "ru": "19a1bd69e0cd7e740dd177c2fecf781ae2d462103b0333da10e9ad50f0f87c91",
+  "zh_CN": "5b3d3bae7e047bfadfe440b8a18f94ee41d5425b8279fcf510fdeaa7fe77e8bf",
 })
 
 const nsGrant=(namespace,resource,actions)=>({scope:'NAMESPACE',tenant:'main',namespace,descendants:false,resource,actions,ids:[],allIds:true})
@@ -159,9 +160,9 @@ export function planApplicationProjectUi() {
   const ceiling=scopeDefinition('UI editable resource ceiling',[nsGrant(uiNamespaces.initial,'FLOW',['READ','LIST','UPDATE']),nsGrant(uiNamespaces.edited,'FLOW',['READ','LIST','UPDATE'])])
   const reference=scopeDefinition('UI reference page access',[
     ...['FLOW','EXECUTION','NAMESPACE','LOG','METRIC','TRIGGER','KVSTORE','NAMESPACE_FILE'].map(resource=>nsGrant(uiNamespaces.reference,resource,resource==='FLOW'?['READ','LIST','CREATE']:['READ','LIST'])),tenantGrant('METADATA'),tenantGrant('MCP_SERVER')])
-  const directory=(name,definition)=>({scope:name,description:definition.description,active:true,resourceIntents:definition.grants.map(intentFor),managementIntents:[]})
+  const directory=(key,definition)=>({scope:key,name:key.replace(/^acceptance-/, '').split('-').map(word=>word[0].toUpperCase()+word.slice(1)).join(' '),description:definition.description,active:true,resourceIntents:definition.grants.map(intentFor),managementIntents:[]})
   return {projects:ids.map(id=>({id:'ui-acceptance-project-'+id,tenant:'main',displayName:'UI acceptance project '+id})),
-    scopes:[directory(uiScopeNames.edit,ceiling),directory(uiScopeNames.reference,reference),...ids.map(id=>directory('kestra:acceptance:ui-filter-'+id,scopeDefinition('UI filter scope '+id,[nsGrant(uiNamespaces.initial,'FLOW',['READ','LIST'])])))],
+    scopes:[directory(uiScopeNames.edit,ceiling),directory(uiScopeNames.reference,reference),...ids.map(id=>directory('acceptance-ui-filter-'+id,scopeDefinition('UI filter scope '+id,[nsGrant(uiNamespaces.initial,'FLOW',['READ','LIST'])])))],
     users:ids.map(id=>({username:'ui-acceptance-user-'+id,name:'UI acceptance user '+id,email:'ui-acceptance-user-'+id+'@acceptance.invalid',password:randomBytes(24).toString('base64url')+'Aa1!'})),
     clients:ids.map(id=>({client_name:'UI acceptance client '+id,redirect_uris:['http://127.0.0.1:19997/callback'],token_endpoint_auth_method:'none',grant_types:['authorization_code','refresh_token'],response_types:['code'],scope:'openid'})),
     localBindings:{[uiScopeNames.edit]:edit,[uiScopeNames.reference]:reference},zeroAccount:{username:'ui-acceptance-zero',subject:'ui-acceptance-zero',name:'UI zero authorization',email:'ui-acceptance-zero@acceptance.invalid',password:randomBytes(24).toString('base64url')+'Aa1!'}}
@@ -201,7 +202,7 @@ export function uiFilterPlans(records) {
 
 export function uiBrowserFixture({base,admin,zeroAccount,clientId,subject,records,referenceEvidence}) {
   const pagination=Object.fromEntries(Object.entries({projects:'id',scopes:'scope',clients:'clientId',assignments:'subject'}).map(([section,field])=>[section,records[section][25][field]]))
-  return {admin:copy(admin),zeroAccount:copy(zeroAccount),projectId:applicationProject,scope:uiScopeNames.edit,clientId,subject,unknownScope:'kestra:acceptance:ui-unknown-never-created',
+  return {admin:copy(admin),zeroAccount:copy(zeroAccount),projectId:applicationProject,scope:uiScopeNames.edit,clientId,subject,unknownScope:'acceptance-ui-unknown-never-created',
     edit:{description:'UI saved explicit namespace/action change',namespace:uiNamespaces.edited,actions:['READ','UPDATE']},
     loginFinalPath:'/ui/main/dashboards',reauthenticationPath:'/ui/access-denied',reauthenticationSteps:[click('[data-testid="return-to-login"]')],
     preferences:{path:'/ui/main/preferences',themes:{'dark-2':[click('.theme-picker button:nth-child(1)')],dark:[click('.theme-picker button:nth-child(2)')],light:[click('.theme-picker button:nth-child(3)')],system:[click('.theme-picker button:nth-child(4)')]},
@@ -209,7 +210,7 @@ export function uiBrowserFixture({base,admin,zeroAccount,clientId,subject,record
     localeText:copy(uiLocaleText),translationEvidence:{sourceHashes:uiTranslationSourceHashes,status:'source-reviewed; actual rendering asserted by shared browser matrix'},
     references:{mcpPath:'/ui/main/admin/mcp-servers/edit/default/edit',namespacesPath:'/ui/main/namespaces',flowsPath:'/ui/main/flows',tab:'#tab-edit',button:'button.kel-button--primary',search:'.ks-search input',tableHeader:'.kel-table th',tableCell:'.kel-table tbody td'},
     referenceEvidence,pagination,filters:uiFilterPlans(records),filterEvidence:{status:'candidate-public-component-structure; runtime DOM not yet verified',components:['CustomizeFilters','AdvancedFilterBuilder','ConditionRow'],package:'@kestra-io/design-system',version:'0.5.0'},
-    expectedRequestErrors:[...['ui-client-membership-approval','ui-subject-grant-revoke','cleanup-restore-client','cleanup-restore-assignment'].flatMap(name=>[401,403].map(status=>({case:name,method:'GET',path:'/api/v1/main/extensions/rbac/capabilities',status}))),{case:'ui-unknown-scope-no-policy-change',method:'POST',path:'/api/v1/main/extensions/rbac/projects/'+applicationProject+'/scopes',status:400},{case:'ui-unknown-scope-no-policy-change',method:'GET',path:'/api/v1/main/extensions/rbac/identity/projects/'+applicationProject+'/scopes/'+key('kestra:acceptance:ui-unknown-never-created'),status:404},{case:'ui-412-conflict-no-policy-change',method:'PUT',path:'/api/v1/main/extensions/rbac/projects/'+applicationProject+'/scopes/'+key(uiScopeNames.edit),status:412}],
+    expectedRequestErrors:[...['ui-client-membership-approval','ui-subject-grant-revoke','cleanup-restore-client','cleanup-restore-assignment'].flatMap(name=>[401,403].map(status=>({case:name,method:'GET',path:'/api/v1/main/extensions/rbac/capabilities',status}))),{case:'ui-unknown-scope-no-policy-change',method:'POST',path:'/api/v1/main/extensions/rbac/projects/'+applicationProject+'/scopes',status:400},{case:'ui-unknown-scope-no-policy-change',method:'GET',path:'/api/v1/main/extensions/rbac/identity/projects/'+applicationProject+'/scopes/'+key('acceptance-ui-unknown-never-created'),status:404},{case:'ui-412-conflict-no-policy-change',method:'PUT',path:'/api/v1/main/extensions/rbac/projects/'+applicationProject+'/scopes/'+key(uiScopeNames.edit),status:412}],
     base,expectedBrowserErrors:[]}
 }
 
@@ -256,6 +257,10 @@ async function prepareUiData({base,management,planned,completedFragments,isolati
     const ui=await management.request(uiPath)
     assert(ui.approved===true&&ui.firstPartyUi===true)
     await management.mutateIdentity(uiPath,'PUT',{clientId:ui.clientId,approved:true,firstPartyUi:true,audiences:ui.audiences,allowedProjectScopes:[...new Set([...ui.allowedProjectScopes,...spec.scopes.map(scope=>scope.scope)])]},ui.revision)
+    for(const scope of spec.scopes) {
+      await management.request(api+'/application-groups/'+applicationProject+'/applications/'+key('kestra-ui')+'/scope-declarations/'+encodeURIComponent(scope.scope),'POST',
+        {permissions:[applicationPermission(scope.scope,scope.name)]})
+    }
     const clients=[]
     for(const registrationInput of spec.clients) {
       const client=await management.login()
@@ -289,7 +294,11 @@ async function prepareUiData({base,management,planned,completedFragments,isolati
     const assigned=await management.request(api+'/identity/projects/'+applicationProject+'/assignments/detail?subject='+encodeURIComponent(planned.admin.subject))
     await management.mutateIdentity(api+'/identity/projects/'+applicationProject+'/assignments/detail?subject='+encodeURIComponent(planned.admin.subject),'PUT',{issuer:base,subject:planned.admin.subject,projectScopes:[...new Set([...assigned.projectScopes,uiScopeNames.reference])]},assigned.revision)
     const adminClient=await management.login()
-    const seeded=await adminClient.request('/api/v1/main/flows',{method:'POST',headers:{'Content-Type':'application/x-yaml'},body:flowSource(uiNamespaces.reference,'ui-reference-row')});assert(seeded.ok);await seeded.body?.cancel()
+    const adminIdentity=await adminClient.verifiedUiIdentity({projectId:applicationProject,subject:planned.admin.subject,audience:'kestra-ui'})
+    assert(adminIdentity.projectScopes.includes(uiScopeNames.reference),'new reference scope was not signed after declaration and user assignment')
+    const seeded=await adminClient.request('/api/v1/main/flows',{method:'POST',headers:{'Content-Type':'application/x-yaml'},body:flowSource(uiNamespaces.reference,'ui-reference-row')})
+    assert(seeded.ok,'reference flow creation denied with status '+seeded.status)
+    await seeded.body?.cancel()
     const zeroClient=new ProductionOAuthClient(base);await zeroClient.login(zero.username,zero.password)
     const actualZero=await zeroClient.verifiedUiIdentity({projectId:applicationProject,subject:zero.subject,audience:'kestra-ui'});assert.deepEqual(actualZero.projectScopes,[])
     const denied=await zeroClient.request('/api/v1/main/flows/search?size=1');assert.equal(denied.status,403);await denied.body?.cancel()
@@ -425,7 +434,7 @@ export function uiRootChecks(report) {
     'ui-client-membership-approval':['ui-client-membership-approval'],
     'ui-subject-grant-revoke':['ui-subject-grant-revoke'],
     'ui-zero-grant-logout-switch':['ui-zero-grant-logout-switch'],
-    'ui-create-project-explicit-local-policy-target':['ui-create-project-explicit-local-policy-target'],
+    'ui-application-declaration-crud':['ui-application-declaration-crud'],
     'ui-subject-revoke':['ui-subject-revoke'],
     'ui-narrow':['ui-narrow-and-keyboard-focus'],
     'ui-filter-search-pagination':['projects','scopes','clients','assignments'].flatMap(section=>['ui-search-filter-pagination-'+section,...['equals','contains','and','or'].map(operator=>'ui-filter-'+section+'-'+operator)]),

@@ -58,7 +58,7 @@ services:
             management:
               enabled: true
             policy-source: database
-            application-projects:
+            application-groups:
               enabled: ${KESTRA_RBAC_ENABLED:-false}
           oidc:
             enabled: true

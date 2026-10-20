@@ -4,7 +4,7 @@ import {execFileSync} from 'node:child_process'
 import {randomBytes} from 'node:crypto'
 import {ProductionOAuthClient} from './production-oauth-client.mjs'
 import {applicationProject,projectScopeCases,namespaceDomains,scopeNames} from './application-project-cases.mjs'
-import {localApplicationPolicy,directoryScopeInputs} from './application-project-policy.mjs'
+import {localApplicationPolicy,directoryScopeInputs,applicationPermission} from './application-project-policy.mjs'
 
 export function planFixture(base) {
   assert.equal(new URL(base).origin,base)
@@ -12,7 +12,7 @@ export function planFixture(base) {
   const admin={username:'project-acceptance-manager',subject:'project-acceptance-manager',password:password()}
   const accounts=Object.fromEntries(projectScopeCases.map((item,index)=>[item.id,{username:'project-acceptance-'+index,subject:'project-acceptance-'+index,password:password()}]))
   const policy=localApplicationPolicy({issuer:base,audiences:['kestra-ui'],directoryRevision:1})
-  const observerScope='kestra:acceptance:observer-complete'
+  const observerScope='acceptance-observer-complete'
   policy.applicationProjects[applicationProject].scopes[observerScope]={description:'Isolated test data observer',enabled:true,
     grants:[namespaceDomains.a,namespaceDomains.b,namespaceDomains.outside,namespaceDomains.a+'2'].flatMap(namespace=>[
       {scope:'NAMESPACE',tenant:'main',namespace,descendants:true,resource:'FLOW',actions:['READ','LIST','CREATE','UPDATE','DELETE','EXECUTE'],ids:[],allIds:true},
@@ -102,13 +102,16 @@ export class ProjectManagement {
   }
   async approveOrdinaryClient({clientId,audiences,projectScopes,registeredProtocolScopes,requestedProtocolScopes}) {
     assert(clientId&&clientId!=='kestra-ui','ordinary client must never inherit first-party UI selector')
-    assert(!projectScopes.includes('kestra:project-scopes')&&!requestedProtocolScopes.includes('kestra:project-scopes'),'UI selector is first-party only')
+    assert(!projectScopes.includes('kestra:application-group-scopes')&&!requestedProtocolScopes.includes('kestra:application-group-scopes'),'UI selector is first-party only')
     assert(requestedProtocolScopes.every(scope=>registeredProtocolScopes.includes(scope)),'requested protocol capability exceeds registered scope')
     assert.deepEqual(audiences,[this.base+'/api/v1/main/mcp/default'],'MCP audience must match the exact protected resource')
     await this.login()
     const current=await this.request('/api/v1/main/extensions/rbac/identity/projects/'+applicationProject)
-    return this.mutateIdentity('/api/v1/main/extensions/rbac/identity/projects/'+applicationProject+'/clients','POST',
+    const result=await this.mutateIdentity('/api/v1/main/extensions/rbac/identity/projects/'+applicationProject+'/clients','POST',
       {clientId,approved:true,firstPartyUi:false,audiences:[...audiences],allowedProjectScopes:[...projectScopes]},current.revision)
+    const clientKey='~'+Buffer.from(clientId).toString('base64url')
+    for(const scope of projectScopes)await this.request('/api/v1/main/extensions/rbac/application-groups/'+applicationProject+'/applications/'+clientKey+'/scope-declarations/'+encodeURIComponent(scope),'POST',{permissions:[applicationPermission(scope)]})
+    return result
   }
   async mutateIdentity(path,method,body,revision,projectId=applicationProject) {
     assert(/\/identity\/projects(?:\/|$)/.test(path),'identity project API required')
@@ -255,7 +258,7 @@ export async function provisionFixture({planned,effects,observer,record=async()=
   for(;;){await wait(500);const next=effects.snapshot().hash;if(next!==last){last=next;stableSince=Date.now()}if(Date.now()-stableSince>=5000)break;assert(Date.now()<deadline,'seed database/queue/storage did not become quiescent')}
   await record({events,requests:[...management.requests],completed:true,seededFlows:resources.seeds.length,quiescentWindowMs:5000})
   const prepareMcp=async()=>provisionMcpFixture({planned,management,effects,observer,record:async fragment=>record({events,requests:[...management.requests],seededFlows:resources.seeds.length,quiescentWindowMs:5000,mcp:fragment,completed:true})})
-  return {prepareMcp,rest:{accounts:planned.accounts,observerAccount:planned.admin,expectedAudience:planned.expectedAudience,flowWrite:planned.flowWrite,probes:resources.probes,effects,effectsWindowMs:5000},management,planned}
+  return {prepareMcp,setEffects:current=>{effects=current},rest:{accounts:planned.accounts,observerAccount:planned.admin,expectedAudience:planned.expectedAudience,flowWrite:planned.flowWrite,probes:resources.probes,effects,effectsWindowMs:5000},management,planned}
 }
 
 export const mcpScenarioNames=Object.freeze(['allowed','capabilityOnly','projectOnly','knownUnbound','localRevoke','directoryRevoke','subjectRevoke'])
@@ -362,12 +365,12 @@ export async function provisionMcpFixture({planned,management,effects,observer,r
       const original=await management.request(path)
       const local=structuredClone(planned.policy.applicationProjects[applicationProject].scopes[scope])
       management.reconciliationEdits.set(scope,{...local,enabled:false})
-      await management.mutateIdentity(path,'PUT',{scope:original.scope,description:original.description,active:false,resourceIntents:original.resourceIntents,managementIntents:original.managementIntents},original.revision)
+      await management.mutateIdentity(path,'PUT',{scope:original.scope,name:original.name,description:original.description,active:false,resourceIntents:original.resourceIntents,managementIntents:original.managementIntents},original.revision)
       const result=await receipt(start,client,account)
       result.restore=async()=>{
         const at=management.requests.length;await management.login();const current=await management.request(path)
         management.reconciliationEdits.set(scope,local)
-        await management.mutateIdentity(path,'PUT',{scope:original.scope,description:original.description,active:original.active,resourceIntents:original.resourceIntents,managementIntents:original.managementIntents},current.revision)
+        await management.mutateIdentity(path,'PUT',{scope:original.scope,name:original.name,description:original.description,active:original.active,resourceIntents:original.resourceIntents,managementIntents:original.managementIntents},current.revision)
         return receipt(at,client,account)
       }
       await emit({kind,scenario,scope});return result
@@ -403,7 +406,7 @@ export function applicationProjectFeature(configuration,enabled) {
   const begin=configuration.indexOf('  rbac:');const end=configuration.indexOf('  oidc:',begin)
   assert(begin>=0&&end>begin,'known RBAC configuration boundaries required')
   let section=configuration.slice(begin,end)
-  for(const pattern of [/^(    enabled: )(true|false)$/m,/(    evaluation:\n      enabled: )(true|false)/,/(    application-projects:\n      enabled: )(true|false)/]) {
+  for(const pattern of [/^(    enabled: )(true|false)$/m,/(    evaluation:\n      enabled: )(true|false)/,/(    application-groups:\n      enabled: )(true|false)/]) {
     assert(pattern.test(section),'explicit feature switch missing')
     section=section.replace(pattern,(_,prefix)=>prefix+String(enabled))
   }
@@ -418,9 +421,9 @@ export function applicationProjectFeature(configuration,enabled) {
   assert(client&&lists[0].index>client.index,'UI scopes must belong to the kestra client')
   assert.equal(lists[0][1].match(/^[ \t]*/)[0].length,client[1].length+2,'UI scopes must be a direct kestra client property')
   const tokens=lists[0][2].split(',').map(value=>value.trim().replace(/^(?:"([^"\\]*)"|'([^'\\]*)')$/,'$1$2'))
-  const standard=['openid','profile','email'],allowed=[...standard,'kestra:project-scopes']
+  const standard=['openid','profile','email'],allowed=[...standard,'kestra:application-group-scopes']
   assert(tokens.length===new Set(tokens).size&&tokens.every(value=>allowed.includes(value))&&standard.every(value=>tokens.includes(value)),'UI scopes must contain exactly the standard set, optionally the project selector')
-  const scopes=enabled?'[openid, profile, email, "kestra:project-scopes"]':'[openid, profile, email]'
+  const scopes=enabled?'[openid, profile, email, "kestra:application-group-scopes"]':'[openid, profile, email]'
   return prefix+oauth.replace(/^([ \t]*scopes:)[ \t]*\[[^\n]*\][ \t]*$/m,(_,name)=>name+' '+scopes)
 }
 

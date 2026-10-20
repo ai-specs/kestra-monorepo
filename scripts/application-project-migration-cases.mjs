@@ -313,7 +313,7 @@ export function migrationUiScopes(configuration,mode) {
   assert(/clients:\s*\n\s+kestra:/.test(oauth),'known first-party kestra OAuth client required')
   const lines=[...oauth.matchAll(/^(\s*scopes:)[ \t]*\[[^\n]*\][ \t]*$/gm)]
   assert.equal(lines.length,1,'exactly one inline UI scopes list required')
-  const scopes=mode==='legacy'?'[openid, profile, email]':'[openid, profile, email, "kestra:project-scopes"]'
+  const scopes=mode==='legacy'?'[openid, profile, email]':'[openid, profile, email, "kestra:application-group-scopes"]'
   const result=prefix+oauth.replace(/^(\s*scopes:)[ \t]*\[[^\n]*\][ \t]*$/m,(_,key)=>key+' '+scopes)
   const selected=result.slice(start).match(/^\s*scopes:[ \t]*(\[[^\n]*\])/m)?.[1]
   assert.equal(selected,scopes)
@@ -466,7 +466,7 @@ class MigrationReviewEvidence {
     const legacyConfiguration=()=>{
       let current=migrationUiScopes(configuration,'legacy')
       if(legacyPolicyActive){
-        current=applicationProjectFeature(current,true).replace(/(    application-projects:\n      enabled: )true/,'$1false')
+        current=applicationProjectFeature(current,true).replace(/(    application-groups:\n      enabled: )true/,'$1false')
         if(legacyRoleMappingOnly)current=current.replace(/^    management-admin-subjects:.*\n/m,'    management-admin-subjects: ["'+managerAccount.subject+'"]\n')
       }
       return migrationUiScopes(current,'legacy')
@@ -1020,9 +1020,9 @@ COMMIT;`]))
         const target=planned.policy
         // The isolated manager is granted shared management scopes but the local
         // migration-reader permission is an explicit MAP, never a subject bypass.
-        const scope='kestra:acceptance:migration-reader'
+        const scope='acceptance-migration-reader'
         target.applicationProjects.kestra.scopes[scope]={description:'Explicit migrated read grant',enabled:true,grants:[grant],managementGrants:[]}
-        directoryPlan.projects[0].scopes.push({projectId:'kestra',scope,description:'Explicit migrated read grant',active:true,resourceIntents:[{vocabularyVersion:'kestra-resources-v1',resourceType:'FLOW',namespaces:{kind:'RESTRICTED',exact:[],subtrees:['scope.acceptance.a']},resourceIds:{kind:'ALL',ids:[]},actions:['READ','LIST']}],managementIntents:[],revision:1})
+        directoryPlan.projects[0].scopes.push({projectId:'kestra',scope,name:'Migrated reader',description:'Explicit migrated read grant',active:true,resourceIntents:[{vocabularyVersion:'kestra-resources-v1',resourceType:'FLOW',namespaces:{kind:'RESTRICTED',exact:[],subtrees:['scope.acceptance.a']},resourceIds:{kind:'ALL',ids:[]},actions:['READ','LIST']}],managementIntents:[],revision:1})
         directoryPlan.projects[0].memberships[0].allowedProjectScopes.push(scope)
         legacyPolicyActive=true;use('legacy')
         dc(['up','-d','kestra']);await wait()
