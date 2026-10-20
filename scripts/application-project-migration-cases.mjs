@@ -52,9 +52,9 @@ import {tmpdir} from 'node:os'
 import {resolve,join,basename} from 'node:path'
 import {ProductionOAuthClient} from './production-oauth-client.mjs'
 import {planFixture,directoryActivationPlan,applicationProjectFeature,ProjectManagement,flowSource} from './application-project-fixture.mjs'
-import {requiredProjectChecks,scopeNames} from './application-project-cases.mjs'
+import {legacyMigrationChecks,scopeNames} from './application-project-cases.mjs'
 
-export const migrationCheckIds=Object.freeze(requiredProjectChecks.filter(id=>id.startsWith('migration-')))
+export const migrationCheckIds=legacyMigrationChecks
 export const migrationCommands=Object.freeze({local:'io.kestra.extensions.rbac.store.ProjectPolicyCommand',directory:'io.kestra.webserver.oidc.projects.ApplicationDirectoryCommand'})
 const kinds=['ui-cookie','idp-session','access','refresh','code','mcp-session']
 const digest=value=>createHash('sha256').update(JSON.stringify(canonical(value))).digest('hex')

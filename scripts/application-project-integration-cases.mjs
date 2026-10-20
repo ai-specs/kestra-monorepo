@@ -4,14 +4,17 @@ import {runApplicationProjectAggregates} from './application-project-aggregate-c
 import {runApplicationProjectRest} from './application-project-rest-cases.mjs'
 import {runApplicationProjectMcp} from './application-project-mcp-cases.mjs'
 import {runPreparedApplicationProjectUi,uiRootChecks} from './application-project-ui-fixture.mjs'
-import {requiredProjectChecks,projectScopeCases} from './application-project-cases.mjs'
+import {requiredProjectChecks,legacyMigrationChecks,projectScopeCases} from './application-project-cases.mjs'
 
 export const plannedMcpCheckIds=Object.freeze(['mcp-production-dcr-owner-pkce-consent','mcp-tools-list-call','mcp-capability-without-project','mcp-project-without-capability','mcp-known-plus-unbound-list','mcp-known-plus-unbound-call','mcp-same-session-local-revoke','mcp-same-session-directory-revoke','mcp-subject-revoke','refresh-cannot-restore-revoked-scope','mcp-missing-extension'])
 
-export function initialEvidence() {
+export function initialEvidence({legacyMigration=false}={}) {
+  assert.equal(typeof legacyMigration,'boolean','explicit boolean migration profile required')
   return {
+    profile:legacyMigration?'legacy-migration':'new-install',
+    excludedChecks:legacyMigration?[]:legacyMigrationChecks.map(id=>({id,reason:'Historical schema1 migration is outside the new-install profile'})),
     matrix:projectScopeCases.flatMap(item=>item.probes.map((probe,probeIndex)=>({transport:'rest',caseId:item.id,probeIndex,expectedAllowed:probe.allowed,resource:{tenant:'main',namespace:probe.namespace,resource:probe.resource,action:probe.action,...(probe.resourceId?{id:probe.resourceId}:{})},passed:false,status:'not_run',observed:{}}))),
-    checks:[...new Set([...requiredProjectChecks,...plannedMcpCheckIds])].map(id=>({id,passed:false,status:'not_run',evidence:{}})),
+    checks:[...new Set([...requiredProjectChecks,...(legacyMigration?legacyMigrationChecks:[]),...plannedMcpCheckIds])].map(id=>({id,passed:false,status:'not_run',evidence:{}})),
     ui:['light','dark','dark-2','system'].flatMap(theme=>['en','de','es','fr','hi','it','ja','ko','pl','pt','pt_BR','ru','zh_CN'].map(locale=>({case:'theme-language',theme,locale,passed:false,status:'not_run'}))),
   }
 }

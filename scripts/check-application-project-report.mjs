@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import {readFileSync} from 'node:fs'
 import assert from 'node:assert/strict'
-import {projectScopeCases, requiredProjectChecks, applicationProject} from './application-project-cases.mjs'
+import {projectScopeCases, requiredProjectChecks, legacyMigrationChecks, applicationProject} from './application-project-cases.mjs'
 
 const [file, image, jarSha256, rootCommit, overlayCommit, pluginCommit] = process.argv.slice(2)
 assert(file && /^ghcr\.io\/ai-specs\/kestra-overlay@sha256:[0-9a-f]{64}$/.test(image ?? ''), 'Explicit immutable image required')
@@ -11,6 +11,14 @@ const content = readFileSync(file, 'utf8')
 assert(!/eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+/.test(content), 'Report contains a credential-shaped JWT')
 const report = JSON.parse(content)
 assert.equal(report.schemaVersion, 1)
+assert(['new-install','legacy-migration'].includes(report.profile),'Explicit acceptance profile required')
+assert(Array.isArray(report.excludedChecks),'Explicit excluded check list required')
+if(report.profile==='new-install'){
+  assert.deepEqual(report.excludedChecks.map(row=>row.id).sort(),[...legacyMigrationChecks].sort(),'New-install exclusions must exactly describe the historical migration checks')
+  for(const row of report.excludedChecks){assert.equal(typeof row.reason,'string');assert(row.reason.trim());assert.equal(row.passed,undefined);assert.equal(row.status,undefined)}
+  assert(!report.checks?.some(row=>legacyMigrationChecks.includes(row.id)),'Historical migration checks cannot be counted in new-install acceptance')
+}else assert.deepEqual(report.excludedChecks,[],'Legacy migration cannot exclude required checks')
+const profileRequiredChecks=[...requiredProjectChecks,...(report.profile==='legacy-migration'?legacyMigrationChecks:[])]
 assert.equal(report.completed, true, 'Acceptance did not complete')
 assert.equal(report.nonFinal, false, 'Development evidence cannot satisfy final acceptance')
 assert.equal(report.development?.allowDirtyRoot, false, 'Final acceptance requires committed sources')
@@ -100,7 +108,7 @@ for (const check of report.checks) {
   assert(check.evidence && typeof check.evidence === 'object', `Evidence missing: ${check.id}`)
   checks.set(check.id, check)
 }
-for (const required of requiredProjectChecks) assert(checks.has(required), `Missing required integration check ${required}`)
+for (const required of profileRequiredChecks) assert(checks.has(required), `Missing required integration check ${required}`)
 const combinations = new Set()
 for (const row of report.ui) {
   assert.equal(row.passed, true, row.case)
@@ -115,4 +123,4 @@ for (const row of report.ui) {
   }
 }
 assert.equal(combinations.size, 52, 'Full four-theme, thirteen-language browser matrix missing')
-console.log(`PASS final composition: REST ${expectedRows}, required integration ${requiredProjectChecks.length}, browser theme/language 52; zero failure/skip`)
+console.log(`PASS final composition (${report.profile}): REST ${expectedRows}, required integration ${profileRequiredChecks.length}, browser theme/language 52; zero failure/skip`)

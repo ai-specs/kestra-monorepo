@@ -68,7 +68,8 @@ export async function main(argv=process.argv.slice(2),runtime={}) {
     }
   }
   const git=(path,...args)=>command('git',['-C',path,...args])
-  const report={schemaVersion:1,completed:false,nonFinal:options['--allow-dirty-root']===true,development:{allowDirtyRoot:options['--allow-dirty-root']===true},mode,startedAt:new Date().toISOString(),inputs:{image:options['--image']??null,jarSha256:options['--sha256']??null,rootCommit:null,overlayCommit:null,pluginCommit:null},...initialEvidence(),fragments:{},stages:[],failures:0,skipped:0,notRun:0,blockers:[...fixtureGaps],resources:{composeProject:project,containersCreated:false},staticChecks:[]}
+  const legacyMigration=Boolean(options['--migration-releases'])
+  const report={schemaVersion:1,completed:false,nonFinal:options['--allow-dirty-root']===true,development:{allowDirtyRoot:options['--allow-dirty-root']===true},mode,startedAt:new Date().toISOString(),inputs:{image:options['--image']??null,jarSha256:options['--sha256']??null,rootCommit:null,overlayCommit:null,pluginCommit:null},...initialEvidence({legacyMigration}),fragments:{},stages:[],failures:0,skipped:0,notRun:0,blockers:[...fixtureGaps],resources:{composeProject:project,containersCreated:false},staticChecks:[]}
   const reportPath=join(output,'report.json')
   let composeConfig,composeEnvironment,planned,composeStarted=false
   const additionalDeployments=[]
@@ -302,7 +303,7 @@ export async function main(argv=process.argv.slice(2),runtime={}) {
       const offline=(name,...args)=>dc('run','--rm','--no-deps','--user','0:0','--entrypoint','java','maintenance','-cp','/app/kestra:/app/libs/kestra-rbac-authorizer.jar',name,...args)
       const planFile=(name,value)=>{writeFileSync(join(dir,name),JSON.stringify(value,null,2)+'\n',{mode:0o600});return '/work/'+name}
       save();dc('config','--quiet')
-      additionalDeployments.push({project:missingProject,compose:dc})
+      additionalDeployments.push({project:missingProject,compose:dc,base:missingBase})
       report.resources.missingExtension={composeProject:missingProject,base:missingBase,composeFile:file,containersCreated:false,image:report.inputs.image,cliJarSha256:report.inputs.jarSha256,finalJarMounted:false}
       await persist()
       dc('up','-d','postgres','kestra');report.resources.missingExtension.containersCreated=true
@@ -383,7 +384,29 @@ export async function main(argv=process.argv.slice(2),runtime={}) {
     await stage('public-accounts-and-real-rest-seeds',async()=>{
       const effects=new ProjectSideEffects({composeProject:project,postgresContainer:report.resources.containerIds.postgres,kestraContainer:report.resources.containerIds.kestra})
       fixture=await provisionFixture({planned,effects,observer:{postgresContainer:report.resources.containerIds.postgres,composeProject:project},record:async fragment=>{report.fragments.provisioning=fragment;await persist()}})
-      fixture.runMigration=async(recordMigration,recordRecovery)=>{
+      if(legacyMigration)fixture.runMigration=async(recordMigration,recordRecovery)=>{
+        await fixture.checkHostHealth('before-planned-migration-pause')
+        const deployments=[{project,compose,base:planned.base},...additionalDeployments]
+        const lifecycle={reason:'planned exclusive migration resource window',startedAt:new Date().toISOString(),deployments:[],restored:false}
+        report.fragments.migrationLifecycle=lifecycle
+        for(const deployment of deployments){
+          const services=[]
+          for(const service of ['postgres','kestra']){
+            const id=deployment.compose('ps','-aq',service)
+            assert(id,'planned migration pause requires existing '+deployment.project+'/'+service)
+            const inspected=JSON.parse(command('docker',['inspect',id]))[0]
+            assert.equal(inspected.Config.Labels['com.docker.compose.project'],deployment.project,'planned pause ownership mismatch')
+            const state=Object.fromEntries(['Status','Running','Restarting','Paused','OOMKilled','Dead'].map(key=>[key,inspected.State[key]]))
+            services.push({service,id,state})
+            assert.equal(state.Running,true,'planned pause refuses an already stopped '+deployment.project+'/'+service)
+            assert.equal(state.Restarting,false,'planned pause refuses a restarting service')
+            assert.equal(state.Paused,false,'planned pause refuses a paused service')
+          }
+          lifecycle.deployments.push({project:deployment.project,base:deployment.base,services,pauseRequested:false,restored:false})
+        }
+        await persist()
+        let migrationError
+        try {
         const module=await import('./application-project-migration-cases.mjs')
         let context
         if(options['--migration-releases']) {
@@ -400,9 +423,54 @@ export async function main(argv=process.argv.slice(2),runtime={}) {
             return {target,legacy:requested.legacy,supportedChecks:context.supportedChecks,unsupportedChecks:context.unsupportedChecks}
           })}catch(error){report.fragments.migrationReleaseFailure={status:'failed',error:error.stdout!==undefined?'migration release command failed; inspect retained operation evidence':String(error.message)};await persist()}
         }
+        await fixture.checkHostHealth('immediately-before-planned-migration-pause')
+        for(const [index,deployment]of deployments.entries()){
+          const evidence=lifecycle.deployments[index]
+          for(const service of evidence.services){
+            const inspected=JSON.parse(command('docker',['inspect',service.id]))[0]
+            assert.equal(inspected.State.Running,true,'service stopped during migration input preparation')
+          }
+          evidence.pauseRequested=true;await persist()
+          deployment.compose('stop','kestra','postgres')
+          evidence.pausedAt=new Date().toISOString();await persist()
+        }
         await module.runApplicationProjectMigration(planned.base,context,recordMigration)
         await module.runMigrationStorageRecovery(context,recordRecovery)
         if(context?.operations){report.fragments.migrationOperations=context.operations;await persist()}
+        } catch(error) {
+          migrationError=error
+          lifecycle.migrationError=error.stdout!==undefined?'migration command failed; see retained command evidence':String(error.message)
+          throw error
+        } finally {
+          const restorationErrors=[]
+          for(const [index,deployment]of deployments.entries()){
+            const evidence=lifecycle.deployments[index]
+            if(!evidence.pauseRequested)continue
+            try {
+              deployment.compose('up','-d','postgres','kestra')
+              const deadline=Date.now()+180000
+              for(;;){
+                let healthy=false
+                try{const response=await fetch(deployment.base+'/ping',{signal:AbortSignal.timeout(3000)});evidence.pingStatus=response.status;await response.body?.cancel();healthy=response.ok}catch{}
+                if(healthy)break
+                assert(Date.now()<deadline,'planned migration resume ping timeout for '+deployment.project)
+                await new Promise(resolve=>setTimeout(resolve,1000))
+              }
+              for(const service of evidence.services){
+                const id=deployment.compose('ps','-q',service.service)
+                const inspected=JSON.parse(command('docker',['inspect',id]))[0]
+                assert.equal(inspected.Config.Labels['com.docker.compose.project'],deployment.project)
+                assert.equal(inspected.State.Running,true)
+                assert.equal(inspected.State.Restarting,false)
+                service.resumedId=id
+              }
+              evidence.restored=true;evidence.restoredAt=new Date().toISOString()
+            }catch(error){evidence.restoreError=error.stdout!==undefined?'planned service restoration command failed':String(error.message);restorationErrors.push(deployment.project)}
+            await persist()
+          }
+          lifecycle.finishedAt=new Date().toISOString();lifecycle.restored=restorationErrors.length===0;await persist()
+          if(restorationErrors.length&&!migrationError)throw new Error('planned migration service restoration failed: '+restorationErrors.join(', '))
+        }
       }
       fixture.runSecurity=async recordSecurity=>{
         const module=await import('./application-project-security-cases.mjs')

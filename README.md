@@ -98,14 +98,17 @@ application-projects；UI 的 selector 只用于已批准的第一方成员。
   --image "$KESTRA_IMAGE" \
   --jar deployment/libs/kestra-rbac-authorizer.jar --sha256 <实际jar-sha256> \
   --root "$PWD" --overlay "$PWD/kestra-overlay" --plugin "$PWD/kestra-plugin-rbac" \
-  --migration-releases deployment/application-project-migration-source.json \
   --release-evidence <已核对的发布证据.json>
 ```
 
 本地浏览器调用 `application-project-ui-fixture.mjs` 的
 `runRootApplicationProjectWithEgo`，传入本次已有任务空间的 Page；不得创建重复空间。
 本地与 CI 共用 56 个 REST 探针、MCP 业务断言及 4 主题 × 13 语言 UI 矩阵。
-所有必需迁移、身份边界、撤权、故障及副作用检查通过后，最终报告检查器才接受结果。
+默认使用 `new-install` 配置，从空库初始化新模型，必须通过身份边界、撤权、故障、
+副作用和完整 UI 检查。历史 schema1 的 14 项迁移检查明确列入范围外，不计为通过或跳过。
+只有确实需要验证已有 schema1 数据时，额外传入
+`--migration-releases deployment/application-project-migration-source.json`，选择
+`legacy-migration` 配置并执行全部历史迁移和物理回滚检查。开发需求迭代不要求反复迁移旧测试数据。
 `--static` 仅检查入口和模块，`--config-check` 仅检查 Compose 配置。
 `--allow-dirty-root` 只用于开发，始终输出 `nonFinal=true`、`completed=false`，不得用于交付。
 失败和未执行项保留在报告中，不计为通过。

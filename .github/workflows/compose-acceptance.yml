@@ -123,7 +123,7 @@ jobs:
           npm install --prefix "$RUNNER_TEMP/ci-browser" playwright@1.61.1
           "$RUNNER_TEMP/ci-browser/node_modules/.bin/playwright" install --with-deps chromium
           printf 'NODE_PATH=%s/ci-browser/node_modules\n' "$RUNNER_TEMP" >> "$GITHUB_ENV"
-      - name: Execute application-project UI REST MCP and migration acceptance
+      - name: Execute new-install application-project UI REST MCP acceptance
         env:
           GH_TOKEN: ${{ secrets.APPLICATION_PROJECT_RELEASE_READ_TOKEN }}
         run: |
@@ -135,7 +135,6 @@ jobs:
             --image "$image" --jar "$jar" --sha256 "$hash" \
             --root "$GITHUB_WORKSPACE" --overlay "$GITHUB_WORKSPACE/kestra-overlay" \
             --plugin "$GITHUB_WORKSPACE/kestra-plugin-rbac" \
-            --migration-releases deployment/application-project-migration-source.json \
             --release-evidence .work/ci/release-evidence.json > .work/ci/application-project-driver.log 2>&1
       - name: Preserve application-project report after success or failure
         if: always()

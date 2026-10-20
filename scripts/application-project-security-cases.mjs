@@ -21,6 +21,7 @@ import {mcpFlowSource,mcpProtocolEvidence} from './application-project-fixture.m
 import {runApplicationProjectOauth,oauthCheckIds} from './application-project-oauth-cases.mjs'
 
 export const securityCheckIds=Object.freeze([
+  'legacy-write-api-removed',
   'last-identity-administrator','last-local-policy-administrator',
   'local-policy-unapproved-project-denied','management-target-action-cross-scope-denied',
   'reconciliation-complete-project-atomic','rest-subject-revoke','wrong-tenant',
@@ -802,6 +803,17 @@ export async function runApplicationProjectSecurity(base,fixture={},record) {
       finally{await restore(id+'-recovered-flow-source',async()=>{await write(original.source);assert.equal((await get(client,path+'?source=true')).source,original.source);await quiesceBusiness(id+'-after-recovery')})}
     })
   }
+  await check('legacy-write-api-removed',async()=>{
+    const client=await manager()
+    await quiesceBusiness('legacy-write-api-removed')
+    for(const [method,path,body]of [
+      ['POST',api+'/roles',{id:'removed-role',name:'Removed role',grants:[]}],
+      ['PUT',api+'/roles/removed-role',{id:'removed-role',name:'Removed role',grants:[]}],
+      ['DELETE',api+'/roles/removed-role',undefined],
+      ['PUT',api+'/bindings',{subject:planned.admin.subject,roles:['removed-role']}],
+      ['PUT',api+'/role-mappings',{trustedRole:'admin',roles:['removed-role']}],
+    ])await deny(client,path,method,body,undefined,{statuses:[410],code:'legacy_policy_api_removed'})
+  })
   await dependencyFault('directory-unavailable','oidc_project_state')
   await dependencyFault('policy-unavailable','rbac_project_policy_head')
 

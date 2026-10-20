@@ -90,6 +90,15 @@ export const projectScopeCases = Object.freeze([
   ]},
 ].map(value => Object.freeze({...value, scopes: Object.freeze(value.scopes), probes: Object.freeze(value.probes)})))
 
+export const legacyMigrationChecks = Object.freeze([
+  'migration-preview-explicit-approval', 'migration-stale-review-no-change',
+  'migration-legacy-subject-no-scope', 'migration-legacy-role-no-scope',
+  'migration-old-ui-cookie', 'migration-old-idp-session', 'migration-old-access',
+  'migration-old-refresh', 'migration-old-code', 'migration-old-mcp-session',
+  'migration-identity-only-partial', 'migration-local-only-partial',
+  'migration-old-api-writes-removed', 'migration-backup-rollback',
+])
+
 export const requiredProjectChecks = Object.freeze([
   'production-ui-login-canonical-path', 'ui-role-grant-edit-refresh',
   'ui-client-membership-approval', 'ui-subject-grant-revoke', 'ui-zero-grant-logout-switch',
@@ -102,12 +111,7 @@ export const requiredProjectChecks = Object.freeze([
   'wrong-issuer', 'wrong-audience', 'wrong-project', 'wrong-tenant',
   'directory-unavailable', 'policy-unavailable', 'missing-extension', 'feature-disabled-regression',
   'list-total-pagination-aggregate', 'denied-write-no-delayed-side-effects',
-  'migration-preview-explicit-approval', 'migration-stale-review-no-change',
-  'migration-legacy-subject-no-scope', 'migration-legacy-role-no-scope',
-  'migration-old-ui-cookie', 'migration-old-idp-session', 'migration-old-access',
-  'migration-old-refresh', 'migration-old-code', 'migration-old-mcp-session',
-  'migration-identity-only-partial', 'migration-local-only-partial',
-  'migration-old-api-writes-removed', 'migration-backup-rollback',
+  'legacy-write-api-removed',
   'last-identity-administrator', 'last-local-policy-administrator',
   'ui-create-project-explicit-local-policy-target', 'local-policy-unapproved-project-denied',
   'management-target-action-cross-scope-denied', 'reconciliation-complete-project-atomic',
