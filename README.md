@@ -98,6 +98,9 @@ cp /tmp/kestra-rbac-artifact/build/libs/kestra-rbac-authorizer.jar deployment/li
 环境变量与调用示例见插件 README；Compose 服务环境不包含这三个变量，通过
 `docker compose run` 执行安装命令时必须在命令行显式传入，缺失时命令只报
 `IllegalArgumentException` 不提示缺失的变量名。
+未完成目录初始化即设置 `KESTRA_RBAC_ENABLED=true` 时，授权请求以失败关闭拒绝，页面
+无法登录；服务日志记录 `Application group directory is not initialized` 并指向安装命令。
+按上述顺序完成 preview/apply 与策略初始化后，重启容器即可恢复。
 
 历史 schema1 数据只在显式 `legacy-migration` 配置执行迁移与物理回滚验收，不是默认
 新安装的交付门。该流程仍须独立审批与真实撤权证据；未执行不能计为通过。
