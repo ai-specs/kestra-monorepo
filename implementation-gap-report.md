@@ -195,3 +195,12 @@ root 产物门现额外要求插件组业务模型、存储和初始化命令；
 4. **最后更新根仓组合。** 选正式镜像与独立发布 jar，先本地 `new-install` 全矩阵，再触发最终提交 CI 并下载报告；旧迁移只在显式 profile 运行。UI 与实际请求结果、拒绝副作用、缺插件和关闭功能均须核对。
 
 首次调查已完成差异与实施排序。当前已有部分正式机制和后续未发布候选，完整目标模型及其最终验收尚未通过；不得把阶段测试结果作为三个项目的最终交付。
+
+## 2026-10-22 宿主 KsButton link 组合缺陷（插件已兜底）
+
+`@kestra-io/design-system` 的 `KsButton` 在 `type="primary"` 与 `link` 组合下，
+`--kel-button-text-color` 先被 primary 覆盖为白色，`is-link` 的透明背景规则随后生效，
+亮色主题下渲染为白字白底不可读（实测 `--kel-button-text-color: #fff`、背景继承行背景）。
+插件已在 `style.css` 以 `.rbac-page .kel-button.is-link { color: var(--ks-text-link) }`
+兜底并通过明暗双主题验证；该组合缺陷属宿主组件，建议向上游或 overlay 报修，修复后
+可移除兜底。
