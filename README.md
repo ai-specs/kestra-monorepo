@@ -94,6 +94,10 @@ cp /tmp/kestra-rbac-artifact/build/libs/kestra-rbac-authorizer.jar deployment/li
 `ApplicationGroupDirectoryCommand preview/apply`、`ApplicationGroupPolicyCommand initialize`
 及可选声明初始化。组计划、安装前置、审查 hash 和字段由插件公开契约定义；宿主不提供
 组初始化 CLI。初始化不能覆盖已有目录，UI client 是第一个内置组的普通应用成员。
+安装命令要求的 `RBAC_POLICY_JDBC_URL`、`RBAC_POLICY_JDBC_USER`、`RBAC_POLICY_JDBC_PASSWORD`
+环境变量与调用示例见插件 README；Compose 服务环境不包含这三个变量，通过
+`docker compose run` 执行安装命令时必须在命令行显式传入，缺失时命令只报
+`IllegalArgumentException` 不提示缺失的变量名。
 
 历史 schema1 数据只在显式 `legacy-migration` 配置执行迁移与物理回滚验收，不是默认
 新安装的交付门。该流程仍须独立审批与真实撤权证据；未执行不能计为通过。
