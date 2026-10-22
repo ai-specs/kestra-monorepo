@@ -26,6 +26,7 @@ import {ProductionOAuthClient} from './production-oauth-client.mjs'
 import {ProjectSideEffects} from './application-project-effects.mjs'
 import {planFixture,planRestResources,directoryActivationPlan,provisionFixture,fixtureGaps,applicationProjectFeature,mcpProtocolEvidence,missingExtensionTopology} from './application-project-fixture.mjs'
 import {applicationDeclarations} from './application-project-policy.mjs'
+import {assertApplicationGroupPluginEntries,assertApplicationGroupSchemaTables} from './application-group-artifact-contract.mjs'
 
 /** Development can relax only root cleanliness, never independent release inputs. */
 export function assertApplicationProjectSources(sources,{allowDirtyRoot=false}={}) {
@@ -81,6 +82,7 @@ export async function main(argv=process.argv.slice(2),runtime={}) {
     for(;;){try{const response=await fetch(report.resources.base+'/ping',{signal:AbortSignal.timeout(3000)});await response.body?.cancel();if(response.ok)return}catch{}assert(Date.now()<deadline,'host startup timeout');await new Promise(resolve=>setTimeout(resolve,1000))}
   }
   const canonical=value=>Array.isArray(value)?value.map(canonical).sort((left,right)=>JSON.stringify(left)<JSON.stringify(right)?-1:JSON.stringify(left)>JSON.stringify(right)?1:0):value&&typeof value==='object'?Object.fromEntries(Object.keys(value).sort().map(key=>[key,canonical(value[key])])):value
+  const canonicalPlan=value=>Array.isArray(value)?value.map(canonicalPlan):value&&typeof value==='object'?Object.fromEntries(Object.keys(value).sort().map(key=>[key,canonicalPlan(value[key])])):value
   const cli=(className,...args)=>compose('run','--rm','--no-deps','--user','0:0','--entrypoint','java','kestra','-cp','/app/kestra:/app/libs/kestra-rbac-authorizer.jar',className,...args)
   const writePlan=(name,value)=>{writeFileSync(join(output,name),JSON.stringify(value,null,2)+'\n',{mode:0o600});return '/work/'+name}
 
@@ -90,6 +92,7 @@ export async function main(argv=process.argv.slice(2),runtime={}) {
     report.failures=rows.filter(row=>row.status==='failed').length+report.stages.filter(row=>row.status==='failed').length
     // Never infer acceptance from static checks or an empty fragment.
     report.completed=!report.nonFinal&&mode==='run'&&report.stages.some(row=>row.id==='final-report-check'&&row.status==='passed')&&report.notRun===0&&report.failures===0
+    report.blockers=report.completed?[]:[...fixtureGaps,...(legacyMigration?['explicit legacy-migration profile requires its historical credential and physical rollback checks']:[])]
     writeFileSync(reportPath+'.tmp',JSON.stringify(report,null,2)+'\n',{mode:0o600});renameSync(reportPath+'.tmp',reportPath)
     if(runtime.onReport)await runtime.onReport({reportPath,report:structuredClone(report)})
   }
@@ -111,11 +114,11 @@ export async function main(argv=process.argv.slice(2),runtime={}) {
       }
       assert.equal(realpathSync(roots.root),realpathSync(repository),'root commit must bind the repository containing the running entry point')
       if(mode==='run')assertApplicationProjectSources(report.sources,{allowDirtyRoot:options['--allow-dirty-root']===true})
-      report.executionSources=Object.fromEntries(['blackbox-application-projects.sh','blackbox-application-projects.mjs','application-project-fixture.mjs','application-project-integration-cases.mjs','application-project-ui-fixture.mjs','application-project-browser-ci.cjs','application-project-migration-cases.mjs','application-project-security-cases.mjs','application-project-oauth-cases.mjs','application-project-aggregate-cases.mjs','application-project-target-ui.mjs'].map(name=>[name,hash(readFileSync(join(repository,'scripts',name)))]))
+      report.executionSources=Object.fromEntries(['application-group-artifact-contract.mjs','blackbox-application-projects.sh','blackbox-application-projects.mjs','application-project-fixture.mjs','application-project-integration-cases.mjs','application-project-ui-fixture.mjs','application-project-browser-ci.cjs','application-project-migration-cases.mjs','application-project-security-cases.mjs','application-project-oauth-cases.mjs','application-project-aggregate-cases.mjs','application-project-target-ui.mjs'].map(name=>[name,hash(readFileSync(join(repository,'scripts',name)))]))
       return {actualPlatform:process.platform,node:process.version,commits:structuredClone(report.inputs)}
     })
     await stage('shared-module-interface',async()=>{
-      for(const file of ['application-project-cases.mjs','application-project-policy.mjs','application-project-effects.mjs','application-project-rest-cases.mjs','application-project-mcp-cases.mjs','application-project-ui-cases.mjs','application-project-browser-adapters.mjs','production-oauth-client.mjs','check-application-project-report.mjs','application-project-ui-fixture.mjs','application-project-browser-ci.cjs','application-project-security-cases.mjs','application-project-oauth-cases.mjs','application-project-migration-cases.mjs','application-project-aggregate-cases.mjs','application-project-target-ui.mjs']) {
+      for(const file of ['application-group-artifact-contract.mjs','application-project-cases.mjs','application-project-policy.mjs','application-project-effects.mjs','application-project-rest-cases.mjs','application-project-mcp-cases.mjs','application-project-ui-cases.mjs','application-project-browser-adapters.mjs','production-oauth-client.mjs','check-application-project-report.mjs','application-project-ui-fixture.mjs','application-project-browser-ci.cjs','application-project-security-cases.mjs','application-project-oauth-cases.mjs','application-project-migration-cases.mjs','application-project-aggregate-cases.mjs','application-project-target-ui.mjs']) {
         command('node',['--check',join(repository,'scripts',file)])
         report.staticChecks.push({file,sha256:hash(readFileSync(join(repository,'scripts',file))),syntax:true})
       }
@@ -126,7 +129,7 @@ export async function main(argv=process.argv.slice(2),runtime={}) {
       assert.equal(Object.keys(resources.probes).length,56)
       assert.equal(Object.keys(planned.accounts).length,13)
       const ui=planApplicationProjectUi();for(const list of [ui.projects,ui.scopes,ui.clients,ui.users])assert(list.length>25)
-      return {restRows:report.matrix.length,themeLanguageRows:report.ui.length,requiredChecks:report.checks.length,testAccounts:Object.keys(planned.accounts).length,mcpScenarioAccounts:Object.keys(planned.mcpAccounts).length,mcpToolSeeds:planned.mcp.seeds.length,uiDataPlan:{projects:ui.projects.length,scopes:ui.scopes.length,clients:ui.clients.length,assignments:ui.users.length,explicitBindings:Object.keys(ui.localBindings).length,filtersRuntimeVerified:false},pendingSharedMcpScopes:Object.values(planned.mcp.revocationScopes).filter(scope=>!Object.values(scopeNames).includes(scope))}
+      return {restRows:report.matrix.length,themeLanguageRows:report.ui.length,requiredChecks:report.checks.length,testAccounts:Object.keys(planned.accounts).length,mcpScenarioAccounts:Object.keys(planned.mcpAccounts).length,mcpToolSeeds:planned.mcp.seeds.length,uiDataPlan:{projects:ui.projects.length,scopes:ui.scopes.length,clients:ui.clients.length,assignments:ui.users.length,explicitApplicationPolicies:Object.keys(ui.applicationPolicies).length,filtersRuntimeVerified:false},pendingSharedMcpScopes:Object.values(planned.mcp.revocationScopes).filter(scope=>!Object.values(scopeNames).includes(scope))}
     })
     if(mode==='static'){report.staticOnly=true;await persist();return {exitCode:0,reportPath}}
     await stage('artifact-inputs',async()=>{
@@ -135,7 +138,8 @@ export async function main(argv=process.argv.slice(2),runtime={}) {
       const jar=realpathSync(options['--jar']??'')
       assert(!jar.includes('/deployment-backup/'),'deployment-backup must not be test input')
       assert(statSync(jar).isFile()&&hash(readFileSync(jar))===report.inputs.jarSha256,'actual jar hash differs')
-      options.jar=jar;return {jarSha256:report.inputs.jarSha256}
+      const contract=assertApplicationGroupPluginEntries(command('jar',['tf',jar]).split('\n'))
+      options.jar=jar;return {jarSha256:report.inputs.jarSha256,applicationGroupContract:contract}
     })
     await stage('compose-config',async()=>{
       const port=Number(options['--port']??18128);assert(Number.isInteger(port)&&port>1024&&port<65536)
@@ -149,9 +153,9 @@ export async function main(argv=process.argv.slice(2),runtime={}) {
       assert.deepEqual(Object.keys(config.services).sort(),['kestra','postgres'],'only owned two-service topology is accepted')
       assert(config.services.postgres.volumes.every(item=>item.type==='volume'),'database may only use own named volume')
       assert(!config.services.postgres.ports?.length,'database must not expose a host port')
-      for(const service of Object.values(config.services)){delete service.container_name;delete service.build;assert(!service.network_mode&&!service.external_links)}
-      for(const volume of Object.values(config.volumes??{})){delete volume.name;assert(!volume.external)}
-      for(const network of Object.values(config.networks??{})){delete network.name;assert(!network.external)}
+      for(const service of Object.values(config.services)){delete service.container_name;delete service.build;assert(!service.network_mode&&!service.external_links);service.labels={...service.labels,owner:project}}
+      for(const volume of Object.values(config.volumes??{})){delete volume.name;assert(!volume.external);volume.labels={...volume.labels,owner:project}}
+      for(const network of Object.values(config.networks??{})){delete network.name;assert(!network.external);network.labels={...network.labels,owner:project}}
       const host=config.services.kestra
       host.image=report.inputs.image;host.ports=[{target:8080,published:String(port),host_ip:'127.0.0.1',protocol:'tcp'}]
       host.volumes=host.volumes.filter(item=>item.type==='volume')
@@ -206,6 +210,9 @@ export async function main(argv=process.argv.slice(2),runtime={}) {
       const jar=join(downloaded,'build/libs/kestra-rbac-authorizer.jar')
       for(const name of ['build/libs/kestra-rbac-authorizer.jar','.integration/host-provenance.json','.evidence','build/reports/tests/test','build/test-results/test'])assert(statSync(join(downloaded,name)),'downloaded artifact layout incomplete: '+name)
       assert(readdirSync(join(downloaded,'.evidence')).length,'hidden evidence omitted from artifact')
+      const unitGate=command('python3',[join(report.sources.plugin.path,'scripts/check-application-project-tests.py'),join(downloaded,'.evidence/unit/results')])
+      const postgresGate=command('python3',[join(report.sources.plugin.path,'scripts/check-policy-tests.py'),join(downloaded,'.evidence/postgres/results')])
+      report.sources.plugin.downloadedReportGates={unit:unitGate,postgres:postgresGate}
       assert(readdirSync(join(downloaded,'build/reports/tests/test')).length,'downloaded HTML test report is empty')
       const xmlFiles=readdirSync(join(downloaded,'build/test-results/test')).filter(name=>name.endsWith('.xml'))
       assert(xmlFiles.length,'downloaded XML test results are empty')
@@ -234,6 +241,7 @@ export async function main(argv=process.argv.slice(2),runtime={}) {
       for(const name of ['postgres','kestra']) {
         ids[name]=compose('ps','-q',name);assert(/^[a-f0-9]{12,64}$/.test(ids[name]))
         assert.equal(command('docker',['inspect','-f','{{index .Config.Labels "com.docker.compose.project"}}',ids[name]]),project)
+        assert.equal(command('docker',['inspect','-f','{{index .Config.Labels "owner"}}',ids[name]]),project)
       }
       report.resources.containerIds=ids
       const imageId=command('docker',['inspect','-f','{{.Image}}',ids.kestra])
@@ -254,23 +262,23 @@ export async function main(argv=process.argv.slice(2),runtime={}) {
     await stage('directory-preview-explicit-apply',async()=>{
       compose('stop','kestra')
       const planPath=writePlan('directory-plan.json',planned.activation)
-      const text=cli('io.kestra.webserver.oidc.projects.ApplicationDirectoryCommand','preview',planPath)
+      const text=cli('io.kestra.extensions.rbac.store.ApplicationGroupDirectoryCommand','preview',planPath)
       // Keep raw preview privately: it includes the own installation identity.
       writeFileSync(join(output,'directory-preview.txt'),text+'\n',{mode:0o600})
       const jsonLine=text.split('\n').find(line=>line.trim().startsWith('{')&&line.includes('"approvalHash"'))
       assert(jsonLine,'public CLI preview did not emit a JSON report')
       const preview=JSON.parse(jsonLine)
-      assert.deepEqual(canonical(preview.plan),canonical(planned.activation));assert.deepEqual(preview.source,[])
-      const approvalHash=hash(JSON.stringify(canonical(preview.plan)))
+      assert.deepEqual(canonicalPlan(preview.plan),canonicalPlan(planned.activation));assert.deepEqual(preview.source,[])
+      const approvalHash=hash(JSON.stringify(canonicalPlan(preview.plan)))
       assert.equal(preview.approvalHash,approvalHash,'CLI approval hash does not bind entire reviewed plan')
       // Explicitly pass the reviewed hash to apply; never mutate identity SQL.
-      cli('io.kestra.webserver.oidc.projects.ApplicationDirectoryCommand','apply',planPath,approvalHash)
+      cli('io.kestra.extensions.rbac.store.ApplicationGroupDirectoryCommand','apply',planPath,approvalHash)
       return {planSha256:hash(JSON.stringify(planned.activation)),approvalHash,previewSourceProjects:0,applied:true}
     })
     await stage('schema2-public-cli-initialize',async()=>{
       const path=writePlan('local-policy.json',planned.policy)
-      cli('io.kestra.extensions.rbac.store.ProjectPolicyCommand','validate',path)
-      cli('io.kestra.extensions.rbac.store.ProjectPolicyCommand','initialize',path)
+      cli('io.kestra.extensions.rbac.store.ApplicationGroupPolicyCommand','validate',path)
+      cli('io.kestra.extensions.rbac.store.ApplicationGroupPolicyCommand','initialize',path)
       const declaration=applicationDeclarations(planned,'kestra-ui')
       const declarationPath=writePlan('application-declarations.json',declaration)
       cli('io.kestra.extensions.rbac.store.ApplicationScopeDeclarationCommand','validate',declarationPath)
@@ -285,9 +293,16 @@ export async function main(argv=process.argv.slice(2),runtime={}) {
       compose('up','-d','kestra');await waitForHost()
       report.resources.containerIds.kestra=compose('ps','-q','kestra')
       const client=new ProductionOAuthClient(planned.base);const login=await client.login(planned.admin.username,planned.admin.password)
-      const identity=await client.verifiedUiIdentity({projectId:'kestra',subject:planned.admin.subject,audience:planned.expectedAudience})
-      assert(identity.projectScopes.includes(planned.observerScope))
-      return {authenticated:login.authenticated,callbackPath:login.callbackPath,project:identity.project,subject:identity.subject,projectScopes:identity.projectScopes,authorizationVersion:identity.authorizationVersion}
+      const identity=await client.verifiedUiIdentity({applicationGroupId:'kestra',subject:planned.admin.subject,audience:planned.expectedAudience})
+      assert(identity.applicationGroupScopes.includes(planned.observerScope))
+      return {authenticated:login.authenticated,callbackPath:login.callbackPath,applicationGroupId:identity.applicationGroupId,subject:identity.subject,applicationGroupScopes:identity.applicationGroupScopes,authorizationVersion:identity.authorizationVersion}
+    })
+    await stage('new-install-storage-contract',async()=>{
+      const postgres=report.resources.containerIds.postgres
+      assert(/^[a-f0-9]{12,64}$/.test(postgres),'owned PostgreSQL container required')
+      assert.equal(command('docker',['inspect','-f','{{index .Config.Labels "com.docker.compose.project"}}',postgres]),project,'storage inspection requires the owned Compose project')
+      const tables=command('docker',['exec',postgres,'psql','-X','-U','kestra','-d','kestra','-v','ON_ERROR_STOP=1','-Atc',"SELECT table_name FROM information_schema.tables WHERE table_schema=current_schema() AND table_type='BASE TABLE' ORDER BY table_name"]).split('\n').filter(Boolean)
+      return assertApplicationGroupSchemaTables(tables)
     })
     let secondaryIssuerPromise,missingExtensionPromise
     const prepareSecondaryIssuer=()=>secondaryIssuerPromise??=(prepareSecondaryIssuerOnce())
@@ -302,6 +317,24 @@ export async function main(argv=process.argv.slice(2),runtime={}) {
       // The same second issuer first verifies cross-issuer rejection with the
       // published extension, then removes the jar for missing-component checks.
       const config=missingExtensionTopology({sourceConfig:composeConfig,sourceBase:planned.base,base:missingBase,port:missingPort,directory:dir,planned:missingPlan})
+      const primaryPostgres=report.resources.containerIds.postgres
+      const primaryNetworkNames=Object.keys(JSON.parse(command('docker',['inspect','-f','{{json .NetworkSettings.Networks}}',primaryPostgres])))
+      assert.equal(primaryNetworkNames.length,1,'one owned primary PostgreSQL network required')
+      const primaryNetwork=primaryNetworkNames[0]
+      assert.equal(command('docker',['network','inspect','-f','{{index .Labels "com.docker.compose.project"}}',primaryNetwork]),project)
+      const database='application_group_acceptance_'+Date.now()+'_'+process.pid
+      assert(/^application_group_acceptance_[0-9]+_[0-9]+$/.test(database))
+      command('docker',['exec',primaryPostgres,'psql','-X','-U','kestra','-d','postgres','-v','ON_ERROR_STOP=1','-c','CREATE DATABASE "'+database+'"'])
+      delete config.services.postgres
+      config.networks={default:{external:true,name:primaryNetwork}}
+      for(const service of Object.values(config.services)) {
+        service.labels={...service.labels,owner:missingProject}
+        delete service.depends_on?.postgres
+        service.environment.KESTRA_CONFIGURATION=service.environment.KESTRA_CONFIGURATION.replaceAll('jdbc:postgresql://postgres:5432/kestra','jdbc:postgresql://postgres:5432/'+database)
+        assert.equal(service.environment.RBAC_POLICY_JDBC_URL,'jdbc:postgresql://postgres:5432/kestra')
+        service.environment.RBAC_POLICY_JDBC_URL='jdbc:postgresql://postgres:5432/'+database
+      }
+      for(const volume of Object.values(config.volumes??{}))volume.labels={...volume.labels,owner:missingProject}
       const host=config.services.kestra
       const file=join(dir,'compose.json')
       const save=()=>writeFileSync(file,JSON.stringify(config,null,2),{mode:0o600})
@@ -309,14 +342,15 @@ export async function main(argv=process.argv.slice(2),runtime={}) {
       const offline=(name,...args)=>dc('run','--rm','--no-deps','--user','0:0','--entrypoint','java','maintenance','-cp','/app/kestra:/app/libs/kestra-rbac-authorizer.jar',name,...args)
       const planFile=(name,value)=>{writeFileSync(join(dir,name),JSON.stringify(value,null,2)+'\n',{mode:0o600});return '/work/'+name}
       save();dc('config','--quiet')
-      additionalDeployments.push({project:missingProject,compose:dc,base:missingBase})
-      report.resources.missingExtension={composeProject:missingProject,base:missingBase,composeFile:file,containersCreated:false,image:report.inputs.image,cliJarSha256:report.inputs.jarSha256,finalJarMounted:null}
+      additionalDeployments.push({project:missingProject,compose:dc,base:missingBase,sharedPostgres:true})
+      report.resources.missingExtension={composeProject:missingProject,base:missingBase,composeFile:file,containersCreated:false,image:report.inputs.image,cliJarSha256:report.inputs.jarSha256,finalJarMounted:null,postgresComposeProject:project,postgresContainer:primaryPostgres,primaryNetwork,database,sharedPostgres:true}
       await persist()
-      dc('up','-d','postgres','kestra');report.resources.missingExtension.containersCreated=true
+      dc('up','-d','kestra');report.resources.missingExtension.containersCreated=true
       const wait=async()=>{const until=Date.now()+180000;for(;;){try{const response=await fetch(missingBase+'/ping',{signal:AbortSignal.timeout(3000)});await response.body?.cancel();if(response.ok)return}catch{}assert(Date.now()<until,'missing-extension host startup timeout');await new Promise(resolve=>setTimeout(resolve,1000))}}
       await wait()
-      const ids={postgres:dc('ps','-q','postgres'),kestra:dc('ps','-q','kestra')}
-      for(const id of Object.values(ids))assert.equal(command('docker',['inspect','-f','{{index .Config.Labels "com.docker.compose.project"}}',id]),missingProject)
+      const ids={postgres:primaryPostgres,kestra:dc('ps','-q','kestra')}
+      assert.equal(command('docker',['inspect','-f','{{index .Config.Labels "com.docker.compose.project"}}',ids.postgres]),project)
+      assert.equal(command('docker',['inspect','-f','{{index .Config.Labels "com.docker.compose.project"}}',ids.kestra]),missingProject)
       const loginClient=new ProductionOAuthClient(missingBase);await loginClient.login(missingPlan.admin.username,missingPlan.admin.password)
       const seed=missingPlan.mcp.seeds.find(item=>item.id==='mcp-allowed')
       const seeded=await loginClient.request('/api/v1/main/flows',{method:'POST',headers:{'Content-Type':'application/x-yaml'},body:seed.source});assert(seeded.ok,'isolated feature-off missing-mode tool seed failed');await seeded.body?.cancel()
@@ -338,22 +372,22 @@ export async function main(argv=process.argv.slice(2),runtime={}) {
 
       const installation=command('docker',['exec',ids.kestra,'cat','/app/storage/.oidc-installation']).match(/^kestra-oidc-installation-v1\n([a-f0-9-]{36})$/i)?.[1];assert(installation)
       const activation=directoryActivationPlan(missingPlan,installation)
-      activation.projects[0].memberships.push({projectId:'kestra',clientId:registration.client_id,approved:true,firstPartyUi:false,audiences:[missingBase+'/api/v1/main/mcp/default'],allowedProjectScopes:[scopeNames.writeB],revision:1})
-      activation.projects[0].assignments[0].projectScopes.push(scopeNames.writeB)
-      missingPlan.policy.applicationProjects.kestra.audiences.push(missingBase+'/api/v1/main/mcp/default')
+      activation.applicationGroups[0].applications.push({clientId:registration.client_id,approved:true,audiences:[missingBase+'/api/v1/main/mcp/default'],supportedScopeKeys:[scopeNames.writeB],revision:1})
+      activation.applicationGroups[0].userGrants[0].scopeKeys.push(scopeNames.writeB)
+      missingPlan.policy.applicationGroups.kestra.audiences.push(missingBase+'/api/v1/main/mcp/default')
       dc('stop','kestra')
       const path=planFile('directory-plan.json',activation)
-      report.resources.missingExtension.activation={planPath:join(dir,'directory-plan.json'),planSha256:hash(JSON.stringify(activation)),clientId:registration.client_id,subject:missingPlan.admin.subject,projectScopes:[scopeNames.writeB]}
-      const previewText=offline('io.kestra.webserver.oidc.projects.ApplicationDirectoryCommand','preview',path)
+      report.resources.missingExtension.activation={planPath:join(dir,'directory-plan.json'),planSha256:hash(JSON.stringify(activation)),clientId:registration.client_id,subject:missingPlan.admin.subject,applicationGroupScopes:[scopeNames.writeB]}
+      const previewText=offline('io.kestra.extensions.rbac.store.ApplicationGroupDirectoryCommand','preview',path)
       writeFileSync(join(dir,'directory-preview.txt'),previewText+'\n',{mode:0o600})
       const preview=JSON.parse(previewText.split('\n').find(line=>line.trim().startsWith('{')&&line.includes('"approvalHash"'))??'null')
-      assert.deepEqual(canonical(preview?.plan),canonical(activation));assert.deepEqual(preview.source,[])
-      const approved=hash(JSON.stringify(canonical(activation)));assert.equal(preview.approvalHash,approved)
+      assert.deepEqual(canonicalPlan(preview?.plan),canonicalPlan(activation));assert.deepEqual(preview.source,[])
+      const approved=hash(JSON.stringify(canonicalPlan(activation)));assert.equal(preview.approvalHash,approved)
       report.resources.missingExtension.activation.approvalHash=approved
-      offline('io.kestra.webserver.oidc.projects.ApplicationDirectoryCommand','apply',path,approved)
+      offline('io.kestra.extensions.rbac.store.ApplicationGroupDirectoryCommand','apply',path,approved)
       const policy=planFile('local-policy.json',missingPlan.policy)
-      offline('io.kestra.extensions.rbac.store.ProjectPolicyCommand','validate',policy)
-      offline('io.kestra.extensions.rbac.store.ProjectPolicyCommand','initialize',policy)
+      offline('io.kestra.extensions.rbac.store.ApplicationGroupPolicyCommand','validate',policy)
+      offline('io.kestra.extensions.rbac.store.ApplicationGroupPolicyCommand','initialize',policy)
       for(const [index,declaration] of [applicationDeclarations(missingPlan,'kestra-ui'),applicationDeclarations(missingPlan,registration.client_id,[scopeNames.writeB])].entries()) {
         const declarationPath=planFile('application-declarations-'+index+'.json',declaration)
         offline('io.kestra.extensions.rbac.store.ApplicationScopeDeclarationCommand','validate',declarationPath)
@@ -366,12 +400,23 @@ export async function main(argv=process.argv.slice(2),runtime={}) {
       dc('up','-d','kestra');await wait()
       const secondaryClient=new ProductionOAuthClient(missingBase)
       await secondaryClient.login(missingPlan.admin.username,missingPlan.admin.password)
-      const secondaryIdentity=await secondaryClient.verifiedUiIdentity({projectId:applicationProject,subject:missingPlan.admin.subject,audience:'kestra-ui'})
-      assert(secondaryIdentity.projectScopes.includes(scopeNames.writeB),'second issuer did not sign the shared test scope')
+      const secondaryIdentity=await secondaryClient.verifiedUiIdentity({applicationGroupId:applicationProject,subject:missingPlan.admin.subject,audience:'kestra-ui'})
+      assert(secondaryIdentity.applicationGroupScopes.includes(scopeNames.writeB),'second issuer did not sign the shared test scope')
       report.resources.secondaryIssuer={base:missingBase,image:report.inputs.image,jarSha256:report.inputs.jarSha256,
         signedScope:scopeNames.writeB,subject:missingPlan.admin.subject,issuer:secondaryIdentity.issuer}
       await persist()
       return {base:missingBase,account:missingPlan.admin,makeMissing:async()=>{
+      const issuedClient=new ProductionOAuthClient(missingBase)
+      await issuedClient.login(missingPlan.admin.username,missingPlan.admin.password)
+      const issuedScopes=[...missingPlan.mcp.scenarios.allowed.protocolScopes,scopeNames.writeB]
+      await issuedClient.issueMcpScopes(issuedScopes,undefined,current=>current.login(missingPlan.admin.username,missingPlan.admin.password),{registeredClient:registration})
+      const issuedIdentity=await issuedClient.verifiedAccessIdentity({applicationGroupId:applicationProject,subject:missingPlan.admin.subject,
+        expectedApplicationGroupScopes:[scopeNames.writeB],expectedProtocolScopes:missingPlan.mcp.scenarios.allowed.protocolScopes})
+      const initialized=await issuedClient.rpc(null,'initialize',{protocolVersion:'2025-06-18',capabilities:{},clientInfo:{name:'missing-provider-before-removal',version:'1'}},9801)
+      assert.equal(initialized.status,200);assert(initialized.session&&initialized.message?.result)
+      assert([200,202,204].includes((await issuedClient.rpc(initialized.session,'notifications/initialized')).status))
+      const priorList=await issuedClient.rpc(initialized.session,'tools/list',{},9802)
+      assert.equal(priorList.status,200);assert(priorList.message?.result?.tools?.some(tool=>tool.name===seed.toolName),'missing-provider baseline must expose actual allowed tool')
       dc('stop','kestra')
       host.volumes=host.volumes.filter(item=>item.target!=='/app/libs/kestra-rbac-authorizer.jar')
       save()
@@ -391,7 +436,7 @@ export async function main(argv=process.argv.slice(2),runtime={}) {
       assert(actualConfig);assert.equal(applicationProjectFeature(actualConfig,true),actualConfig,'missing mode must enable all three new-mode switches')
       report.resources.missingExtension.finalRuntime={containerId:kestra,imageId,image:report.inputs.image,hostExecutableSha256:executableSha,configurationSha256:hash(actualConfig),featureEnabled:true,jarAbsent:true,mounts:mounts.map(mount=>({type:mount.Type,destination:mount.Destination,readWrite:mount.RW}))}
 
-      const observed=new ProjectSideEffects({postgresContainer:ids.postgres,kestraContainer:kestra,composeProject:missingProject})
+      const observed=new ProjectSideEffects({postgresContainer:ids.postgres,kestraContainer:kestra,composeProject:missingProject,postgresComposeProject:project,database})
       report.resources.missingExtension.finalFeatureEnabled=true
       report.resources.missingExtension.finalJarMounted=false
       report.resources.missingExtension.preRegisteredClientId=registration.client_id
@@ -401,9 +446,17 @@ export async function main(argv=process.argv.slice(2),runtime={}) {
       const changedSource=seed.source.replace('Explicit MCP acceptance tool','Missing-extension denied explicit saved change')
       const deniedWrite=await observed.observeDenied(()=>deniedClient.request(flowPath,{method:'PUT',headers:{'Content-Type':'application/x-yaml'},body:changedSource}),async response=>{assert.equal(response.status,403);await response.body?.cancel()},{windowMs:5000,intervalMs:250})
       report.fragments.missingExtensionRest={readStatus:403,writeStatus:deniedWrite.response.status,sideEffects:deniedWrite.observation,image:report.inputs.image,jarAbsent:true}
+      await issuedClient.login(missingPlan.admin.username,missingPlan.admin.password)
+      const protocolState=()=>command('docker',['exec',primaryPostgres,'psql','-X','-U','kestra','-d',database,'-v','ON_ERROR_STOP=1','-Atc',
+        "SELECT json_build_object('codes',(SELECT count(*) FROM oidc_authorization_code),'tokens',(SELECT count(*) FROM oidc_token))::text"])
+      const protocolBefore=protocolState()
+      const authorizationDenied=await issuedClient.expectMcpAuthorizationDenied(issuedScopes)
+      assert.equal(protocolState(),protocolBefore,'missing projection authorization created a code or token')
+      authorizationDenied.protocolStateUnchanged=true
       await persist()
-      return {base:missingBase,account:missingPlan.admin,scenario:{...missingPlan.mcp.scenarios.allowed,projectScopes:[],expectedTools:[seed.toolName]},expectedUiAudience:'kestra-ui',effects:observed,denialErrors:[mcpProtocolEvidence.rpcDenial],denialToolCodes:[],denialToolResults:[mcpProtocolEvidence.toolDenial],
-        registeredClient:registration,componentAbsence:report.resources.missingExtension.finalRuntime,componentFailureToolResult:mcpProtocolEvidence.missingProviderFailure,
+      return {base:missingBase,account:missingPlan.admin,scenario:{...missingPlan.mcp.scenarios.allowed,applicationGroupScopes:[],expectedTools:[seed.toolName]},expectedUiAudience:'kestra-ui',effects:observed,denialErrors:[mcpProtocolEvidence.rpcDenial],denialToolCodes:[],denialToolResults:[mcpProtocolEvidence.toolDenial],
+        registeredClient:registration,issuedClient,issuedIdentity,previousSession:initialized.session,authorizationDenied,
+        componentAbsence:report.resources.missingExtension.finalRuntime,componentFailureToolResult:mcpProtocolEvidence.missingProviderFailure,
         management:async()=>{throw new Error('Unexpected new DCR approval in pre-registered missing-extension mode; final service has no management extension')},
         databaseExecution:async()=>{throw new Error('Missing-extension tools must never create an execution')}}
       }}
@@ -419,7 +472,7 @@ export async function main(argv=process.argv.slice(2),runtime={}) {
         report.fragments.migrationLifecycle=lifecycle
         for(const deployment of deployments){
           const services=[]
-          for(const service of ['postgres','kestra']){
+          for(const service of deployment.sharedPostgres?['kestra']:['postgres','kestra']){
             const id=deployment.compose('ps','-aq',service)
             assert(id,'planned migration pause requires existing '+deployment.project+'/'+service)
             const inspected=JSON.parse(command('docker',['inspect',id]))[0]
@@ -459,7 +512,7 @@ export async function main(argv=process.argv.slice(2),runtime={}) {
             assert.equal(inspected.State.Running,true,'service stopped during migration input preparation')
           }
           evidence.pauseRequested=true;await persist()
-          deployment.compose('stop','kestra','postgres')
+          deployment.compose('stop',...evidence.services.map(service=>service.service).reverse())
           evidence.pausedAt=new Date().toISOString();await persist()
         }
         await module.runApplicationProjectMigration(planned.base,context,recordMigration)
@@ -475,7 +528,7 @@ export async function main(argv=process.argv.slice(2),runtime={}) {
             const evidence=lifecycle.deployments[index]
             if(!evidence.pauseRequested)continue
             try {
-              deployment.compose('up','-d','postgres','kestra')
+              deployment.compose('up','-d',...evidence.services.map(service=>service.service))
               const deadline=Date.now()+180000
               for(;;){
                 let healthy=false
@@ -546,6 +599,24 @@ export async function main(argv=process.argv.slice(2),runtime={}) {
         return security
       }
       fixture.prepareMissingExtension=prepareMissingExtension
+      fixture.cleanupAuxiliaryDeployments=async()=>{
+        for(const deployment of additionalDeployments) {
+          if(deployment.cleaned)continue
+          for(const id of deployment.compose('ps','-a','-q').split('\n').filter(Boolean)) {
+            assert.equal(command('docker',['inspect','-f','{{index .Config.Labels "com.docker.compose.project"}}',id]),deployment.project)
+            assert.equal(command('docker',['inspect','-f','{{index .Config.Labels "owner"}}',id]),deployment.project)
+          }
+          deployment.compose('down','--volumes');deployment.cleaned=true
+        }
+        if(report.resources.missingExtension) {
+          const auxiliary=report.resources.missingExtension
+          assert(/^application_group_acceptance_[0-9]+_[0-9]+$/.test(auxiliary.database))
+          assert.equal(command('docker',['inspect','-f','{{index .Config.Labels "owner"}}',auxiliary.postgresContainer]),project)
+          command('docker',['exec',auxiliary.postgresContainer,'psql','-X','-U','kestra','-d','postgres','-v','ON_ERROR_STOP=1','-c','DROP DATABASE "'+auxiliary.database+'"'])
+          auxiliary.cleaned=true;auxiliary.databaseCleaned=true
+        }
+        await persist()
+      }
       fixture.checkHostHealth=async stage=>{
         const host=JSON.parse(command('docker',['inspect',report.resources.containerIds.kestra]))[0]
         const state={stage,observedAt:new Date().toISOString(),id:host.Id,project:host.Config.Labels['com.docker.compose.project'],image:host.Config.Image,state:Object.fromEntries(['Status','Running','Paused','Restarting','OOMKilled','Dead','Pid','ExitCode','StartedAt','FinishedAt'].map(key=>[key,host.State[key]])),ports:host.NetworkSettings.Ports,restartCount:host.RestartCount}
@@ -593,7 +664,7 @@ export async function main(argv=process.argv.slice(2),runtime={}) {
       assert([...report.matrix,...report.checks,...report.ui].every(row=>row.passed===true&&row.status==='passed'&&row.skipped===undefined),'required evidence must be actually passed')
       assert(report.stages.filter(row=>row.id!=='final-report-check').every(row=>row.status==='passed'))
       const candidate=join(output,'report-for-final-check.json')
-      writeFileSync(candidate,JSON.stringify({...report,completed:true},null,2)+'\n',{mode:0o600})
+      writeFileSync(candidate,JSON.stringify({...report,completed:true,blockers:[]},null,2)+'\n',{mode:0o600})
       command('node',[join(repository,'scripts/check-application-project-report.mjs'),candidate,...['image','jarSha256','rootCommit','overlayCommit','pluginCommit'].map(name=>report.inputs[name])])
       return {requiredRowsPassed:true,checkerPassed:true}
     })
@@ -605,7 +676,7 @@ export async function main(argv=process.argv.slice(2),runtime={}) {
     report.finishedAt=new Date().toISOString();await persist()
     const retained=runtime.retainOnFailure===true&&report.nonFinal&&report.failures>0
     if(retained){report.resources.retainedForDebug=true;report.resources.cleaned=false;await persist()}
-    for(const deployment of retained?[]:additionalDeployments.reverse()) {
+    for(const deployment of retained?[]:additionalDeployments.filter(deployment=>!deployment.cleaned).reverse()) {
       try {
         for(const id of deployment.compose('ps','-a','-q').split('\n').filter(Boolean))assert.equal(command('docker',['inspect','-f','{{index .Config.Labels "com.docker.compose.project"}}',id]),deployment.project)
         deployment.compose('down','--volumes')
@@ -618,7 +689,10 @@ export async function main(argv=process.argv.slice(2),runtime={}) {
         // prune, no down of user's Compose project, no external volume cleanup.
         const ownIds=compose('ps','-a','-q').split('\n').filter(Boolean)
         if(ownIds.length)report.resources.containersCreated=true
-        for(const id of ownIds)assert.equal(command('docker',['inspect','-f','{{index .Config.Labels "com.docker.compose.project"}}',id]),project)
+        for(const id of ownIds) {
+          assert.equal(command('docker',['inspect','-f','{{index .Config.Labels "com.docker.compose.project"}}',id]),project)
+          assert.equal(command('docker',['inspect','-f','{{index .Config.Labels "owner"}}',id]),project)
+        }
         const host=compose('ps','-a','-q','kestra')
         if(host){report.fragments.hostRuntimeState=JSON.parse(command('docker',['inspect','-f','{{json .State}}',host]));const logs=spawnSync('docker',['logs',host],{encoding:'utf8',timeout:20000,maxBuffer:16*1024*1024});if(logs.status!==0)report.stages.push({id:'host-diagnostics',status:'failed',error:'owned host diagnostic collection failed'});else report.fragments.hostMcpDiagnostics=(logs.stdout+logs.stderr).split('\n').filter(line=>line.includes('MCP_TOOL_CALL_FAILED exception=')).map(line=>line.slice(line.indexOf('MCP_TOOL_CALL_FAILED exception=')))}
         if(host){const diagnostic=spawnSync('docker',['logs',host],{encoding:'utf8',timeout:20000,maxBuffer:16*1024*1024});report.fragments.hostFatalDiagnostics=applicationProjectFatalDiagnostics(diagnostic.stdout+diagnostic.stderr);report.fragments.hostExitDiagnostics=(diagnostic.stdout+diagnostic.stderr).replace(/eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+/g,'[redacted-jwt]').split('\n').slice(-200).filter(line=>/shutdown|shutting|stopping|stopped|fatal|outofmemory|exception|error|signal/i.test(line))}

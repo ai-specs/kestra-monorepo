@@ -10,20 +10,24 @@ export class ProjectSideEffects {
   #postgres
   #kestra
   #prefix
-  constructor({postgresContainer, kestraContainer, composeProject, namespacePrefix = 'scope.acceptance.'}) {
+  #database
+  constructor({postgresContainer, kestraContainer, composeProject, postgresComposeProject = composeProject, database = 'kestra', namespacePrefix = 'scope.acceptance.'}) {
     assert(/^application-projects-bb-[0-9]+-[0-9]+$/.test(composeProject), 'Isolated acceptance Compose project required')
+    assert(/^application-projects-bb-[0-9]+-[0-9]+$/.test(postgresComposeProject), 'Owned PostgreSQL Compose project required')
+    assert(postgresComposeProject===composeProject&&database==='kestra'||/^application_group_acceptance_[0-9]+_[0-9]+$/.test(database),'Shared PostgreSQL requires a dedicated acceptance database')
     assert(/^[A-Za-z0-9_.-]+\.$/.test(namespacePrefix), 'Concrete acceptance namespace prefix required')
     for (const container of [postgresContainer, kestraContainer]) {
       assert(/^[a-f0-9]{12,64}$/.test(container), 'Explicit Docker container ID required')
       const actual = execFileSync('docker', ['inspect', '-f', '{{index .Config.Labels "com.docker.compose.project"}}', container], {encoding: 'utf8'}).trim()
-      assert.equal(actual, composeProject, 'Observer must not inspect a user deployment')
+      assert.equal(actual, container===postgresContainer?postgresComposeProject:composeProject, 'Observer must not inspect a user deployment')
     }
     this.#postgres = postgresContainer
     this.#kestra = kestraContainer
     this.#prefix = namespacePrefix
+    this.#database = database
   }
   #sql(query) {
-    return execFileSync('docker', ['exec', this.#postgres, 'psql', '-X', '-U', 'kestra', '-d', 'kestra', '-v', 'ON_ERROR_STOP=1', '-Atc', query], {encoding: 'utf8', timeout: 20000, maxBuffer: 16 * 1024 * 1024}).trim()
+    return execFileSync('docker', ['exec', this.#postgres, 'psql', '-X', '-U', 'kestra', '-d', this.#database, '-v', 'ON_ERROR_STOP=1', '-Atc', query], {encoding: 'utf8', timeout: 20000, maxBuffer: 16 * 1024 * 1024}).trim()
   }
   snapshot() {
     // Each source is hashed independently. No database row contents, storage bytes,

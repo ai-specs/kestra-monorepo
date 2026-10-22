@@ -30,7 +30,7 @@
  *   backup()->{handle,policySha256,identitySha256,installationSha256,archiveSha256}；
  *   restore(handle) 恢复整个备份，不得只换 jar；返回后 snapshot 核对。
  *   advanceLegacyRevision() 经旧公开 API 实际改一项策略；
- *   probeAccount(kind,{phase}) -> {status,identity:{subject,projectScopes,roles},
+ *   probeAccount(kind,{phase}) -> {status,identity:{subject,applicationGroupScopes,roles},
  *     sideEffectsSha256}；必须使用 ProductionOAuthClient 新登录并校验签名。
  *   probeLegacyWrites() -> [{method,path,status}] 全部旧写端点的实际请求。
  *   assertOwned() 重新核对 Docker label/卷归属，失败必须抛错；
@@ -51,7 +51,7 @@ import {mkdtempSync,mkdirSync,writeFileSync,readFileSync,existsSync,chmodSync} f
 import {tmpdir} from 'node:os'
 import {resolve,join,basename} from 'node:path'
 import {ProductionOAuthClient} from './production-oauth-client.mjs'
-import {planFixture,directoryActivationPlan,applicationProjectFeature,ProjectManagement,flowSource} from './application-project-fixture.mjs'
+import {planFixture,directoryActivationPlan,applicationProjectFeature,ApplicationGroupManagement,flowSource} from './application-project-fixture.mjs'
 import {legacyMigrationChecks,scopeNames} from './application-project-cases.mjs'
 
 export const migrationCheckIds=legacyMigrationChecks
@@ -255,10 +255,10 @@ export async function runApplicationProjectMigration(base,context,record) {
         } else if(noScopeKind) {
           const accountKind=row.id==='migration-legacy-role-no-scope'?'role':'subject'
           const probe=await env.probeAccount(accountKind,{phase:'new'})
-          assert(refused(probe.status));assert(probe.identity?.subject);assert.deepEqual(probe.identity.projectScopes,[])
+          assert(refused(probe.status));assert(probe.identity?.subject);assert.deepEqual(probe.identity.applicationGroupScopes,[])
           if(accountKind==='role')assert(probe.identity.roles?.length>0)
           sha(probe.sideEffectsSha256);assert.equal(probe.sideEffectsSha256,after.effects.sha256)
-          row.evidence.account={status:probe.status,identity:{subject:probe.identity.subject,projectScopes:probe.identity.projectScopes,roles:probe.identity.roles},sideEffectsSha256:probe.sideEffectsSha256}
+          row.evidence.account={status:probe.status,identity:{subject:probe.identity.subject,applicationGroupScopes:probe.identity.applicationGroupScopes,roles:probe.identity.roles},sideEffectsSha256:probe.sideEffectsSha256}
         }
         assert.equal(state(await env.snapshot()).effects.sha256,after.effects.sha256)
       }
@@ -568,7 +568,7 @@ COMMIT;`]))
       const scopes=typeof claims.scope==='string'?claims.scope.split(' ').filter(Boolean):claims.scope??[];assert(Array.isArray(scopes))
       if(mode==='legacy')assert(!claims.kestra_project_v1,'legacy source unexpectedly issued project envelope')
       else {assert.equal(claims.kestra_project_v1?.project_id,'kestra');assert(Number.isSafeInteger(claims.kestra_project_v1.authorization_version))}
-      return {subject:claims.sub,issuer:claims.iss,audiences,scopes,createdAt:claims.iat*1000,expiresAt:claims.exp*1000,roles:claims.roles??[],...(mode==='new'?{project:'kestra',projectScopes:claims.kestra_project_v1.project_scopes}:{projectScopes:[]})}
+      return {subject:claims.sub,issuer:claims.iss,audiences,scopes,createdAt:claims.iat*1000,expiresAt:claims.exp*1000,roles:claims.roles??[],...(mode==='new'?{project:'kestra',applicationGroupScopes:claims.kestra_project_v1.project_scopes}:{applicationGroupScopes:[]})}
     }
     const lifetimeFromDatabase=(kind,secret)=>{
       // Read only this isolated database, selecting timestamps/flags only.
@@ -633,21 +633,21 @@ COMMIT;`]))
           const put=(kind,value)=>{const handle=randomBytes(24).toString('hex');credentialHandles.set(handle,{kind,...value});captured[kind]=handle}
           
           const protocols=['openid','mcp:flows:read','mcp:executions:write']
-          const projectScopes=phase==='new'?[planned.observerScope]:[]
-          const scopes=[...protocols,...projectScopes]
+          const applicationGroupScopes=phase==='new'?[planned.observerScope]:[]
+          const scopes=[...protocols,...applicationGroupScopes]
           const approve=async registered=>{
             // This no-op is permitted exclusively against the verified legacy
             // release, whose issuer has no application-project membership model.
             if(phase==='legacy')return
-            const manager=new ProjectManagement(base,planned.admin,projection=>({...projection.project,directoryRevision:projection.directoryRevision}))
-            await manager.approveOrdinaryClient({clientId:registered.clientId,audiences:registered.audiences,projectScopes,registeredProtocolScopes:protocols,requestedProtocolScopes:protocols})
+            const manager=new ApplicationGroupManagement(base,planned.admin,projection=>({...projection.project,directoryRevision:projection.directoryRevision}))
+            await manager.approveOrdinaryClient({clientId:registered.clientId,audiences:registered.audiences,applicationGroupScopes,registeredProtocolScopes:protocols,requestedProtocolScopes:protocols})
           }
           if(requested.some(kind=>kind!=='ui-cookie')) {
             await client.issueMcpScopes(scopes,approve,authenticate)
             assert(tokens?.access_token&&tokens?.refresh_token&&exchange&&authorize&&registration)
             const signed=await verifyCredentialJwt(client,tokens.access_token,base+'/api/v1/main/mcp/default',phase)
             assert.deepEqual([...signed.scopes].sort(),[...scopes].sort(),'issuer must issue exactly the requested, actually granted scopes')
-            if(phase==='new')assert.deepEqual([...signed.projectScopes].sort(),[...projectScopes].sort())
+            if(phase==='new')assert.deepEqual([...signed.applicationGroupScopes].sort(),[...applicationGroupScopes].sort())
             const paired={...exchangeReceipt,subject:signed.subject,scopes:signed.scopes};assert.equal(paired.status,200);assert.equal(paired.lifetime.inactive,true)
             
             const capturedClientId=exchange?.get('client_id')??registration?.clientId
@@ -989,7 +989,7 @@ COMMIT;`]))
       },
       probeLegacyWrites:async()=>{
         const {client,identity}=await loginIdentity(planned.admin,'new')
-        assert(identity.projectScopes.includes(scopeNames.policyManager));assert(identity.projectScopes.includes(scopeNames.identityManager))
+        assert(identity.applicationGroupScopes.includes(scopeNames.policyManager));assert(identity.applicationGroupScopes.includes(scopeNames.identityManager))
         // Prove this caller can reach both management domains before checking
         // tombstones; a zero-grant identity or an authentication failure is not 410.
         for(const path of ['/api/v1/main/extensions/rbac/projects/kestra/scopes','/api/v1/main/extensions/rbac/identity/projects/kestra']) {
@@ -1021,8 +1021,8 @@ COMMIT;`]))
         // The isolated manager is granted shared management scopes but the local
         // migration-reader permission is an explicit MAP, never a subject bypass.
         const scope='acceptance-migration-reader'
-        target.applicationProjects.kestra.scopes[scope]={description:'Explicit migrated read grant',enabled:true,grants:[grant],managementGrants:[]}
-        directoryPlan.projects[0].scopes.push({projectId:'kestra',scope,name:'Migrated reader',description:'Explicit migrated read grant',active:true,resourceIntents:[{vocabularyVersion:'kestra-resources-v1',resourceType:'FLOW',namespaces:{kind:'RESTRICTED',exact:[],subtrees:['scope.acceptance.a']},resourceIds:{kind:'ALL',ids:[]},actions:['READ','LIST']}],managementIntents:[],revision:1})
+        target.applicationGroups.kestra.scopes[scope]={description:'Explicit migrated read grant',enabled:true,grants:[grant],managementGrants:[]}
+        directoryPlan.projects[0].scopes.push({applicationGroupId:'kestra',scope,name:'Migrated reader',description:'Explicit migrated read grant',active:true,resourceIntents:[{vocabularyVersion:'kestra-resources-v1',resourceType:'FLOW',namespaces:{kind:'RESTRICTED',exact:[],subtrees:['scope.acceptance.a']},resourceIds:{kind:'ALL',ids:[]},actions:['READ','LIST']}],managementIntents:[],revision:1})
         directoryPlan.projects[0].memberships[0].allowedProjectScopes.push(scope)
         legacyPolicyActive=true;use('legacy')
         dc(['up','-d','kestra']);await wait()
@@ -1050,7 +1050,7 @@ COMMIT;`]))
           // Separate new manager retains management; both migration identities
           // have explicit empty assignments and receive no business scope.
           directoryPlan.projects[0].assignments[0].subject=managerAccount.subject
-          for(const account of [subjectAccount,planned.admin])directoryPlan.projects[0].assignments.push({projectId:'kestra',issuer:base,subject:account.subject,projectScopes:[],revision:1,authorizationVersion:1})
+          for(const account of [subjectAccount,planned.admin])directoryPlan.projects[0].assignments.push({applicationGroupId:'kestra',issuer:base,subject:account.subject,applicationGroupScopes:[],revision:1,authorizationVersion:1})
         }
         legacyRoleMappingOnly=caseId==='migration-legacy-role-no-scope';use('legacy');dc(['up','-d','kestra']);await wait();inspect()
         const deadline=Date.now()+60000;let previous=(await snapshot()).effects.sha256,stableAt=Date.now()

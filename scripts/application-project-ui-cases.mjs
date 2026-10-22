@@ -13,21 +13,18 @@
  * synthetic DOM clicks or mock responses are used here.
  *
  * fixture (all operations target an ISOLATED acceptance deployment):
- * admin:{username,password,subject}; projectId, scope, clientId, subject;
+ * admin:{username,password,subject}; applicationGroupId, scope, clientId, subject;
  * reauthenticationSteps: real host logout/change-account control steps (same action format),
  * used whenever /ui/ does not already display the production login form.
  * The supplied clientId MUST be a non-UI test client: receipt UI membership may
- * never be temporarily disapproved, because that would prevent recovery login.
- * edit:{description,namespace,actions:[...]}; unknownScope;
- * optional reconciliationEdits:[{scope,description?,namespace?,actions?}] provides
- * approved first-grant corrections for multiple out-of-bound scopes, applied via
- * real fields before ONE atomic reconciliation save (never individual PUTs).
+ * never be temporarily disapproved, because that would prevent the next production sign-in.
+ * edit:{description,namespace,actions:[...]}; newScopeKey;
  * preferences:{path, themes:{light:steps,dark:steps,'dark-2':steps,system:steps},
  *   locales:{en:steps,...all 13}}; each step is {action:'click'|'fill'|'selectOption',
  *   selector:<CSS or terminal :has-text>, value?}. These steps operate the real
  *   host preference controls, not localStorage. Selectors must be obtained from
  *   the deployed DOM, not invented by an adapter.
- * localeText:{locale:{projects,scopes,clients,assignments,saveLocal,search}};
+ * localeText:{locale:{projects,scopes,clients,assignments,save,search}};
  * references:{mcpPath,namespacesPath,flowsPath,tab,button,search,tableHeader,tableCell};
  * pagination:{projects:<known second-page project ID>,scopes:<scope>,
  *   clients:<client ID>,assignments:<subject>}; all four directories MUST exceed
@@ -72,7 +69,7 @@ export function sanitizeApplicationProjectUiEvidence(value, secrets = []) {
 export async function runApplicationProjectUi(page, base, fixture, record) {
   const planned = ['preconditions','production-ui-login-canonical-path','menu-access-management','ui-initial-english-preference',
     ...['projects','scopes','clients','assignments'].map(section => 'actual-content-' + section),
-    'ui-role-grant-edit-refresh','ui-empty-grants-no-policy-change','ui-unknown-scope-no-policy-change','ui-412-conflict-no-policy-change',
+    'ui-role-grant-edit-refresh','ui-empty-grants-no-policy-change','ui-scope-registration-no-runtime-grant','ui-412-conflict-no-policy-change',
     'ui-client-membership-approval','ui-subject-grant-revoke','ui-loading-transition',
     ...applicationProjectUiThemes.flatMap(theme => applicationProjectUiLocales.map(locale => 'ui-theme-language-' + theme + '-' + locale)),
     'ui-theme-colors-are-distinct',...['projects','scopes','clients','assignments'].map(section => 'ui-search-filter-pagination-' + section),
@@ -90,15 +87,19 @@ export async function runApplicationProjectUi(page, base, fixture, record) {
   let targetSequence = 0
   let policyOriginal = null
   let mutationStarted = false
+  let directoryPolicyBefore = null
   const tenant = fixture?.tenant ?? 'main'
   const origin = new URL(base)
   const prefix = origin.pathname.replace(/\/$/, '')
   const apiBase = fixture?.apiBase ?? prefix + '/api/v1/' + encodeURIComponent(tenant)
   const api = apiBase + '/extensions/rbac'
   const ui = prefix + '/ui/' + encodeURIComponent(tenant)
-  const project = 'projects/' + encodeURIComponent(fixture?.projectId ?? '')
-  const scopePath = project + '/scopes/' + key(fixture?.scope ?? '')
-  const localPath = '/projects/' + encodeURIComponent(fixture?.projectId ?? '') + '/scopes/' + key(fixture?.scope ?? '')
+  const project = 'application-groups/' + encodeURIComponent(fixture?.applicationGroupId ?? '')
+  const applicationPath = project + '/applications/' + key(fixture?.currentApplicationClientId ?? '')
+  const scopePath = applicationPath
+  const runtimePath = '/application-groups/' + encodeURIComponent(fixture?.applicationGroupId ?? '') + '/applications/' + key(fixture?.currentApplicationClientId ?? '') + '/runtime-permissions'
+  const localPath = runtimePath + '/scopes/' + encodeURIComponent(fixture?.scope ?? '')
+  const sectionPath = section => section === 'projects' ? 'application-groups' : project + '/' + ({clients:'applications',assignments:'scope-grants'}[section] ?? section)
   const scopeSection = 'section[aria-labelledby="local-scope-title"]'
   const rootSelector = '[data-test="extension-container"]'
   const url = path => new URL(path, origin.origin).href
@@ -169,8 +170,8 @@ export async function runApplicationProjectUi(page, base, fixture, record) {
     return result
   }
   async function readPolicy() {
-    const response = await request('/policy')
-    ensure(response.ok && response.body?.policy?.schemaVersion === 2, 'same-cookie policy read failed or returned legacy schema')
+    const response = await request(runtimePath)
+    ensure(response.ok && response.body?.applicationGroupId === fixture.applicationGroupId && response.body?.clientId === fixture.currentApplicationClientId && Number.isSafeInteger(response.body?.revision) && response.body?.policy?.scopes, 'same-cookie application policy read failed or returned another target')
     return response.body
   }
   async function extensionState() {
@@ -179,8 +180,7 @@ export async function runApplicationProjectUi(page, base, fixture, record) {
       const root = host?.shadowRoot
       return {path:location.pathname,lang:root?.querySelector('.rbac-page')?.lang,hostClasses:host?.className,
         busy:root?.querySelector('main')?.getAttribute('aria-busy'),text:root?.textContent,
-        errors:[...(root?.querySelectorAll('[role="alert"]') ?? [])].filter(item => !item.matches('[data-test="reconciliation-required"]')).map(item => item.textContent.trim()),
-        reconciliation:root?.querySelector('[data-test="reconciliation-required"]')?.textContent.trim(),
+        errors:[...(root?.querySelectorAll('[role="alert"]') ?? [])].map(item => item.textContent.trim()),
         rows:[...(root?.querySelectorAll('tbody tr')?.length ? root.querySelectorAll('tbody tr') : root?.querySelectorAll('.application-group-card-link') ?? [])].map(item => item.textContent.trim()),
         search:root?.querySelector('.ks-search input')?.value}
     })
@@ -213,7 +213,30 @@ export async function runApplicationProjectUi(page, base, fixture, record) {
     await page.goto(url(ui + '/extensions/rbac/' + path))
     return stable(ui + '/extensions/rbac/' + path)
   }
-  async function clickText(selector, text) {await page.click(selector + ':has-text(' + quote(text) + ')')}
+  async function selectRuntimeScope() {
+    ensure(typeof fixture.currentApplicationClientId==='string'&&fixture.currentApplicationClientId,'explicit current application client required')
+    await page.waitForFunction(() => Boolean(document.querySelector('[data-test="extension-container"]')?.shadowRoot?.querySelector('[data-test="application-runtime-policy"]')))
+    await page.selectOption('[name="application-permission-scope"]',fixture.scope)
+    await page.waitForFunction(() => Boolean(document.querySelector('[data-test="extension-container"]')?.shadowRoot?.querySelector('[name="local-scope-description"]')))
+    const readonly = await page.evaluate(() => {
+      const root=document.querySelector('[data-test="extension-container"]').shadowRoot
+      const section=root.querySelector('section[aria-labelledby="local-scope-title"]')
+      const edit=root.querySelector('[data-test="edit-application-permission"]')
+      return {disabled:section?.querySelector('fieldset')?.disabled===true,savePresent:Boolean(section?.querySelector('[data-test="save-local-scope"]')),editInteractive:Boolean(edit&&!edit.disabled)}
+    })
+    ensure(readonly.disabled&&!readonly.savePresent&&readonly.editInteractive,'application scope must open read-only with an explicit authorized edit action')
+    await page.click('[data-test="edit-application-permission"]')
+    await page.waitForFunction(() => {
+      const section=document.querySelector('[data-test="extension-container"]')?.shadowRoot?.querySelector('section[aria-labelledby="local-scope-title"]')
+      return section?.querySelector('fieldset')?.disabled===false&&Boolean(section.querySelector('[data-test="save-local-scope"]'))
+    })
+    return readonly
+  }
+  async function openRuntimeScope() {
+    await open(applicationPath)
+    return selectRuntimeScope()
+  }
+  async function clickText(selector, text) {await page.click(selector + ':text-is(' + quote(text) + ')')}
   async function markTarget(selector,index) {
     ensure(Number.isInteger(index) && index >= 0,'invalid DOM target index')
     const token = 'application-project-' + (++targetSequence)
@@ -261,11 +284,13 @@ export async function runApplicationProjectUi(page, base, fixture, record) {
     // Record the actual final path BEFORE navigating to a management page.
     const caps = await request('/capabilities')
     ensure(caps.ok && caps.body.allowed && caps.body.subject === fixture.admin.subject,'new production sign-in did not restore a trusted management identity')
-    const evidence = {reason,before,final,subject:caps.body.subject,needsReconciliation:caps.body.needsReconciliation === true,identityManagement:caps.body.identityManagement,localPolicyManagement:caps.body.localPolicyManagement}
+    ensure(caps.body.runtimeApplicationClientId === fixture.currentApplicationClientId,'configured current application differs from the browser test target')
+    const evidence = {reason,before,final,subject:caps.body.subject,identityManagement:caps.body.identityManagement,localPolicyManagement:caps.body.localPolicyManagement}
     report.rows.push({case:'production-reauthentication',name:'production-reauthentication-' + report.rows.length,passed:true,status:'passed',evidence})
     return caps.body
   }
-  async function saveDirectoryForm(selector,path) {
+  async function saveDirectoryForm(selector,path,{method='PUT'}={}) {
+    directoryPolicyBefore = await readPolicy()
     const before = await documentState()
     const previous = new Set((await page.diagnostics()).events.map(event => event.id))
     await page.click(selector)
@@ -273,112 +298,46 @@ export async function runApplicationProjectUi(page, base, fixture, record) {
     let response
     while (Date.now() < deadline) {
       const events = (await page.diagnostics()).events
-      response = events.find(event => !previous.has(event.id) && ['http-response','http-error'].includes(event.kind) && event.documentId === before.documentId && event.method === 'PUT' && event.url === url(api + path))
+      response = events.find(event => !previous.has(event.id) && ['http-response','http-error'].includes(event.kind) && event.documentId === before.documentId && event.method === method && event.url === url(api + path))
       if (response) break
       await new Promise(resolve => setTimeout(resolve,100))
     }
     ensure(response,'native directory save produced no attributable HTTP response')
-    report.requests.push({case:activeCase,method:'PUT',path:api + path,status:response.status,requestId:response.requestId,source:before,transport:'native-ui'})
+    report.requests.push({case:activeCase,method,path:api + path,status:response.status,requestId:response.requestId,source:before,transport:'native-ui'})
     ensure(response.status >= 200 && response.status < 300,'native directory save failed: HTTP ' + response.status + ' ' + path)
     await page.waitForFunction(() => {
       if (location.pathname === '/' + ['ui','access-denied'].join('/')) return true
       return document.querySelector('[data-test="extension-container"]')?.shadowRoot?.querySelector('main')?.getAttribute('aria-busy') === 'false'
     })
     if (await page.evaluate(() => location.pathname === '/' + ['ui','access-denied'].join('/'))) {
-      return {status:response.status,requestId:response.requestId,source:before,reauthenticationRequired:true,savedResult:'directory mutation redirected to published access-denied',redirected:true}
+      return {status:response.status,requestId:response.requestId,source:before,reauthenticationRequired:true,savedNotice:'directory mutation redirected to published access-denied',redirected:true}
     }
     const state = await page.evaluate(() => {
       const root = document.querySelector('[data-test="extension-container"]').shadowRoot
-      return {reauthenticationRequired:Boolean(root.querySelector('[data-test="reauthenticate"]')),savedResult:root.querySelector('[data-test="saved-result"]')?.textContent,errors:[...root.querySelectorAll('[role="alert"]')].filter(node => !node.querySelector('[data-test="reauthenticate"]')).map(node => node.textContent.trim())}
+      return {reauthenticationRequired:Boolean(root.querySelector('[data-test="reauthenticate"]')),savedNotice:root.querySelector('p.message[role="status"]')?.textContent,errors:[...root.querySelectorAll('[role="alert"]')].filter(node => !node.querySelector('[data-test="reauthenticate"]')).map(node => node.textContent.trim())}
     })
     ensure(!state.errors.length,'directory save contains an error: ' + state.errors.join('; '))
-    ensure(state.reauthenticationRequired && state.savedResult,'successful identity save must expose the saved result and require production reauthentication')
+    ensure(state.reauthenticationRequired && state.savedNotice,'successful directory save must expose a saved notice and require production reauthentication')
     return {status:response.status,requestId:response.requestId,source:before,...state}
   }
   async function afterDirectoryMutation(reason) {
+    ensure(directoryPolicyBefore,'directory mutation must capture its application policy baseline')
+    const before = directoryPolicyBefore
     const stale = await request('/capabilities')
     ensure([401,403].includes(stale.status),'directory mutation failed to invalidate the old authenticated identity')
     const caps = await productionSignIn(reason)
-    if (caps.needsReconciliation === true) {
-      ensure(caps.localPolicyManagement === true && caps.identityManagement === false,'stale local binding recovery must expose only current LOCAL_POLICY.MANAGE')
-      const recoveryPath = '/projects/' + encodeURIComponent(fixture.projectId) + '/reconciliation'
-      const projection = await request(recoveryPath)
-      ensure(projection.ok && projection.body.project.id === fixture.projectId,'target-only reconciliation projection unavailable')
-      const {project:localProject,policyRevision,directoryRevision,upperBound} = projection.body
-      ensure(Number.isSafeInteger(policyRevision) && Number.isSafeInteger(directoryRevision),'reconciliation revisions missing')
-      ensure(exact(Object.keys(upperBound),['project','scopes']),'recovery projection leaked or omitted directory sections')
-      const candidate = clone(localProject)
-      candidate.directoryRevision = directoryRevision
-      for (const scope of Object.values(candidate.scopes)) {
-        scope.managementGrants ??= []
-        for (const grant of scope.managementGrants) grant.projectIds ??= []
-      }
-      await open(project + '/reconciliation')
-      const locked = await page.evaluate(() => {
-        const root = document.querySelector('[data-test="extension-container"]').shadowRoot
-        const identity = root.querySelector('[data-test="save-identity-scope"]')
-        const save = root.querySelector('[data-test="save-project-reconciliation"]')
-        return {identityDisabled:!identity || identity.disabled,saveDisabled:save?.disabled,scopes:[...root.querySelectorAll('[data-reconciliation-scope]')].map(section => section.getAttribute('data-reconciliation-scope')),
-          displayedRevision:root.querySelector('[data-test="reconciliation-policy-revision"]')?.textContent.trim(),targetRevision:root.querySelector('[data-test="reconciliation-target-revision"]')?.textContent.trim(),
-          inputRevision:root.querySelector('[name="reconciliation-directory-revision"]')?.value,upper:root.querySelector('[data-test="reconciliation-upper"]')?.textContent}
-      })
-      ensure(locked.identityDisabled && locked.saveDisabled,'recovery opens identity CRUD or enables saving without approval')
-      ensure(exact(locked.scopes,Object.keys(localProject.scopes)),'complete project scope review is incomplete')
-      ensure(Number(locked.displayedRevision) === policyRevision && Number(locked.targetRevision) === directoryRevision,'recovery page displays incorrect revisions')
-      ensure(Number(locked.inputRevision) === localProject.directoryRevision,'UI silently copied the latest revision before explicit review')
-      ensure(exact(JSON.parse(locked.upper),upperBound),'read-only upper bound differs from target-only response')
-      for (const edit of fixture.reconciliationEdits ?? []) {
-        const scope = candidate.scopes[edit.scope]
-        ensure(scope,'reconciliation edit references a missing local scope')
-        const section = '[data-reconciliation-scope=' + quote(edit.scope) + ']'
-        if (edit.description !== undefined) {
-          await page.fill(section + ' [name="reconciliation-scope-description"]',edit.description)
-          scope.description = edit.description
-        }
-        if (edit.namespace !== undefined) {
-          ensure(scope.grants[0]?.scope === 'NAMESPACE','namespace edit requires an actual first namespace grant')
-          await page.fill(await markTarget(section + ' [name="grant-namespace"]',0),edit.namespace)
-          scope.grants[0].namespace = edit.namespace
-        }
-        if (edit.actions) {
-          ensure(scope.grants[0],'action edit requires a first resource grant')
-          for (const action of ['READ','LIST','CREATE','UPDATE','DELETE','EXECUTE','ACCESS_OUTPUTS']) {
-            const selector = section + ' .grant input[type="checkbox"][value=' + quote(action) + ']'
-            const state = await page.evaluate(({section,action}) => {
-              const root = document.querySelector('[data-test="extension-container"]').shadowRoot
-              const element = root.querySelector(section + ' .grant input[value="' + action + '"]')
-              return {exists:!!element,checked:element?.checked}
-            },{section,action})
-            if (state.checked !== edit.actions.includes(action)) {
-              ensure(state.exists,'requested action is not available in the current actual resource editor')
-              await page.click(await markTarget(selector,0))
-            }
-          }
-          scope.grants[0].actions = [...edit.actions]
-        }
-      }
-      await page.fill('[name="reconciliation-directory-revision"]',String(directoryRevision))
-      await page.click('[data-test="approve-project-reconciliation"]')
-      await page.click('[data-test="save-project-reconciliation"]')
-      await page.waitForFunction(() => {
-        if (location.pathname === '/' + ['ui','access-denied'].join('/')) return true
-        return document.querySelector('[data-test="extension-container"]')?.shadowRoot?.querySelector('main')?.getAttribute('aria-busy') === 'false'
-      })
-      const confirmed = await readPolicy()
-      const saved = confirmed.policy.applicationProjects[fixture.projectId]
-      ensure(confirmed.revision > policyRevision && saved.directoryRevision === directoryRevision,'atomic recovery did not save the global and latest directory revisions')
-      ensure(exact(saved.scopes,candidate.scopes),'atomic recovery did not persist all approved complete scopes')
-      ensure(saved.issuer === candidate.issuer && exact(saved.audiences,candidate.audiences) && saved.enabled === candidate.enabled,'atomic recovery unexpectedly changed project metadata')
-      const trusted = await productionSignIn(reason + ': after atomic complete-project reconciliation')
-      ensure(trusted.needsReconciliation !== true && trusted.identityManagement === true,'identity administration resumed before a successful complete-project save and new sign-in')
-      report.rows.push({case:'directory-reconciliation',name:'directory-reconciliation-' + report.rows.length,passed:true,status:'passed',evidence:{reason,policyRevision,confirmedRevision:confirmed.revision,directoryRevision,completeScopes:saved.scopes,lockState:locked,reauthenticated:true,endpoint:recoveryPath,atomic:true}})
-    }
+    ensure(!Object.hasOwn(caps,'needsReconciliation') && !Object.hasOwn(caps,'reconciliationAllowed'),'obsolete complete recovery capability is still exposed')
+    ensure(caps.identityManagement === true && caps.localPolicyManage === true,'fresh sign-in did not restore independently authorized management operations')
+    const after = await readPolicy()
+    ensure(exact(after,before),'directory mutation rewrote application policy or advanced its storage revision')
+    directoryPolicyBefore = null
+    report.rows.push({case:'directory-mutation-no-policy-rewrite',name:'directory-mutation-no-policy-rewrite-' + report.rows.length,passed:true,status:'passed',evidence:{reason,reauthenticated:true,applicationGroupId:fixture.applicationGroupId,clientId:fixture.currentApplicationClientId,policyRevision:after.revision,policyUnchanged:true}})
     return caps
   }
 
   async function openRecord(path, identifier) {
     await open(path)
-    if (path === 'projects') {
+    if (path === 'application-groups') {
       await page.fill('.ks-search input', identifier)
       await page.waitForFunction(identifier => {
         const root = document.querySelector('[data-test="extension-container"]')?.shadowRoot
@@ -443,7 +402,7 @@ export async function runApplicationProjectUi(page, base, fixture, record) {
     ensure(artifact, 'screenshot adapter must return a retained artifact reference')
     report.artifacts.push({case:activeCase,name,artifact,source:await documentState()})
   }
-  async function reloadScope() {await page.reload(); return stable(ui + '/extensions/rbac/' + scopePath)}
+  async function reloadScope() {await page.reload();await stable(ui + '/extensions/rbac/' + applicationPath);await selectRuntimeScope();return extensionState()}
   async function rejectionState(before, expectedStatus) {
     await page.waitForFunction(() => {
       const root = document.querySelector('[data-test="extension-container"]')?.shadowRoot
@@ -458,6 +417,43 @@ export async function runApplicationProjectUi(page, base, fixture, record) {
     }
     return {errors:state.errors,policyRevision:after.revision,...(expectedStatus === 412 ? {observedHttpStatus:412} : {rejectedWithoutChange:true})}
   }
+  async function validateDiagnostics() {
+    await collectDiagnostics()
+    const unexpected = report.diagnostics.filter(event => !event.expected && ['console-error','page-error','request-failed','http-error'].includes(event.kind))
+    const allowed = event => {
+      const isNavigationAbort = item => item.kind === 'request-failed' && item.message === 'net::ERR_ABORTED' && (new URL(item.url).origin === origin.origin || item.url.startsWith('https://api.kestra.io/v1/feeds?')) && report.diagnostics.some(request => request.kind === 'request' && request.requestId === item.requestId && request.documentId === item.documentId && request.url === item.url) && report.diagnostics.some(next => next.kind === 'document-navigation' && next.documentId !== item.documentId && Math.abs(Date.parse(next.observedAt) - Date.parse(item.observedAt)) < 1000)
+      if (isNavigationAbort(event)) return true
+      if (['http-error','console-error'].includes(event.kind) && event.requestId && event.status===401
+          && event.url===url(api+'/capabilities') && new URL(event.documentUrl).pathname===prefix+'/ui/access-denied'
+          && report.diagnostics.some(navigation=>navigation.kind==='document-navigation'&&navigation.documentId===event.documentId&&navigation.url===event.documentUrl)) {
+        const denial=report.diagnostics.find(item=>item.kind==='http-error'&&item.requestId===event.requestId&&item.documentId===event.documentId&&item.url===event.url&&item.status===401)
+        if(denial && report.rows.some(row=>row.case==='production-reauthentication'&&row.evidence?.final?.timeOrigin
+            && Date.parse(event.observedAt)>=row.evidence.before.timeOrigin&&Date.parse(event.observedAt)<=row.evidence.final.timeOrigin))return true
+      }
+      if (event.kind === 'console-error' && event.message.startsWith('TypeError: 200 Failed to fetch\n') && event.message.includes('/mf-shared-')) {
+        return report.diagnostics.some(item => item.documentId === event.documentId && item.cancelled === true && isNavigationAbort(item) && Math.abs(Date.parse(item.observedAt) - Date.parse(event.observedAt)) < 1000 && report.diagnostics.some(response => response.kind === 'http-response' && response.status === 200 && response.requestId === item.requestId && response.documentId === item.documentId && response.url === item.url && Date.parse(response.observedAt) <= Date.parse(item.observedAt)))
+      }
+      if (event.kind === 'console-error' && /^(?:Error during authentication check: )?TypeError: Failed to fetch(?:\n|$)/.test(event.message) && (event.message.startsWith('Error during authentication check:') || event.message.includes('/common-dashboard-execution-flow-') || event.message.includes('/Namespaces-') && event.message.includes('Fl.fetchCall')) && report.diagnostics.some(item => item.documentId === event.documentId && isNavigationAbort(item) && Math.abs(Date.parse(item.observedAt) - Date.parse(event.observedAt)) < 1000)) return true
+      if (event.kind === 'console-error' && event.message === 'TypeError: 200 Failed to fetch'
+          && report.diagnostics.some(item => item.kind === 'console-error' && item.documentId === event.documentId
+            && item.executionContextId === event.executionContextId && item.message.startsWith('TypeError: Failed to fetch\n')
+            && item.message.includes('/common-dashboard-execution-flow-')
+            && Math.abs(Date.parse(item.observedAt)-Date.parse(event.observedAt)) < 100
+            && report.diagnostics.some(abort => abort.documentId === event.documentId && isNavigationAbort(abort)
+              && Math.abs(Date.parse(abort.observedAt)-Date.parse(item.observedAt)) < 1000))) return true
+      if (event.kind === 'request-failed' && event.message === 'net::ERR_ABORTED' && (event.url.startsWith('https://api.kestra.io/v1/feeds?') || event.resourceType === 'Script' && new URL(event.url).origin === origin.origin && new URL(event.url).pathname.startsWith('/' + ['ui','assets',''].join('/')))) {
+        return report.diagnostics.some(item => item.kind === 'document-navigation' && item.documentId !== event.documentId && Date.parse(item.observedAt) >= Date.parse(event.observedAt) - 1000 && Date.parse(item.observedAt) <= Date.parse(event.observedAt) + 1000)
+      }
+      if (!['http-error','console-error'].includes(event.kind) || !event.requestId) return false
+      const response = report.diagnostics.find(item => item.kind === 'http-error' && item.requestId === event.requestId && item.documentId === event.documentId && item.url === event.url && item.status === event.status)
+      if (!response) return false
+      if ((fixture.expectedRequestErrors ?? []).some(rule => rule.case === event.case && rule.method === response.method && rule.status === event.status && url(rule.path) === event.url)) return true
+      return report.requests.some(request => request.source.documentId && request.source.documentId === event.documentId && response.method === request.method && event.url === url(request.path) && event.status === request.status && (fixture.expectedRequestErrors ?? []).some(rule => rule.case === request.case && rule.method === request.method && rule.status === request.status && rule.path === request.path && (!rule.code || rule.code === request.code)))
+    }
+    const failures = unexpected.filter(event => !allowed(event))
+    ensure(!failures.length,'unclassified console/page/request failures: ' + JSON.stringify(failures))
+    return {events:report.diagnostics.length,explicitlyExpected:report.diagnostics.filter(event => event.expected).length,unclassified:failures.length}
+  }
   try {
     await run('preconditions', async () => {
       if (diagnostic) {
@@ -466,14 +462,14 @@ export async function runApplicationProjectUi(page, base, fixture, record) {
       }
       for (const method of ['goto','reload','click','fill','selectOption','focus','press','evaluate','waitForFunction','setViewport','setColorScheme','screenshot','diagnostics']) ensure(typeof page[method] === 'function', 'missing shared adapter method: ' + method)
       ensure(typeof record === 'function','record callback is required')
-      for (const name of ['projectId','scope','clientId','subject','unknownScope']) ensure(typeof fixture[name] === 'string' && fixture[name], 'missing fixture ' + name)
+      for (const name of ['applicationGroupId','currentApplicationClientId','scope','clientId','subject','newScopeKey']) ensure(typeof fixture[name] === 'string' && fixture[name], 'missing fixture ' + name)
       ensure(fixture.admin?.username && fixture.admin?.password && fixture.admin?.subject,'real admin credentials required')
       ensure(fixture.subject !== fixture.admin.subject,'subject grant/revoke test must not remove the testing administrator’s own authority')
       ensure(Array.isArray(fixture.reauthenticationSteps) && fixture.reauthenticationSteps.length,'real production reauthentication steps are required after every directory epoch change')
       ensure(fixture.edit?.description && fixture.edit?.namespace && fixture.edit?.actions?.length, 'explicit scope changes required')
       for (const locale of applicationProjectUiLocales) {
         ensure(fixture.preferences?.locales?.[locale]?.length, 'missing real locale preference steps: ' + locale)
-        for (const label of ['projects','scopes','clients','assignments','saveLocal','search']) ensure(fixture.localeText?.[locale]?.[label], 'missing translated expected text: ' + locale + '/' + label)
+        for (const label of ['projects','scopes','clients','assignments','save','search']) ensure(fixture.localeText?.[locale]?.[label], 'missing translated expected text: ' + locale + '/' + label)
       }
       for (const theme of applicationProjectUiThemes) ensure(fixture.preferences?.themes?.[theme]?.length,'missing real theme preference steps: ' + theme)
       for (const list of ['projects','scopes','clients','assignments']) {
@@ -500,6 +496,7 @@ export async function runApplicationProjectUi(page, base, fixture, record) {
       ensure(current.path === expected,'login ended at a noncanonical path')
       const caps = await request('/capabilities')
       ensure(caps.ok && caps.body.allowed && caps.body.subject === fixture.admin.subject,'authenticated subject differs from the supplied real admin')
+      ensure(caps.body.runtimeApplicationClientId === fixture.currentApplicationClientId,'current application does not match the selected deployment configuration')
       return {final:current,subject:caps.body.subject}
     })
     await run('menu-access-management', async () => {
@@ -524,24 +521,24 @@ export async function runApplicationProjectUi(page, base, fixture, record) {
         await page.waitForFunction(href => [...document.querySelectorAll('a[href]')].some(link => link.getAttribute('href') === href && !link.closest('[inert], [aria-hidden="true"]') && link.closest('.ks-sidebar-section')?.querySelector('button[aria-expanded]')?.getAttribute('aria-expanded') === 'true' && link.getClientRects().length > 0),menu.href)
       }
       await page.click('a[href=' + quote(menu.href) + ']')
-      const state = await stable(ui + '/extensions/rbac/projects')
-      ensure(state.rows.some(row => row.includes(fixture.projectId)),'menu-loaded project list does not contain the approved project')
+      const state = await stable(ui + '/extensions/rbac/application-groups')
+      ensure(state.rows.some(row => row.includes(fixture.applicationGroupId)),'menu-loaded project list does not contain the approved project')
       policyOriginal = await readPolicy()
-      ensure(policyOriginal.policy.applicationProjects[fixture.projectId]?.scopes?.[fixture.scope], 'approved local scope missing')
+      ensure(policyOriginal.policy?.scopes?.[fixture.scope], 'approved local scope missing')
       return {menu,final:state.path}
     })
     await run('ui-initial-english-preference', async () => {
       await preference(fixture.preferences.locales.en)
-      const state = await open('projects')
+      const state = await open('application-groups')
       ensure(state.lang === 'en','host language preference did not select English')
       return {lang:state.lang}
     })
     for (const section of ['projects','scopes','clients','assignments']) {
       await run('actual-content-' + section, async () => {
-        const path = section === 'projects' ? 'projects' : project + '/' + section
-        const identifier = section === 'projects' ? fixture.projectId : section === 'scopes' ? fixture.scope : section === 'clients' ? fixture.clientId : fixture.subject
+        const path = sectionPath(section)
+        const identifier = section === 'projects' ? fixture.applicationGroupId : section === 'scopes' ? fixture.scope : section === 'clients' ? fixture.clientId : fixture.subject
         await openRecord(path,identifier)
-        const expected = section === 'projects' ? project : path + '/' + key(identifier)
+        const expected = section === 'projects' ? project : path + '/' + (section === 'scopes' ? encodeURIComponent(identifier) : key(identifier))
         const state = await stable(ui + '/extensions/rbac/' + expected)
         ensure(state.text.includes(identifier),'detail lacks exact identity')
         if (section === 'projects') {
@@ -560,14 +557,17 @@ export async function runApplicationProjectUi(page, base, fixture, record) {
           ensure(await page.evaluate(() => !!document.querySelector('[data-test="extension-container"]').shadowRoot.querySelector('[data-test="application-group-detail"]')),
             'cancel did not restore read-only application-group detail')
         }
-        if (section === 'scopes') ensure(await page.evaluate(() => Boolean(document.querySelector('[data-test="extension-container"]').shadowRoot.querySelector('#identity-scope-title')) && Boolean(document.querySelector('[data-test="extension-container"]').shadowRoot.querySelector('#local-scope-title'))),'scope does not show both independent sides')
+        if (section === 'scopes') ensure(await page.evaluate(() => {
+          const root=document.querySelector('[data-test="extension-container"]').shadowRoot
+          return Boolean(root.querySelector('#identity-scope-title'))&&Boolean(root.querySelector('[name="identity-scope-name"]'))&&!root.querySelector('#local-scope-title')&&!root.querySelector('[name="grant-namespace"]')
+        }),'group scope detail must show role metadata without an application runtime grant editor')
         return {identifier,path:state.path}
       })
     }
     await run('ui-role-grant-edit-refresh', async () => {
-      await open(scopePath)
+      await openRuntimeScope()
       const before = await readPolicy()
-      const prior = before.policy.applicationProjects[fixture.projectId].scopes[fixture.scope]
+      const prior = before.policy.scopes[fixture.scope]
       ensure(prior.description !== fixture.edit.description,'test description must actually change')
       ensure(prior.grants.length > 0 && prior.grants[0].scope === 'NAMESPACE','test scope needs a normal namespace grant')
       ensure(prior.grants[0].namespace !== fixture.edit.namespace && !exact(prior.grants[0].actions,fixture.edit.actions),'namespace and action set must actually change')
@@ -582,7 +582,7 @@ export async function runApplicationProjectUi(page, base, fixture, record) {
       await page.click('[data-test="save-local-scope"]')
       await page.waitForFunction(() => document.querySelector('[data-test="extension-container"]')?.shadowRoot?.querySelector('main')?.getAttribute('aria-busy') === 'false')
       const after = await readPolicy()
-      const saved = after.policy.applicationProjects[fixture.projectId].scopes[fixture.scope]
+      const saved = after.policy.scopes[fixture.scope]
       ensure(after.revision > before.revision && saved.description === fixture.edit.description && saved.grants[0].namespace === fixture.edit.namespace && exact([...saved.grants[0].actions].sort(),[...fixture.edit.actions].sort()),'same-cookie persisted scope does not match actual edits')
       await reloadScope()
       const displayed = await page.evaluate(() => {
@@ -593,7 +593,7 @@ export async function runApplicationProjectUi(page, base, fixture, record) {
       return {beforeRevision:before.revision,afterRevision:after.revision,displayed}
     })
     await run('ui-empty-grants-no-policy-change', async () => {
-      await open(scopePath)
+      await openRuntimeScope()
       const before = await readPolicy()
       while (await page.evaluate(() => document.querySelector('[data-test="extension-container"]').shadowRoot.querySelectorAll('section[aria-labelledby="local-scope-title"] .grant').length > 0)) {
         const target = await page.evaluate(() => {
@@ -607,26 +607,53 @@ export async function runApplicationProjectUi(page, base, fixture, record) {
       await page.click('[data-test="save-local-scope"]')
       return rejectionState(before,400)
     })
-    await run('ui-unknown-scope-no-policy-change', async () => {
-      await open(project + '/scopes/new')
-      const before = await readPolicy()
-      // This real UI writes the shared directory first, never silently creates an
-      // unknown local binding. Submit the frozen local endpoint through the same
-      // page cookie, then assert the page rejects an unknown detail route too.
-      const rejected = await request('/projects/' + encodeURIComponent(fixture.projectId) + '/scopes','POST',{name:fixture.unknownScope,description:'Unknown scope rejection',enabled:true,grants:[{scope:'NAMESPACE',tenant:'main',namespace:fixture.edit.namespace,descendants:false,resource:'FLOW',actions:['READ'],ids:[],allIds:true}],managementGrants:[]},before.revision)
-      ensure(!rejected.ok && [400,404,409].includes(rejected.status),'unknown local scope write was not rejected')
-      ensure(exact(before,await readPolicy()),'unknown scope API rejection changed policy')
-      await page.goto(url(ui + '/extensions/rbac/' + project + '/scopes/' + key(fixture.unknownScope)))
-      await page.waitForFunction(() => Boolean(document.querySelector('[data-test="extension-container"]')?.shadowRoot?.querySelector('[role="alert"]')))
-      ensure(exact(before,await readPolicy()),'unknown detail route changed policy')
-      return {apiStatus:rejected.status,code:rejected.body?.code,pageErrors:(await extensionState()).errors,operation:'unknown local API plus real detail route; UI has no arbitrary local scope selector'}
+    await run('ui-scope-registration-no-runtime-grant', async () => {
+      const definitionPath='/application-groups/'+encodeURIComponent(fixture.applicationGroupId)+'/scopes/'+encodeURIComponent(fixture.newScopeKey)
+      const before=await readPolicy()
+      ensure((await request(definitionPath)).status===404,'scope creation test requires an unused stable key')
+      let attempted=false
+      try {
+        await open(project+'/scopes/new')
+        await page.fill('[name="identity-scope"]',fixture.newScopeKey)
+        await page.fill('[name="identity-scope-name"]','UI metadata-only role')
+        await page.fill('[name="identity-scope-description"]','Role declaration without automatic application permissions')
+        attempted=true
+        const created=await saveDirectoryForm('[data-test="save-identity-scope"]','/application-groups/'+encodeURIComponent(fixture.applicationGroupId)+'/scopes',{method:'POST'})
+        await afterDirectoryMutation('scope metadata created')
+        const definition=await request(definitionPath)
+        ensure(definition.ok&&definition.body.key===fixture.newScopeKey&&definition.body.name==='UI metadata-only role','scope metadata form did not save its key and role name')
+        ensure(!Object.hasOwn(definition.body,'resourceIntents')&&!Object.hasOwn(definition.body,'managementIntents')&&!Object.hasOwn(definition.body,'grants'),'group scope exposes application runtime policy')
+        ensure(exact(before,await readPolicy()),'new group scope implicitly changed application runtime policy')
+        const member=await request('/application-groups/'+encodeURIComponent(fixture.applicationGroupId)+'/applications/'+key(fixture.currentApplicationClientId))
+        ensure(member.ok&&Array.isArray(member.body.supportedScopeKeys)&&!member.body.supportedScopeKeys.includes(fixture.newScopeKey),'scope creation silently registered application support')
+        const assignment=await request('/application-groups/'+encodeURIComponent(fixture.applicationGroupId)+'/scope-grants/detail?subject='+encodeURIComponent(fixture.admin.subject))
+        ensure(assignment.ok&&Array.isArray(assignment.body.scopeKeys)&&!assignment.body.scopeKeys.includes(fixture.newScopeKey),'scope creation silently granted the new role to the current user')
+        await open(project+'/scopes/'+encodeURIComponent(fixture.newScopeKey))
+        ensure(await page.evaluate(()=>document.querySelector('[data-test="extension-container"]').shadowRoot.querySelector('[name="identity-scope-name"]').value)==='UI metadata-only role','created role name was not rendered')
+        return {nativeCreationStatus:created.status,scopeKey:fixture.newScopeKey,actualPolicyUnchanged:true,applicationSupportUnchanged:true,userGrantUnchanged:true}
+      } finally {
+        if(attempted) {
+          await productionSignIn('remove unused test scope')
+          const current=await request(definitionPath)
+          if(current.ok) {
+            await open(project+'/scopes/'+encodeURIComponent(fixture.newScopeKey))
+            await page.click('section[aria-labelledby="identity-scope-title"] button:has-text("Delete")')
+            await page.waitForFunction(()=>Boolean(document.querySelector('[data-test="extension-container"]')?.shadowRoot?.querySelector('[role="alertdialog"]')))
+            await saveDirectoryForm('[role="alertdialog"] button:has-text("Delete")',definitionPath,{method:'DELETE'})
+            await afterDirectoryMutation('unused group scope deleted')
+          } else ensure(current.status===404,'scope cleanup returned an unexpected result')
+          ensure((await request(definitionPath)).status===404,'unused group scope was not removed')
+          ensure(exact(before,await readPolicy()),'unused scope cleanup modified application policy')
+        }
+      }
     })
     await run('ui-412-conflict-no-policy-change', async () => {
-      await open(scopePath)
+      await openRuntimeScope()
       const before = await readPolicy()
       await page.fill('[name="local-scope-description"]',fixture.edit.description + ' stale browser edit')
-      const current = before.policy.applicationProjects[fixture.projectId].scopes[fixture.scope]
-      const concurrent = await request(localPath,'PUT',{name:fixture.scope,...current,description:fixture.edit.description + ' concurrent accepted edit'},before.revision)
+      const current = before.policy.scopes[fixture.scope]
+      mutationStarted = true
+      const concurrent = await request(localPath,'PUT',{scopeKey:fixture.scope,...current,description:fixture.edit.description + ' concurrent accepted edit'},before.revision)
       ensure(concurrent.ok && concurrent.body.revision > before.revision,'public concurrent mutation did not advance revision')
       const baseline = await readPolicy()
       await page.click('[data-test="save-local-scope"]')
@@ -639,24 +666,25 @@ export async function runApplicationProjectUi(page, base, fixture, record) {
       })
       await page.click(await markTarget('button',reload))
       await stable(ui + '/extensions/rbac/' + scopePath)
-      ensure(await page.evaluate(expected => document.querySelector('[data-test="extension-container"]').shadowRoot.querySelector('[name="local-scope-description"]').value === expected,concurrent.body.policy.applicationProjects[fixture.projectId].scopes[fixture.scope].description),'reload did not display concurrent saved data')
+      await selectRuntimeScope()
+      ensure(await page.evaluate(expected => document.querySelector('[data-test="extension-container"]').shadowRoot.querySelector('[name="local-scope-description"]').value === expected,baseline.policy.scopes[fixture.scope].description),'reload did not display concurrent saved data')
       return evidence
     })
     await run('ui-client-membership-approval', async () => {
-      const memberPath = '/identity/projects/' + encodeURIComponent(fixture.projectId) + '/clients/' + key(fixture.clientId)
+      const memberPath = '/application-groups/' + encodeURIComponent(fixture.applicationGroupId) + '/applications/' + key(fixture.clientId)
       const before = await request(memberPath)
-      ensure(before.ok && typeof before.body.approved === 'boolean' && before.body.firstPartyUi === false,'fixture must use a non-UI test client so receipt-backed UI login remains available')
+      ensure(before.ok && typeof before.body.approved === 'boolean' && before.body.clientId !== fixture.currentApplicationClientId && !Object.hasOwn(before.body,'firstPartyUi'),'test application must differ from the current login application and must not expose a host UI flag')
       const original = before.body
       restores.push({path:memberPath,kind:'client',original})
-      await open(project + '/clients/' + key(fixture.clientId))
+      await open(project + '/applications/' + key(fixture.clientId))
       await page.click('[data-test="member-approved"]')
       await saveDirectoryForm('[data-test="save-member"]',memberPath)
       await afterDirectoryMutation('client approval changed')
       const after = await request(memberPath)
-      ensure(after.ok && after.body.firstPartyUi === false && after.body.approved === !original.approved && after.body.revision > original.revision,'client approval form did not persist changed approval')
-      await open(project + '/clients/' + key(fixture.clientId))
+      ensure(after.ok && !Object.hasOwn(after.body,'firstPartyUi') && after.body.approved === !original.approved && after.body.revision > original.revision,'client approval form did not persist changed approval')
+      await open(project + '/applications/' + key(fixture.clientId))
       await page.reload()
-      await stable(ui + '/extensions/rbac/' + project + '/clients/' + key(fixture.clientId))
+      await stable(ui + '/extensions/rbac/' + project + '/applications/' + key(fixture.clientId))
       ensure(await page.evaluate(expected => document.querySelector('[data-test="extension-container"]').shadowRoot.querySelector('form input[type="checkbox"]').checked === expected,after.body.approved),'client approval lost on refresh')
       // Restore approval before further business checks, through the actual form.
       await page.click('[data-test="member-approved"]')
@@ -666,27 +694,27 @@ export async function runApplicationProjectUi(page, base, fixture, record) {
       return {before:original.approved,changed:after.body.approved,refreshVerified:true,restored:true}
     })
     await run('ui-subject-grant-revoke', async () => {
-      const assignmentPath = '/identity/projects/' + encodeURIComponent(fixture.projectId) + '/assignments/detail?subject=' + encodeURIComponent(fixture.subject)
+      const assignmentPath = '/application-groups/' + encodeURIComponent(fixture.applicationGroupId) + '/scope-grants/detail?subject=' + encodeURIComponent(fixture.subject)
       const before = await request(assignmentPath)
-      ensure(before.ok && before.body.projectScopes.includes(fixture.scope),'test subject must have the supplied project scope')
+      ensure(before.ok && before.body.scopeKeys.includes(fixture.scope),'test subject must have the supplied project scope')
       const original = before.body
       restores.push({path:assignmentPath,kind:'assignment',original})
-      await open(project + '/assignments/' + key(fixture.subject))
+      await open(project + '/scope-grants/' + key(fixture.subject))
       const selector = 'form input[type="checkbox"][value=' + quote(fixture.scope) + ']'
       await page.click(selector)
       await saveDirectoryForm('[data-test="save-assignment"]',assignmentPath)
       await afterDirectoryMutation('subject scope revoked')
       const revoked = await request(assignmentPath)
-      ensure(revoked.ok && !revoked.body.projectScopes.includes(fixture.scope) && revoked.body.revision > original.revision,'subject scope revocation did not persist')
-      await open(project + '/assignments/' + key(fixture.subject))
+      ensure(revoked.ok && !revoked.body.scopeKeys.includes(fixture.scope) && revoked.body.revision > original.revision,'subject scope revocation did not persist')
+      await open(project + '/scope-grants/' + key(fixture.subject))
       await page.reload()
-      await stable(ui + '/extensions/rbac/' + project + '/assignments/' + key(fixture.subject))
+      await stable(ui + '/extensions/rbac/' + project + '/scope-grants/' + key(fixture.subject))
       ensure(await page.evaluate(scope => !document.querySelector('[data-test="extension-container"]').shadowRoot.querySelector('form input[value="' + CSS.escape(scope) + '"]').checked,fixture.scope),'revoked scope was checked after refresh')
       await page.click(selector)
       await saveDirectoryForm('[data-test="save-assignment"]',assignmentPath)
       await afterDirectoryMutation('subject scope granted')
       const granted = await request(assignmentPath)
-      ensure(granted.ok && granted.body.projectScopes.includes(fixture.scope),'subject grant form did not persist')
+      ensure(granted.ok && granted.body.scopeKeys.includes(fixture.scope),'subject grant form did not persist')
       return {subject:fixture.subject,revokedRevision:revoked.body.revision,grantedRevision:granted.body.revision,runtimeTokenRevocation:'requires the shared authentication/runtime cases; this row verifies identity persistence only'}
     })
     await run('ui-loading-transition', async () => {
@@ -701,7 +729,7 @@ export async function runApplicationProjectUi(page, base, fixture, record) {
         observer.observe(root,{subtree:true,attributes:true,attributeOldValue:true,attributeFilter:['aria-busy']})
         state.stop = () => observer.disconnect()
       })
-      await clickText('[role="tab"]','Project scopes')
+      await clickText('[role="tab"]',fixture.localeText.en.scopes)
       await stable(ui + '/extensions/rbac/' + project + '/scopes')
       const observation = await page.evaluate(() => {
         const state = window.__applicationProjectUiLoading
@@ -778,9 +806,9 @@ export async function runApplicationProjectUi(page, base, fixture, record) {
               return theme === 'light' ? host.classList.contains('light') : theme === 'dark-2' ? host.classList.contains('dark') && host.classList.contains('dark-2') : host.classList.contains('dark') && !host.classList.contains('dark-2')
             },theme),'resolved theme classes do not match preference')
           }
-          await open(scopePath)
+          await openRuntimeScope()
           const actualSave = await page.evaluate(() => document.querySelector('[data-test="extension-container"]').shadowRoot.querySelector('[data-test="save-local-scope"]')?.textContent.trim())
-          ensure(actualSave === expected.saveLocal,'scope save action is not translated')
+          ensure(actualSave === expected.save,'scope save action is not translated')
           await page.focus('[name="local-scope-description"]')
           await page.press('[name="local-scope-description"]','Tab')
           const accessibility = await page.evaluate(() => {
@@ -796,7 +824,7 @@ export async function runApplicationProjectUi(page, base, fixture, record) {
           })
           ensure(accessibility.keyboardFocus,'keyboard focus is not visible for this theme/language combination')
           ensure(accessibility.noHorizontalOverflow,'horizontal overflow in this theme/language combination')
-          return {theme,locale,computedStyles:observed,translation:{lang:state.lang,navigation:actualNavigation,searchPlaceholder:input,saveLocal:actualSave},
+          return {theme,locale,computedStyles:observed,translation:{lang:state.lang,navigation:actualNavigation,searchPlaceholder:input,save:actualSave},
             keyboardFocus:accessibility.keyboardFocus,noHorizontalOverflow:accessibility.noHorizontalOverflow,accessibility,
             references:{tab:referenceTab,button:referenceButton,search:referenceSearch,header:referenceHeader,cell:referenceCell},refreshed:true}
         })
@@ -815,7 +843,7 @@ export async function runApplicationProjectUi(page, base, fixture, record) {
     await preference(fixture.preferences.themes.light)
     for (const section of ['projects','scopes','clients','assignments']) {
       await run('ui-search-filter-pagination-' + section, async () => {
-        const path = section === 'projects' ? 'projects' : project + '/' + section
+        const path = sectionPath(section)
         const rowSelector = section === 'projects' ? '.application-group-card-link' : 'tbody tr'
         await open(path)
         await page.fill('.ks-search input','')
@@ -853,8 +881,8 @@ export async function runApplicationProjectUi(page, base, fixture, record) {
         await page.fill('.ks-search input','')
         await page.waitForFunction(rowSelector => document.querySelector('[data-test="extension-container"]').shadowRoot.querySelectorAll(rowSelector).length === 25,rowSelector)
         await clickText('button','Add filters')
-        const fieldKey = section === 'projects' ? 'id' : section === 'scopes' ? 'scope' : section === 'clients' ? 'clientId' : 'subject'
-        const names = {id:'Project ID',scope:'OAuth2 scope',clientId:'Client ID',subject:'User identity'}
+        const fieldKey = section === 'projects' ? 'id' : section === 'scopes' ? 'key' : section === 'clients' ? 'clientId' : 'subject'
+        const names = {id:'Application group ID',key:'Scope key',clientId:'Client ID',subject:'User identity'}
         await page.click('button[aria-label=' + quote('Add filter for ' + names[fieldKey]) + ']')
         await page.fill('.edit-popup input',target)
         await page.waitForFunction(({target,rowSelector}) => {
@@ -873,7 +901,7 @@ export async function runApplicationProjectUi(page, base, fixture, record) {
     for (const section of ['projects','scopes','clients','assignments']) {
       for (const operator of ['equals','contains','and','or']) {
         await run('ui-filter-' + section + '-' + operator, async () => {
-          const path = section === 'projects' ? 'projects' : project + '/' + section
+          const path = sectionPath(section)
           await open(path)
           const plan = fixture.filters[section][operator]
           for (const step of plan.steps) {
@@ -907,7 +935,7 @@ export async function runApplicationProjectUi(page, base, fixture, record) {
     }
     await run('ui-narrow-and-keyboard-focus', async () => {
       await page.setViewport({width:390,height:844})
-      await open(scopePath)
+      await openRuntimeScope()
       await page.focus('[name="local-scope-description"]')
       await page.press('[name="local-scope-description"]','Tab')
       const observed = await page.evaluate(() => {
@@ -924,31 +952,7 @@ export async function runApplicationProjectUi(page, base, fixture, record) {
       await page.setViewport({width:1440,height:1000})
       return observed
     })
-    await run('console-page-request-errors-have-explicit-sources', async () => {
-      await collectDiagnostics()
-      const unexpected = report.diagnostics.filter(event => !event.expected && ['console-error','page-error','request-failed','http-error'].includes(event.kind))
-      const allowed = event => {
-        const isNavigationAbort = item => item.kind === 'request-failed' && item.message === 'net::ERR_ABORTED' && (new URL(item.url).origin === origin.origin || item.url.startsWith('https://api.kestra.io/v1/feeds?')) && report.diagnostics.some(request => request.kind === 'request' && request.requestId === item.requestId && request.documentId === item.documentId && request.url === item.url) && report.diagnostics.some(next => next.kind === 'document-navigation' && next.documentId !== item.documentId && Math.abs(Date.parse(next.observedAt) - Date.parse(item.observedAt)) < 1000)
-        if (isNavigationAbort(event)) return true
-        if (event.kind === 'console-error' && event.message.startsWith('TypeError: 200 Failed to fetch\n') && event.message.includes('/mf-shared-')) {
-          return report.diagnostics.some(item => item.documentId === event.documentId && item.cancelled === true && isNavigationAbort(item) && Math.abs(Date.parse(item.observedAt) - Date.parse(event.observedAt)) < 1000 && report.diagnostics.some(response => response.kind === 'http-response' && response.status === 200 && response.requestId === item.requestId && response.documentId === item.documentId && response.url === item.url && Date.parse(response.observedAt) <= Date.parse(item.observedAt)))
-        }
-        if (event.kind === 'console-error' && /^(?:Error during authentication check: )?TypeError: Failed to fetch(?:\n|$)/.test(event.message) && (event.message.startsWith('Error during authentication check:') || event.message.includes('/common-dashboard-execution-flow-') || event.message.includes('/Namespaces-') && event.message.includes('Fl.fetchCall')) && report.diagnostics.some(item => item.documentId === event.documentId && isNavigationAbort(item) && Math.abs(Date.parse(item.observedAt) - Date.parse(event.observedAt)) < 1000)) return true
-        if (event.kind === 'request-failed' && event.message === 'net::ERR_ABORTED' && (event.url.startsWith('https://api.kestra.io/v1/feeds?') || event.resourceType === 'Script' && new URL(event.url).origin === origin.origin && new URL(event.url).pathname.startsWith('/' + ['ui','assets',''].join('/')))) {
-          return report.diagnostics.some(item => item.kind === 'document-navigation' && item.documentId !== event.documentId && Date.parse(item.observedAt) >= Date.parse(event.observedAt) - 1000 && Date.parse(item.observedAt) <= Date.parse(event.observedAt) + 1000)
-        }
-        if (!['http-error','console-error'].includes(event.kind) || !event.requestId) return false
-        const response = report.diagnostics.find(item => item.kind === 'http-error' && item.requestId === event.requestId && item.documentId === event.documentId && item.url === event.url && item.status === event.status)
-        if (!response) return false
-        if (response.method === 'GET' && event.status === 403 && event.url === url('/' + ['api','v1','configs'].join('/')) && new URL(event.documentUrl).pathname === ui + '/extensions/rbac/projects/' + encodeURIComponent(fixture.projectId) + '/reconciliation' && report.diagnostics.some(item => item.kind === 'http-response' && item.status === 200 && item.method === 'GET' && item.documentId === event.documentId && item.url === url(api + '/projects/' + encodeURIComponent(fixture.projectId) + '/reconciliation'))) return true
-        if (response.method === 'GET' && event.status === 403 && event.url === url('/' + ['api','v1','configs'].join('/')) && (report.rows.some(row => row.case === 'production-reauthentication' && row.evidence?.needsReconciliation === true && row.evidence?.final?.documentId === event.documentId) || report.requests.some(request => request.method === 'GET' && request.status === 200 && request.source?.documentId === event.documentId && request.path === api + '/projects/' + encodeURIComponent(fixture.projectId) + '/reconciliation'))) return true
-        if ((fixture.expectedRequestErrors ?? []).some(rule => rule.case === event.case && rule.method === response.method && rule.status === event.status && url(rule.path) === event.url)) return true
-        return report.requests.some(request => request.source.documentId && request.source.documentId === event.documentId && response.method === request.method && event.url === url(request.path) && event.status === request.status && (fixture.expectedRequestErrors ?? []).some(rule => rule.case === request.case && rule.method === request.method && rule.status === request.status && rule.path === request.path && (!rule.code || rule.code === request.code)))
-      }
-      const failures = unexpected.filter(event => !allowed(event))
-      ensure(!failures.length,'unclassified console/page/request failures: ' + JSON.stringify(failures))
-      return {events:report.diagnostics.length,explicitlyExpected:report.diagnostics.filter(event => event.expected).length,unclassified:failures.length}
-    })
+    await run('console-page-request-errors-have-explicit-sources', validateDiagnostics)
     report.completed = !diagnostic
   } catch (error) {
     report.failure = {case:activeCase,message:errorText(error)}
@@ -957,15 +961,20 @@ export async function runApplicationProjectUi(page, base, fixture, record) {
     // Preserve evidence first. Cleanup is a separate recorded operation; it cannot
     // erase the original failure or turn a failed test into a passing report.
     try {report.documents.push(await documentState()); await collectDiagnostics()} catch (error) {report.diagnosticCaptureFailure = errorText(error)}
+    if (mutationStarted || restores.length) {
+      activeCase='cleanup-admin-sign-in'
+      try {await productionSignIn('authorize cleanup through production sign-in')}
+      catch(error) {report.completed=false;report.rows.push({name:'cleanup-admin-sign-in',case:'cleanup-admin-sign-in',passed:false,status:'failed',error:errorText(error)})}
+    }
     if (mutationStarted && policyOriginal) {
       try {
         activeCase = 'cleanup-restore-test-scope'
         const current = await readPolicy()
-        const original = policyOriginal.policy.applicationProjects[fixture.projectId].scopes[fixture.scope]
-        const restored = await request(localPath,'PUT',{name:fixture.scope,...original},current.revision)
+        const original = policyOriginal.policy.scopes[fixture.scope]
+        const restored = await request(localPath,'PUT',{scopeKey:fixture.scope,...original},current.revision)
         ensure(restored.ok,'test scope restoration failed')
         const verified = await readPolicy()
-        ensure(exact(verified.policy.applicationProjects[fixture.projectId].scopes[fixture.scope],original),'restored scope differs from original')
+        ensure(exact(verified.policy.scopes[fixture.scope],original),'restored scope differs from original')
         report.rows.push({name:activeCase,case:activeCase,passed:true,status:'passed',evidence:{revision:verified.revision}})
       } catch (error) {
         report.completed = false
@@ -979,8 +988,9 @@ export async function runApplicationProjectUi(page, base, fixture, record) {
         ensure(current.ok,'cleanup could not read identity record')
         const original = restoration.original
         const input = restoration.kind === 'client'
-          ? {clientId:original.clientId,approved:original.approved,firstPartyUi:original.firstPartyUi,audiences:original.audiences,allowedProjectScopes:original.allowedProjectScopes}
-          : {issuer:original.issuer,subject:original.subject,projectScopes:original.projectScopes}
+          ? {clientId:original.clientId,approved:original.approved,audiences:original.audiences,supportedScopeKeys:original.supportedScopeKeys}
+          : {issuer:original.issuer,subject:original.subject,scopeKeys:original.scopeKeys}
+        directoryPolicyBefore = await readPolicy()
         const result = await request(restoration.path,'PUT',input,current.body.revision)
         ensure(result.ok,'cleanup failed to restore identity record')
         await afterDirectoryMutation('restore test ' + restoration.kind)
@@ -992,7 +1002,14 @@ export async function runApplicationProjectUi(page, base, fixture, record) {
         report.rows.push({name:activeCase,case:activeCase,passed:false,status:'failed',error:errorText(error)})
       }
     }
-    try {await collectDiagnostics()} catch (error) {report.completed = false; report.diagnosticCaptureFailure = errorText(error)}
+    try {
+      activeCase='cleanup-diagnostics-no-errors'
+      const evidence=await validateDiagnostics()
+      report.rows.push({name:activeCase,case:activeCase,passed:true,status:'passed',evidence})
+    } catch(error) {
+      report.completed=false;report.diagnosticCaptureFailure=errorText(error)
+      report.rows.push({name:'cleanup-diagnostics-no-errors',case:'cleanup-diagnostics-no-errors',passed:false,status:'failed',error:errorText(error)})
+    }
     if (report.diagnosticCaptureFailure) report.completed = false
     report.finishedAt = new Date().toISOString()
     report.notRun = planned.filter(name => !report.rows.some(row => row.name === name))

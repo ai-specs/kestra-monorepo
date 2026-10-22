@@ -76,7 +76,7 @@ export class ProductionOAuthClient {
     this.#resource = (await discovery.json()).resource
     assert.equal(this.#resource, this.#base + endpoint, 'Exact resource-bound audience')
     await this.discover()
-    // Registration establishes a pending public client, rather than approving a project membership.
+    // Registration establishes a pending public client, rather than approving a applicationGroup membership.
     if (registeredClient) {
       // Reuse only a real prior public DCR response from this isolated issuer.
       // Membership is pre-approved by the explicit directory activation plan;
@@ -91,17 +91,17 @@ export class ProductionOAuthClient {
       const registration = await this.request('/oidc/register', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({
         redirect_uris: ['http://127.0.0.1:19997/callback'], token_endpoint_auth_method: 'none',
         grant_types: ['authorization_code', 'refresh_token'], response_types: ['code'],
-        scope: 'openid mcp:flows:read mcp:executions:write', client_name: 'Application project acceptance',
+        scope: 'openid mcp:flows:read mcp:executions:write', client_name: 'Application group acceptance',
       })})
       assert.equal(registration.status, 201)
       this.#client = await registration.json()
     }
     assert(!this.#client.client_secret, 'Public client must not receive a secret')
     if (!registeredClient) {
-      assert(typeof approveClient === 'function', 'Project membership must be approved through a production management operation')
+      assert(typeof approveClient === 'function', '应用支持范围必须在 owner consent 前通过生产管理操作登记')
       await approveClient({clientId: this.#client.client_id, audiences: [this.#resource], scopes: [...scopes]})
     }
-    assert(typeof reauthenticate === 'function', 'Project epoch changes require a fresh production identity after membership approval')
+    assert(typeof reauthenticate === 'function', '应用组登记变更后必须重新取得生产登录身份')
     await reauthenticate(this)
     const verifier = randomBytes(48).toString('base64url'), state = randomBytes(20).toString('hex')
     const query = new URLSearchParams({client_id: this.#client.client_id, redirect_uri: this.#client.redirect_uris[0], response_type: 'code',
@@ -125,7 +125,7 @@ export class ProductionOAuthClient {
     assert(this.#tokens.access_token && this.#tokens.refresh_token)
     return {clientId: this.#client.client_id, resource: this.#resource, issuedScopes: this.#tokens.scope?.split(' ').filter(Boolean) ?? []}
   }
-  async verifiedAccessIdentity({projectClaim = "kestra_application_group_v1", projectId, subject, expectedProjectScopes, expectedProtocolScopes}) {
+  async verifiedAccessIdentity({applicationGroupClaim = "kestra_application_group_v1", applicationGroupId, subject, expectedApplicationGroupScopes, expectedProtocolScopes}) {
     assert(this.#tokens && this.#discovery)
     const [headerSegment, payloadSegment, signatureSegment, extra] = this.#tokens.access_token.split('.')
     assert(!extra && headerSegment && payloadSegment && signatureSegment)
@@ -142,27 +142,44 @@ export class ProductionOAuthClient {
     assert(claims.exp > Date.now() / 1000 && claims.iat <= Date.now() / 1000 + 30)
     const audiences = Array.isArray(claims.aud) ? claims.aud : [claims.aud]
     assert.deepEqual(audiences, [this.#resource])
-    assert(projectClaim && Object.hasOwn(claims, projectClaim), 'Use the documented published project claim name')
-    const project = claims[projectClaim]
-    assert(project && typeof project === 'object' && !Array.isArray(project), 'Signed project claim must use the published envelope')
-    assert.equal(project.application_group_id, projectId)
-    assert.equal(project.client_id, this.#client.client_id)
-    assert(Number.isSafeInteger(project.authorization_version) && project.authorization_version > 0)
+    assert(applicationGroupClaim && Object.hasOwn(claims, applicationGroupClaim), 'Use the documented published application-group claim name')
+    const applicationGroup = claims[applicationGroupClaim]
+    assert(applicationGroup && typeof applicationGroup === 'object' && !Array.isArray(applicationGroup), 'Signed application-group claim must use the published envelope')
+    assert.equal(applicationGroup.application_group_id, applicationGroupId)
+    assert.equal(applicationGroup.client_id, this.#client.client_id)
+    assert(Number.isSafeInteger(applicationGroup.authorization_version) && applicationGroup.authorization_version > 0)
     for (const name of ['application_group_scopes', 'protocol_scopes']) {
-      assert(Array.isArray(project[name]) && project[name].every(value => typeof value === 'string' && value.length))
-      assert.equal(new Set(project[name]).size, project[name].length, 'Signed scope classification contains duplicates')
+      assert(Array.isArray(applicationGroup[name]) && applicationGroup[name].every(value => typeof value === 'string' && value.length))
+      assert.equal(new Set(applicationGroup[name]).size, applicationGroup[name].length, 'Signed scope classification contains duplicates')
     }
-    assert(!project.application_group_scopes.some(value => project.protocol_scopes.includes(value)), 'Project and protocol scopes overlap')
+    assert(!applicationGroup.application_group_scopes.some(value => applicationGroup.protocol_scopes.includes(value)), 'Application-group and protocol scopes overlap')
     const scopes = typeof claims.scope === 'string' ? claims.scope.split(' ').filter(Boolean) : claims.scope
     assert(Array.isArray(scopes), 'Signed access token scope missing')
-    assert.deepEqual([...scopes].sort(), [...project.application_group_scopes, ...project.protocol_scopes].sort(), 'Signed project claim differs from issued scopes')
-    if (expectedProjectScopes !== undefined) assert.deepEqual([...project.application_group_scopes].sort(), [...expectedProjectScopes].sort())
-    if (expectedProtocolScopes !== undefined) assert.deepEqual([...project.protocol_scopes].sort(), [...expectedProtocolScopes].sort())
-    return {subject: claims.sub, issuer: claims.iss, audiences, project: project.application_group_id,
-      clientId: project.client_id, authorizationVersion: project.authorization_version,
-      projectScopes: project.application_group_scopes, protocolScopes: project.protocol_scopes, scopes}
+    assert.deepEqual([...scopes].sort(), [...applicationGroup.application_group_scopes, ...applicationGroup.protocol_scopes].sort(), 'Signed application-group claim differs from issued scopes')
+    if (expectedApplicationGroupScopes !== undefined) assert.deepEqual([...applicationGroup.application_group_scopes].sort(), [...expectedApplicationGroupScopes].sort())
+    if (expectedProtocolScopes !== undefined) assert.deepEqual([...applicationGroup.protocol_scopes].sort(), [...expectedProtocolScopes].sort())
+    return {subject: claims.sub, issuer: claims.iss, audiences, applicationGroupId: applicationGroup.application_group_id,
+      clientId: applicationGroup.client_id, authorizationVersion: applicationGroup.authorization_version,
+      applicationGroupScopes: applicationGroup.application_group_scopes, protocolScopes: applicationGroup.protocol_scopes, scopes}
   }
-  async verifiedUiIdentity({projectId, subject, audience, projectClaim = 'kestra_application_group_v1'}) {
+  async expectMcpAuthorizationDenied(scopes) {
+    assert(this.#client&&this.#discovery,'Previously registered ordinary application required')
+    const state=randomBytes(20).toString('hex'),verifier=randomBytes(48).toString('base64url')
+    const response=await this.request('/oidc/authorize?'+new URLSearchParams({client_id:this.#client.client_id,
+      redirect_uri:this.#client.redirect_uris[0],response_type:'code',scope:scopes.join(' '),state,resource:this.#resource,
+      code_challenge:createHash('sha256').update(verifier).digest('base64url'),code_challenge_method:'S256'}))
+    if(response.status===400) {
+      const body=await response.json();assert.equal(body.error,'invalid_scope');assert(!body.code)
+      return {status:400,error:'invalid_scope',codeIssued:false,stateVerified:false,registeredClientValidated:true}
+    }
+    assert([302,303,307].includes(response.status),'Missing provider must return an explicit protocol rejection')
+    const callback=new URL(response.headers.get('location'))
+    assert.equal(callback.origin+callback.pathname,this.#client.redirect_uris[0]);assert.equal(callback.searchParams.get('state'),state)
+    assert.equal(callback.searchParams.get('error'),'invalid_scope');assert(!callback.searchParams.has('code'))
+    await response.body?.cancel()
+    return {status:response.status,error:'invalid_scope',codeIssued:false,stateVerified:true}
+  }
+  async verifiedUiIdentity({applicationGroupId, subject, audience, applicationGroupClaim = 'kestra_application_group_v1'}) {
     // authentication:idtoken stores the actual OIDC ID token in the JWT cookie.
     // Any deployment using another cookie format must fail this probe explicitly.
     if (!this.#discovery) await this.discover()
@@ -184,18 +201,18 @@ export class ProductionOAuthClient {
     assert(typeof audience === 'string' && audience.length, 'Explicit UI client audience required')
     const audiences = Array.isArray(claims.aud) ? claims.aud : [claims.aud]
     assert.deepEqual(audiences,[audience])
-    const project = claims[projectClaim]
-    assert(project && typeof project === 'object' && !Array.isArray(project))
-    assert.equal(project.application_group_id,projectId)
-    assert.equal(project.client_id,audience)
-    assert(Number.isSafeInteger(project.authorization_version) && project.authorization_version > 0)
+    const applicationGroup = claims[applicationGroupClaim]
+    assert(applicationGroup && typeof applicationGroup === 'object' && !Array.isArray(applicationGroup))
+    assert.equal(applicationGroup.application_group_id,applicationGroupId)
+    assert.equal(applicationGroup.client_id,audience)
+    assert(Number.isSafeInteger(applicationGroup.authorization_version) && applicationGroup.authorization_version > 0)
     for (const field of ['application_group_scopes','protocol_scopes']) {
-      assert(Array.isArray(project[field]) && project[field].every(value => typeof value === 'string' && value.length))
-      assert.equal(new Set(project[field]).size,project[field].length)
+      assert(Array.isArray(applicationGroup[field]) && applicationGroup[field].every(value => typeof value === 'string' && value.length))
+      assert.equal(new Set(applicationGroup[field]).size,applicationGroup[field].length)
     }
-    assert(!project.application_group_scopes.some(scope => project.protocol_scopes.includes(scope)))
-    return {subject:claims.sub,issuer:claims.iss,audiences,project:project.application_group_id,clientId:project.client_id,
-      projectScopes:project.application_group_scopes,protocolScopes:project.protocol_scopes,authorizationVersion:project.authorization_version}
+    assert(!applicationGroup.application_group_scopes.some(scope => applicationGroup.protocol_scopes.includes(scope)))
+    return {subject:claims.sub,issuer:claims.iss,audiences,applicationGroupId:applicationGroup.application_group_id,clientId:applicationGroup.client_id,
+      applicationGroupScopes:applicationGroup.application_group_scopes,protocolScopes:applicationGroup.protocol_scopes,authorizationVersion:applicationGroup.authorization_version}
   }
   async refresh() {
     assert(this.#tokens && this.#client && this.#discovery)

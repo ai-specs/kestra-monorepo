@@ -1,14 +1,28 @@
 # Kestra monorepo
 
-## 应用组重构状态（2026-10-21）
+## 应用组重构状态（2026-10-22）
 
-当前实施规范见 `docs/application-group-target-model.md`，差异与验收门见 `implementation-gap-report.md`。本轮已发布部分宿主契约与插件声明元数据，并在本地开发模式下执行 `new-install` 组合检查：REST `56/56`、MCP `11/11`、安全 `15/15`、UI `98/98`。该报告标记 `nonFinal=true`，根仓当前提交的正式 CI 尚待核对。旧 `projects` API、共享 scope 意图、完整恢复和部分用户文案仍与目标模型冲突；下文旧“应用项目”流程只描述历史发布版本，不是新应用组的生产启用说明。不得将这次局部检查当成目标模型完整交付。
+当前实施规范见 `docs/application-group-target-model.md`，差异与验收门见
+`implementation-gap-report.md`。应用组、scope、应用支持、用户授予、应用权限声明、
+管理 UI/API 与业务存储全部属于插件。overlay 只保留标准 OIDC 与只读协议输入机制。
+当前是单一 issuer、共享协议端点及经过签名校验的应用组 claim，不提供多 issuer 模式。
 
-> 当前应用组实施规范见 `docs/application-group-target-model.md`。下方“应用项目授权交付状态”是指定旧提交的历史验收记录；旧名称、旧 API、旧恢复与迁移流程不是新安装目标的使用说明。新模型差异和发布门见 `implementation-gap-report.md`。
+宿主 `c2390ff` 的 CI `39712369397` 全部通过并发布，`.env.example` 固定其镜像 digest。
+插件 `6f23eeb` 的 CI `39715045248` 通过，实际下载产物与独立克隆构建的 jar hash 一致。
+插件 Java 218 项、PostgreSQL 76 项与前端逻辑 39 项通过，薄 jar 与公开契约门通过。
+根仓本地空库 `new-install` 通过 REST 56、安全 15、MCP 11 和 UI 99 项，失败与未运行
+均为零，资源已清理。开发报告为 nonFinal，最终根提交 CI 尚须取得。历史结果不能
+替代当前提交的真实 REST、安全、MCP 和 UI 报告。
+
+根仓要求实际 jar 含插件自有目录、服务、安装 CLI 与新模型类型，数据库包含七个插件
+业务表且没有旧宿主组表或 schema1 策略表。安装计划与 scope 使用新字段，不保留旧 API、
+首方成员类别、完整恢复、应用组级配置状态或权限声明驱动资源授权的旧路径。
+
+以下旧“应用项目”发布记录仅说明指定版本的历史验收，不是当前应用组的启用说明。
 
 ## 应用项目授权交付状态（2026-10-19）
 
-当前新模型已在本地开发环境完成最终组合验收。根提交 `85eb764c5656ccc4056c235072dfb83e830f9964` 的 CI `39263232685` 通过，最终报告为 `completed=true`，失败、跳过和未运行均为零。
+以下记录针对 2026-10-19 的旧项目模型，不对应当前应用组目标。该根提交 `85eb764c5656ccc4056c235072dfb83e830f9964` 的 CI `39263232685` 通过，其指定版本报告为 `completed=true`，失败、跳过和未运行均为零；不得用它证明当前候选已交付。
 
 - 宿主提交：`e10448596ca7fc4564be4621dd60757d6adcc31d`
 - 宿主镜像：`ghcr.io/ai-specs/kestra-overlay@sha256:a20b950733fb85216d2155107c9c3423ffce1b5041faa5d4e475836c7e037ae8`
@@ -23,7 +37,7 @@
 | 项目 | 职责 |
 |---|---|
 | [kestra-overlay](https://github.com/ai-specs/kestra-overlay) | Kestra OSS 增强镜像、内置 OIDC 与 MCP、外部扩展承载 |
-| [kestra-plugin-rbac](https://github.com/ai-specs/kestra-plugin-rbac) | 外部细粒度授权 jar、应用项目与完整 scope grants |
+| [kestra-plugin-rbac](https://github.com/ai-specs/kestra-plugin-rbac) | 外部细粒度授权 jar、应用组管理、应用声明元数据与 Kestra 实际策略 |
 
 项目使用 git submodule 固定版本。克隆时运行：
 
@@ -52,16 +66,14 @@ jar 与配置变更需要重启。授权扩展的文件名和镜像兼容版本�
 `KESTRA_RBAC_ENABLED` 默认关闭，启用前需部署完整授权组件和权限配置。
 
 
-RBAC 新模式以应用项目的 OAuth2 scope 绑定完整本地 grants。数据库是唯一运行时策略
-来源。每个 scope 独立限定资源、命名空间、资源 ID 和动作；多个 scope 不得拼接授权。
-列表先在单个 scope 内求 READ 与 LIST 范围交集，再合并各 scope 的有效范围。
-旧 roles、subjects、role-mapping、instance-admin-roles 和 management-admin-subjects
-不能作为新模式的运行配置。协议 scope 和旧 roles claim 不授予本地业务权限。
+应用组模型与管理使用方法由插件 README 和公开契约定义。管理页面位于
+`/ui/main/extensions/rbac`。应用组 scope 对应角色；用户在应用获得的 scope 是应用支持
+与用户授予的交集。scope 的名称与说明不授予资源权限。应用权限声明是供查看及 OAuth2
+授权页展示的元数据镜像，Kestra 运行时授权由插件自己的实际策略决定。
 
-共享身份项目、scope 上界、client 成员和 subject 授予归宿主身份目录；完整本地 grants
-和本地绑定归插件。IDENTITY、LOCAL_POLICY、BUSINESS_INSTANCE 管理域互不包含，
-READ 与 MANAGE 不互含。管理页面在 `/ui/main/extensions/rbac`，账号创建不自动授予权限。
-共享目录保存与本地绑定保存是独立动作。目录变化后必须重新登录并完整核对本地策略。
+每个 scope 必须完整提供操作所需的资源、命名空间、资源 ID 和动作，不跨 scope 拼接。
+READ 与 MANAGE 分开校验。旧 roles、subjects、role-mapping、instance-admin-roles 和
+management-admin-subjects 不能作为新模式配置；协议 scope 不授予资源或管理权限。
 
 启用前必须选择通过正式发布门的固定宿主镜像，并下载匹配插件提交的成功 CI 产物。
 插件构建输入见 `kestra-plugin-rbac/host-contract.properties`；不得用本地旧标签缓存或
@@ -77,19 +89,21 @@ cp /tmp/kestra-rbac-artifact/build/libs/kestra-rbac-authorizer.jar deployment/li
 `.evidence/postgres` 和测试报告。必须核对实际下载的 jar SHA-256、编译宿主 digest
 及该 run 的提交。构建成功、容器启动或页面返回 200 均不能代替授权验收。
 
-首次空库使用插件 README 的 schema2 `initialize`。已有 schema1 策略必须先备份数据库、
-存储及安装凭据，执行显式 `preview-migration`，逐项审核旧角色到新 scope 的对应关系，
-再用完整报告的批准 SHA-256 执行 `migrate`。身份目录通过宿主公开 CLI 审核和激活。
-本地迁移批准不等于身份授予已经成功。迁移必须撤销旧会话、code、access/refresh token
-和 MCP session，验证新管理员可登录、普通账号允许与拒绝范围，以及部分成功时失败关闭。
-不得覆盖初始化已有策略，也不得仅换 jar 作为完整回退。
+默认验收配置是 `new-install`。首次空库先通过宿主标准流程创建初始账号和 UI client，
+再停止业务 JVM，在同一安装的数据库与持久卷中按插件 README 执行
+`ApplicationGroupDirectoryCommand preview/apply`、`ApplicationGroupPolicyCommand initialize`
+及可选声明初始化。组计划、安装前置、审查 hash 和字段由插件公开契约定义；宿主不提供
+组初始化 CLI。初始化不能覆盖已有目录，UI client 是第一个内置组的普通应用成员。
 
-完成身份目录激活和本地迁移后，在 `.env` 设置 `KESTRA_RBAC_ENABLED=true` 与
+历史 schema1 数据只在显式 `legacy-migration` 配置执行迁移与物理回滚验收，不是默认
+新安装的交付门。该流程仍须独立审批与真实撤权证据；未执行不能计为通过。
+
+完成插件初始化并核对管理员可达性后，在 `.env` 设置 `KESTRA_RBAC_ENABLED=true` 与
 `KESTRA_OIDC_UI_SCOPES=openid,profile,email,kestra:application-group-scopes`，再执行
 `docker compose up -d` 更新容器配置。Compose 同时启用 typed、完整评估及
-application-projects；UI 的 selector 只用于已批准的第一方成员。
+`application-groups`。UI selector 是宿主登录协议机制，不授予普通成员额外身份或权限。
 关闭 RBAC 时必须同时将 UI scopes 恢复为 `openid,profile,email`。首次安装的默认
-关闭配置只请求这三个标准项，不能提前请求未激活的 selector。普通本地策略变更保存到数据库后对新请求生效，无需重启。
+关闭配置只请求这三个标准项，不能提前请求未激活的 selector。普通实际策略变更保存到数据库后对新请求生效，无需重启。
 只替换 jar 时运行 `docker compose restart kestra`，重启 JVM 后才装载新 jar。
 这些命令使用已发布镜像，不编译插件 jar，也不构建 overlay 镜像。
 
@@ -110,6 +124,8 @@ application-projects；UI 的 selector 只用于已批准的第一方成员。
 本地浏览器调用 `application-project-ui-fixture.mjs` 的
 `runRootApplicationProjectWithEgo`，传入本次已有任务空间的 Page；不得创建重复空间。
 本地与 CI 共用 56 个 REST 探针、MCP 业务断言及 4 主题 × 13 语言 UI 矩阵。
+默认只运行一个 PostgreSQL 服务。错误 issuer 与缺插件用例需要辅助 JVM 时，在该 PostgreSQL
+创建独立测试数据库，并保留 owner 校验；MCP 阶段结束后立即清理辅助实例。
 默认使用 `new-install` 配置，从空库初始化新模型，必须通过身份边界、撤权、故障、
 副作用和完整 UI 检查。历史 schema1 的 14 项迁移检查明确列入范围外，不计为通过或跳过。
 只有确实需要验证已有 schema1 数据时，额外传入

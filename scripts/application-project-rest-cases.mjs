@@ -88,7 +88,7 @@ export async function runApplicationProjectRest(base,fixture,record) {
       assert.equal(typeof client.verifiedUiIdentity,'function','production OAuth helper must support verifiedUiIdentity')
       // Deliberately no catch/fallback: a non-ID-token cookie or failed validation
       // fails this account's matrix rows, including a protocol-only identity.
-      actual=await client.verifiedUiIdentity({projectId:applicationProject,subject:account.subject,audience:fixture.expectedAudience})
+      actual=await client.verifiedUiIdentity({applicationGroupId:applicationProject,subject:account.subject,audience:fixture.expectedAudience})
     } else {
       assert.equal(mode,'endpoint','unknown identity verification mode')
       assert(typeof fixture.identity.path==='string'&&fixture.identity.path.startsWith('/')&&!fixture.identity.path.startsWith('//'),'explicit published same-origin verified identity endpoint required')
@@ -99,14 +99,14 @@ export async function runApplicationProjectRest(base,fixture,record) {
     }
     assert(actual&&typeof actual==='object','verified identity envelope absent')
     assert.equal(actual.subject,account.subject)
-    assert.equal(actual.project,applicationProject)
+    assert.equal(actual.applicationGroupId,applicationProject)
     assert(typeof actual.issuer==='string'&&new URL(actual.issuer).origin===new URL(base).origin,'trusted identity issuer differs from production host')
     assert.deepEqual(actual.audiences,[fixture.expectedAudience],'trusted UI identity audience differs from the real UI client ID')
     assert(Array.isArray(actual.audiences)&&actual.audiences.length&&actual.audiences.every(value=>typeof value==='string'&&value))
-    assert(Array.isArray(actual.projectScopes)&&actual.projectScopes.every(value=>typeof value==='string'))
-    assert.equal(new Set(actual.projectScopes).size,actual.projectScopes.length)
-    assert.deepEqual([...actual.projectScopes].sort(),[...testCase.scopes].sort(),'actual production scope set differs from unified matrix')
-    return {subject:actual.subject,issuer:actual.issuer,audiences:[...actual.audiences],project:actual.project,projectScopes:[...actual.projectScopes],...(actual.clientId?{clientId:actual.clientId}:{})}
+    assert(Array.isArray(actual.applicationGroupScopes)&&actual.applicationGroupScopes.every(value=>typeof value==='string'))
+    assert.equal(new Set(actual.applicationGroupScopes).size,actual.applicationGroupScopes.length)
+    assert.deepEqual([...actual.applicationGroupScopes].sort(),[...testCase.scopes].sort(),'actual production scope set differs from unified matrix')
+    return {subject:actual.subject,issuer:actual.issuer,audiences:[...actual.audiences],applicationGroupId:actual.applicationGroupId,applicationGroupScopes:[...actual.applicationGroupScopes],...(actual.clientId?{clientId:actual.clientId}:{})}
   }
   function flowBody(source) {
     assert(typeof source==='string'&&source.trim(),'complete fixture YAML required')

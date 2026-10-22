@@ -4,7 +4,7 @@
  * fixture.accounts[name]={username,password,subject}; observerAccount likewise.
  * names: allowed,capabilityOnly,projectOnly,knownUnbound,localRevoke,
  * directoryRevoke,subjectRevoke. Each is a separately prepared real subject.
- * fixture.scenarios[name]={projectScopes:[scopeNames...],protocolScopes:[...],
+ * fixture.scenarios[name]={applicationGroupScopes:[scopeNames...],protocolScopes:[...],
  *   expectedTools:[complete exact names],call:{name,arguments,namespace,flowId,
  *   executionIdPath:'result.structuredContent.executionId',expectedExecutionFields}}
  * The executionIdPath MUST describe the published tool result, not a guessed ID.
@@ -15,7 +15,7 @@
  * No prewritten passed flag is consumed. Module independently checks fresh trusted
  * UI identity with expectedUiAudience after callbacks; callback receipts alone
  * never establish actual authorization success. Mutations restore in finally.
- * kind: approve-client, revoke-local-scope, revoke-directory-scope,
+ * kind: approve-client, revoke-application-scope-policy, revoke-supported-scope,
  * revoke-subject-scopes. phase: mutate; approval gets the real DCR registration.
  * fixture.databaseExecution({id,namespace,flowId}) is a READ-ONLY observer returning
  * {id,namespace,flowId,state,...}; compare with real observer API execution.
@@ -37,8 +37,8 @@ import {ProjectSideEffects} from './application-project-effects.mjs'
 import {scopeNames,requiredProjectChecks,applicationProject} from './application-project-cases.mjs'
 
 const owned=Object.freeze(['mcp-production-dcr-owner-pkce-consent','mcp-tools-list-call',
-  'mcp-capability-without-project','mcp-project-without-capability','mcp-known-plus-unbound-list','mcp-known-plus-unbound-call',
-  'mcp-same-session-local-revoke','mcp-same-session-directory-revoke','mcp-subject-revoke','refresh-cannot-restore-revoked-scope','mcp-missing-extension'])
+  'mcp-capability-without-application-scope','mcp-application-scope-without-capability','mcp-known-plus-unbound-list','mcp-known-plus-unbound-call',
+  'mcp-same-session-application-policy-revoke','mcp-same-session-supported-scope-revoke','mcp-user-scope-revoke','refresh-cannot-restore-revoked-scope','mcp-missing-extension'])
 const sorted=value=>[...value].sort()
 const sleep=ms=>new Promise(resolve=>setTimeout(resolve,ms))
 const canonical=value=>Array.isArray(value)?value.map(canonical):value&&typeof value==='object'?Object.fromEntries(Object.keys(value).sort().map(name=>[name,canonical(value[name])])):value
@@ -58,16 +58,16 @@ export async function runApplicationProjectMcp(base,fixture,record) {
     for(const request of value.requests){assert(['POST','PUT','DELETE'].includes(request.method)&&request.path?.startsWith('/api/')&&!request.path.startsWith('//'),'formal management HTTP path required');assert(request.status>=200&&request.status<300,'management mutation did not succeed')}
     assert(value.reauthentication?.authenticated===true&&value.reauthentication.subject===account.subject,'production reauthentication receipt missing')
     assert(['/ui/','/ui/main/dashboards','/ui/access-denied'].includes(value.reauthentication.callbackPath),'unexpected reauthentication callback path')
-    const verified=await client.verifiedUiIdentity({projectId:applicationProject,subject:account.subject,audience:config.expectedUiAudience})
+    const verified=await client.verifiedUiIdentity({applicationGroupId:applicationProject,subject:account.subject,audience:config.expectedUiAudience})
     assert.equal(verified.subject,account.subject)
     return {requests:value.requests,reauthentication:{subject:verified.subject,callbackPath:value.reauthentication.callbackPath,authenticated:true,authorizationVersion:verified.authorizationVersion}}
   }
   async function session(name,config=fixture,target=base){
     const account=config.accounts?.[name]??config.account;const spec=config.scenarios?.[name]??config.scenario
-    assert(spec&&Array.isArray(spec.projectScopes)&&Array.isArray(spec.protocolScopes)&&Array.isArray(spec.expectedTools),'explicit scopes and full expected tool names required')
-    assert(spec.projectScopes.every(scope=>Object.values(scopeNames).includes(scope)),'scenario scope outside unified scopeNames')
+    assert(spec&&Array.isArray(spec.applicationGroupScopes)&&Array.isArray(spec.protocolScopes)&&Array.isArray(spec.expectedTools),'explicit scopes and full expected tool names required')
+    assert(spec.applicationGroupScopes.every(scope=>Object.values(scopeNames).includes(scope)),'scenario scope outside unified scopeNames')
     const client=new ProductionOAuthClient(target);await login(client,account)
-    const issued=await client.issueMcpScopes([...spec.protocolScopes,...spec.projectScopes],async registration=>{
+    const issued=await client.issueMcpScopes([...spec.protocolScopes,...spec.applicationGroupScopes],async registration=>{
       assert.equal(typeof config.management,'function','formal management callback required')
       const value=await config.management({kind:'approve-client',phase:'mutate',client,account,registration})
       // The helper invokes reauthentication after approval; retain receipt now,
@@ -76,8 +76,8 @@ export async function runApplicationProjectMcp(base,fixture,record) {
       if(value.restore)restorations.push({label:'approve-'+name,restore:value.restore,client,account,config})
       client.__approvalReceipt=value
     },async current=>{await login(current,account);if(client.__approvalReceipt){report.mutations.push({kind:'approve-client',scenario:name,...await receipt(client.__approvalReceipt,current,account,config)});delete client.__approvalReceipt}}, {registeredClient:config.registeredClient})
-    const identity=await client.verifiedAccessIdentity({projectId:applicationProject,subject:account.subject,expectedProjectScopes:spec.projectScopes,expectedProtocolScopes:spec.protocolScopes})
-    assert.deepEqual(sorted(issued.issuedScopes),sorted([...spec.projectScopes,...spec.protocolScopes]),'issued scope set differs from explicit grant')
+    const identity=await client.verifiedAccessIdentity({applicationGroupId:applicationProject,subject:account.subject,expectedApplicationGroupScopes:spec.applicationGroupScopes,expectedProtocolScopes:spec.protocolScopes})
+    assert.deepEqual(sorted(issued.issuedScopes),sorted([...spec.applicationGroupScopes,...spec.protocolScopes]),'issued scope set differs from explicit grant')
     const initialized=await client.rpc(null,'initialize',{protocolVersion:'2025-06-18',capabilities:{},clientInfo:{name:'application-project-acceptance',version:'1'}},rpcId++)
     assert.equal(initialized.status,200);assert(initialized.session&&initialized.message?.result&&!initialized.message.error,'real MCP session initialization failed')
     const notification=await client.rpc(initialized.session,'notifications/initialized',undefined,undefined)
@@ -98,33 +98,34 @@ export async function runApplicationProjectMcp(base,fixture,record) {
   function missingProviderFailure(session,result){const proof=session.config.componentAbsence;return proof?.jarAbsent===true&&proof.featureEnabled===true&&Array.isArray(proof.mounts)&&proof.mounts.every(mount=>mount.destination!=='/app/libs'&&!mount.destination.startsWith('/app/libs/'))&&/^[a-f0-9]{64}$/.test(proof.hostExecutableSha256??'')&&result.status===200&&result.message?.result?.isError===true&&session.config.componentFailureToolResult?.isError===true&&jsonEqual(result.message?.result,session.config.componentFailureToolResult)}
   async function denyCall(s,observerEffects=effects,componentMissing=false){assert(s.spec.call?.name&&s.spec.call.arguments,'exact real tool name and arguments required');const value=await observerEffects.observeDenied(()=>rpc(s,'tools/call',{name:s.spec.call.name,arguments:s.spec.call.arguments}),result=>assert(denied(result,s.config)||hiddenToolDenied(s,result)||componentMissing&&missingProviderFailure(s,result),'tool write was not explicitly denied or proven to fail closed without the provider'),{windowMs:s.config.effectsWindowMs??5000,intervalMs:250});return {status:value.response.status,rpcError:!!value.response.message?.error,toolError:value.response.message?.result?.isError===true,hiddenByProtocolCapability:hiddenToolDenied(s,value.response),missingProviderFailure:componentMissing&&missingProviderFailure(s,value.response),sideEffects:value.observation}}
   async function execute(s){await login(observer,fixture.observerAccount);const call=s.spec.call;assert(call?.name&&call.namespace&&call.flowId&&call.executionIdPath&&call.expectedExecutionFields,'complete tool/execution expectations required');const value=await rpc(s,'tools/call',{name:call.name,arguments:call.arguments});assert.equal(value.status,200);assert(value.message?.result&&!value.message.error&&value.message.result.isError!==true,'allowed tool execution failed');const id=get(value.message,call.executionIdPath);assert(typeof id==='string'&&id,'published execution ID missing from actual tool result');const deadline=Date.now()+(fixture.executionTimeoutMs??60000);let stored;do{const response=await observer.request('/api/v1/main/executions/'+encodeURIComponent(id));assert.equal(response.status,200);stored=await response.json();assert.equal(stored.namespace,call.namespace);assert.equal(stored.flowId,call.flowId);if(stored.state?.current==='SUCCESS')break;assert(!['FAILED','KILLED','CANCELLED'].includes(stored.state?.current),'execution failed');await sleep(250)}while(Date.now()<deadline);assert.equal(stored.state?.current,'SUCCESS');for(const [path,expected]of Object.entries(call.expectedExecutionFields))assert(jsonEqual(get(stored,path),expected),'persisted execution field mismatch: '+path);assert(call.expectedOutputs&&Object.keys(call.expectedOutputs).length,'explicit persisted output expectations required');const outputResponse=await observer.request('/'+'api/v1/main/outputs/executions/'+encodeURIComponent(id));assert.equal(outputResponse.status,200);const outputs=await outputResponse.json();for(const [path,expected]of Object.entries(call.expectedOutputs))assert(jsonEqual(get(outputs,path),expected),'persisted flow output mismatch: '+path);assert.equal(outputs.executionId,id);assert(jsonEqual(value.message.result.structuredContent,outputs),'MCP output differs from persisted output API');assert.equal(typeof fixture.databaseExecution,'function','read-only DB observer required');const db=await fixture.databaseExecution({id,namespace:call.namespace,flowId:call.flowId});assert.equal(db.id,id);assert.equal(db.namespace,stored.namespace);assert.equal(db.flowId,stored.flowId);assert.equal(db.state,'SUCCESS');assert.equal(db.outputsStored,true,'execution output storage record missing');return {id,namespace:stored.namespace,flowId:stored.flowId,state:stored.state.current,dbVerified:true,persistedOutputs:outputs}}
-  async function revoke(name,kind){const s=await session(name);await tools(s);assert(s.spec.expectedTools.includes(s.spec.call.name),'revoke fixture tool must be visible before mutation');const value=await fixture.management({kind,phase:'mutate',client:s.client,account:s.account,scope:s.spec.projectScopes[0],subject:s.account.subject});assert.equal(typeof value.restore,'function','revocation must provide formal restoration callback');restorations.push({label:kind,restore:value.restore,client:s.client,account:s.account,config:fixture});const mutation=await receipt(value,s.client,s.account);report.mutations.push({kind,...mutation});const start=Date.now();const listed=await denyList(s);const called=await denyCall(s);assert(Date.now()-start<=(fixture.revokeWindowMs??60000),'revocation exceeded declared window');revoked.push({...s,revocationKind:kind});return {identity:s.identity,mutation,sameSession:true,list:listed,call:called,elapsedMs:Date.now()-start}}
+  async function revoke(name,kind){const s=await session(name);await tools(s);assert(s.spec.expectedTools.includes(s.spec.call.name),'revoke fixture tool must be visible before mutation');const value=await fixture.management({kind,phase:'mutate',client:s.client,account:s.account,scope:s.spec.applicationGroupScopes[0],subject:s.account.subject});assert.equal(typeof value.restore,'function','revocation must provide formal restoration callback');restorations.push({label:kind,restore:value.restore,client:s.client,account:s.account,config:fixture});const mutation=await receipt(value,s.client,s.account);report.mutations.push({kind,...mutation});const start=Date.now();const listed=await denyList(s);const called=await denyCall(s);assert(Date.now()-start<=(fixture.revokeWindowMs??60000),'revocation exceeded declared window');revoked.push({...s,revocationKind:kind});return {identity:s.identity,mutation,sameSession:true,list:listed,call:called,elapsedMs:Date.now()-start}}
   try{
     assert(Array.isArray(fixture.denialErrors)&&Array.isArray(fixture.denialToolCodes),'published exact authorization error classification required');assert(typeof fixture.expectedUiAudience==='string'&&fixture.expectedUiAudience,'actual UI client audience required');assert((fixture.executionTimeoutMs??60000)<=60000&&(fixture.revokeWindowMs??60000)<=60000)
     effects=fixture.effects instanceof ProjectSideEffects?fixture.effects:new ProjectSideEffects(fixture.effects)
     observer=new ProductionOAuthClient(base);await login(observer,fixture.observerAccount)
     await check('mcp-production-dcr-owner-pkce-consent',async()=>{issuance=await session('allowed');return {identity:issuance.identity,realDcr:true,ownerLogin:true,pkce:'S256',explicitConsent:true,protocol:'2025-06-18'}})
     await check('mcp-tools-list-call',async()=>{assert(issuance,'DCR session unavailable');return {tools:await tools(issuance),execution:await execute(issuance)}})
-    await check('mcp-capability-without-project',async()=>{const s=await session('capabilityOnly');assert.equal(s.identity.projectScopes.length,0);assert(s.identity.protocolScopes.includes('mcp:flows:read')&&s.identity.protocolScopes.includes('mcp:executions:write'));return {identity:s.identity,list:await denyList(s),call:await denyCall(s)}})
-    await check('mcp-project-without-capability',async()=>{const s=await session('projectOnly');assert(s.identity.projectScopes.length&&!s.identity.protocolScopes.includes('mcp:executions:write')&&!s.identity.protocolScopes.includes('mcp:flows:read'));return {identity:s.identity,list:await denyList(s),call:await denyCall(s)}})
+    await check('mcp-capability-without-application-scope',async()=>{const s=await session('capabilityOnly');assert.equal(s.identity.applicationGroupScopes.length,0);assert(s.identity.protocolScopes.includes('mcp:flows:read')&&s.identity.protocolScopes.includes('mcp:executions:write'));return {identity:s.identity,list:await denyList(s),call:await denyCall(s)}})
+    await check('mcp-application-scope-without-capability',async()=>{const s=await session('projectOnly');assert(s.identity.applicationGroupScopes.length&&!s.identity.protocolScopes.includes('mcp:executions:write')&&!s.identity.protocolScopes.includes('mcp:flows:read'));return {identity:s.identity,list:await denyList(s),call:await denyCall(s)}})
     let unbound
-    await check('mcp-known-plus-unbound-list',async()=>{unbound=await session('knownUnbound');assert(unbound.identity.projectScopes.includes(scopeNames.unbound)&&unbound.identity.projectScopes.some(scope=>scope!==scopeNames.unbound));return {identity:unbound.identity,list:await denyList(unbound)}})
+    await check('mcp-known-plus-unbound-list',async()=>{unbound=await session('knownUnbound');assert(unbound.identity.applicationGroupScopes.includes(scopeNames.unbound)&&unbound.identity.applicationGroupScopes.some(scope=>scope!==scopeNames.unbound));return {identity:unbound.identity,list:await denyList(unbound)}})
     await check('mcp-known-plus-unbound-call',async()=>{assert(unbound,'unbound session unavailable');return {identity:unbound.identity,call:await denyCall(unbound)}})
-    await check('mcp-same-session-local-revoke',()=>revoke('localRevoke','revoke-local-scope'))
-    await check('mcp-same-session-directory-revoke',()=>revoke('directoryRevoke','revoke-directory-scope'))
-    await check('mcp-subject-revoke',()=>revoke('subjectRevoke','revoke-subject-scopes'))
-    await check('refresh-cannot-restore-revoked-scope',async()=>{assert.equal(revoked.length,3,'all three revocation modes must reach refresh checks');const results=[];for(const s of revoked){const status=await s.client.refresh();assert(status<500&&status!==404,'refresh infrastructure failure is not revocation');if(status===200){const actual=await s.client.verifiedAccessIdentity({projectId:applicationProject,subject:s.account.subject});if(s.revocationKind==='revoke-local-scope'){assert.deepEqual(sorted(actual.projectScopes),sorted(s.spec.projectScopes),'local grants change must not rewrite identity assignments')}else assert(!actual.projectScopes.some(scope=>s.spec.projectScopes.includes(scope)),'refresh restored a revoked identity project scope')}else assert([400,401,403].includes(status),'unexpected refresh status');results.push({subject:s.account.subject,status,list:await denyList(s),call:await denyCall(s)})}return {results}})
+    await check('mcp-same-session-application-policy-revoke',()=>revoke('localRevoke','revoke-application-scope-policy'))
+    await check('mcp-same-session-supported-scope-revoke',()=>revoke('directoryRevoke','revoke-supported-scope'))
+    await check('mcp-user-scope-revoke',()=>revoke('subjectRevoke','revoke-subject-scopes'))
+    await check('refresh-cannot-restore-revoked-scope',async()=>{assert.equal(revoked.length,3,'all three revocation modes must reach refresh checks');const results=[];for(const s of revoked){const status=await s.client.refresh();assert(status<500&&status!==404,'refresh infrastructure failure is not revocation');if(status===200){const actual=await s.client.verifiedAccessIdentity({applicationGroupId:applicationProject,subject:s.account.subject});if(s.revocationKind==='revoke-application-scope-policy'){assert.deepEqual(sorted(actual.applicationGroupScopes),sorted(s.spec.applicationGroupScopes),'local grants change must not rewrite identity assignments')}else assert(!actual.applicationGroupScopes.some(scope=>s.spec.applicationGroupScopes.includes(scope)),'refresh restored a revoked identity project scope')}else assert([400,401,403].includes(status),'unexpected refresh status');results.push({subject:s.account.subject,status,list:await denyList(s),call:await denyCall(s)})}return {results}})
     await check('mcp-missing-extension',async()=>{
       const config=fixture.missingExtension
       assert(config?.base&&config.base!==base,'separate isolated missing-jar deployment required')
       assert(config.componentAbsence?.jarAbsent===true&&config.componentAbsence.featureEnabled===true,'actual enabled runtime and absent jar evidence required')
-      const client=new ProductionOAuthClient(config.base)
-      await login(client,config.account)
-      const issued=await client.issueMcpScopes(config.scenario.protocolScopes,async()=>{throw new Error('Missing extension cannot approve a new client')},
-        async current=>login(current,config.account),{registeredClient:config.registeredClient})
-      const identity=await client.verifiedAccessIdentity({projectId:applicationProject,subject:config.account.subject,
-        expectedProjectScopes:[],expectedProtocolScopes:config.scenario.protocolScopes})
-      assert.deepEqual(sorted(issued.issuedScopes),sorted(config.scenario.protocolScopes),'missing provider issued application scope')
+      assert(config.issuedClient&&config.authorizationDenied?.error==='invalid_scope'&&config.authorizationDenied.codeIssued===false,'missing provider must reject new ordinary client credentials')
+      const client=config.issuedClient
+      const identity=await client.verifiedAccessIdentity({applicationGroupId:applicationProject,subject:config.account.subject,
+        expectedApplicationGroupScopes:config.issuedIdentity.applicationGroupScopes,expectedProtocolScopes:config.scenario.protocolScopes})
+      assert(identity.applicationGroupScopes.length>0,'pre-removal credential must contain a real previously allowed group scope')
+      const oldList=await client.rpc(config.previousSession,'tools/list',{},rpcId++)
+      assert(denied(oldList,config),'missing provider accepted the old authenticated MCP session')
+      assert([400,401,403].includes(await client.refresh()),'missing provider refreshed old group credentials')
       const initialized=await client.rpc(null,'initialize',{protocolVersion:'2025-06-18',capabilities:{},clientInfo:{name:'missing-extension',version:'1'}},rpcId++)
       assert([200,401,403].includes(initialized.status),'missing component returned an unexpected initialize status')
       if(initialized.status===200)assert(initialized.session&&initialized.message?.result&&!initialized.message.error,'missing component returned invalid MCP session')
@@ -136,7 +137,7 @@ export async function runApplicationProjectMcp(base,fixture,record) {
         {name:config.scenario.call.name,arguments:config.scenario.call.arguments},rpcId++),
         response=>assert(denied(response,config)||response.status===200&&response.message?.result?.isError===true&&jsonEqual(response.message.result,config.componentFailureToolResult),
           'missing component executed a protected tool'),{windowMs:config.effectsWindowMs??5000,intervalMs:250})
-      return {identity,componentAbsence:config.componentAbsence,initializeStatus:initialized.status,
+      return {identity,componentAbsence:config.componentAbsence,authorizationDenied:config.authorizationDenied,oldSessionRejected:true,initializeStatus:initialized.status,
         list:{status:listing.status,empty:listing.message?.result?.tools?.length===0},
         call:{status:call.response.status,sideEffects:call.observation}}
     })

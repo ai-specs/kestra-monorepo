@@ -6,7 +6,7 @@ import {runApplicationProjectMcp} from './application-project-mcp-cases.mjs'
 import {runPreparedApplicationProjectUi,uiRootChecks} from './application-project-ui-fixture.mjs'
 import {requiredProjectChecks,legacyMigrationChecks,projectScopeCases} from './application-project-cases.mjs'
 
-export const plannedMcpCheckIds=Object.freeze(['mcp-production-dcr-owner-pkce-consent','mcp-tools-list-call','mcp-capability-without-project','mcp-project-without-capability','mcp-known-plus-unbound-list','mcp-known-plus-unbound-call','mcp-same-session-local-revoke','mcp-same-session-directory-revoke','mcp-subject-revoke','refresh-cannot-restore-revoked-scope','mcp-missing-extension'])
+export const plannedMcpCheckIds=Object.freeze(['mcp-production-dcr-owner-pkce-consent','mcp-tools-list-call','mcp-capability-without-application-scope','mcp-application-scope-without-capability','mcp-known-plus-unbound-list','mcp-known-plus-unbound-call','mcp-same-session-application-policy-revoke','mcp-same-session-supported-scope-revoke','mcp-user-scope-revoke','refresh-cannot-restore-revoked-scope','mcp-missing-extension'])
 
 export function initialEvidence({legacyMigration=false}={}) {
   assert.equal(typeof legacyMigration,'boolean','explicit boolean migration profile required')
@@ -45,9 +45,13 @@ export async function runIntegration(base,fixture,adapter,report,persist) {
     }
   }
   if(fixture.checkHostHealth)await fixture.checkHostHealth('before-mcp')
-  if(fixture.mcp)await runApplicationProjectMcp(base,fixture.mcp,async fragment=>{
-    report.fragments.mcp=fragment;mergeChecks(fragment);await persist()
-  })
+  try {
+    if(fixture.mcp)await runApplicationProjectMcp(base,fixture.mcp,async fragment=>{
+      report.fragments.mcp=fragment;mergeChecks(fragment);await persist()
+    })
+  } finally {
+    if(fixture.cleanupAuxiliaryDeployments)await fixture.cleanupAuxiliaryDeployments()
+  }
   if(report.fragments.featureDisabled)mergeChecks(report.fragments.featureDisabled)
   const missingMcp=report.fragments.mcp?.checks?.find(row=>row.id==='mcp-missing-extension')
   const missingRest=report.fragments.missingExtensionRest

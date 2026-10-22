@@ -2,6 +2,7 @@
 import {readFileSync} from 'node:fs'
 import assert from 'node:assert/strict'
 import {projectScopeCases, requiredProjectChecks, legacyMigrationChecks, applicationProject} from './application-project-cases.mjs'
+import {applicationGroupPluginClasses,applicationGroupTables} from './application-group-artifact-contract.mjs'
 
 const [file, image, jarSha256, rootCommit, overlayCommit, pluginCommit] = process.argv.slice(2)
 assert(file && /^ghcr\.io\/ai-specs\/kestra-overlay@sha256:[0-9a-f]{64}$/.test(image ?? ''), 'Explicit immutable image required')
@@ -20,11 +21,16 @@ if(report.profile==='new-install'){
 }else assert.deepEqual(report.excludedChecks,[],'Legacy migration cannot exclude required checks')
 const profileRequiredChecks=[...requiredProjectChecks,...(report.profile==='legacy-migration'?legacyMigrationChecks:[])]
 assert.equal(report.completed, true, 'Acceptance did not complete')
+assert.deepEqual(report.blockers,[],'Completed acceptance retains unresolved blockers')
 assert.equal(report.nonFinal, false, 'Development evidence cannot satisfy final acceptance')
 assert.equal(report.development?.allowDirtyRoot, false, 'Final acceptance requires committed sources')
 assert.equal(report.notRun, 0, 'Required checks remain unexecuted')
 assert.equal(report.mode, 'run', 'Static and configuration checks are not acceptance')
 assert(report.stages?.some(stage => stage.id === 'publication-gate' && stage.status === 'passed'), 'Formal artifact publication gate missing')
+const artifactContract=report.stages?.find(stage=>stage.id==='artifact-inputs'&&stage.status==='passed')?.evidence?.applicationGroupContract
+assert.deepEqual(artifactContract,{model:'application-group',requiredClasses:applicationGroupPluginClasses.length,obsoleteClasses:0},'Actual application-group plugin artifact contract missing')
+const storageContract=report.stages?.find(stage=>stage.id==='new-install-storage-contract'&&stage.status==='passed')?.evidence
+assert.deepEqual(storageContract,{model:'application-group',requiredTables:[...applicationGroupTables],obsoleteTables:[]},'Actual empty-install storage contract missing')
 for (const [name, commit] of [['overlay', overlayCommit], ['plugin', pluginCommit]]) {
   const source = report.sources?.[name]
   assert.equal(source?.dirty, false, `${name}: uncommitted independent source`)
@@ -34,7 +40,15 @@ for (const [name, commit] of [['overlay', overlayCommit], ['plugin', pluginCommi
 }
 assert.deepEqual(report.inputs, {image, jarSha256, rootCommit, overlayCommit, pluginCommit}, 'Report inputs differ from the final composition')
 assert.equal(report.failures, 0)
+assert(report.sources.plugin.downloadedReportGates?.unit?.includes('zero failure/skip'),'Downloaded plugin unit suite gate missing')
+assert(report.sources.plugin.downloadedReportGates?.postgres?.includes('ApplicationGroupDirectoryServiceTest 13 PostgreSQL cases executed'),'Downloaded plugin PostgreSQL business service gate missing')
 assert.equal(report.skipped, 0)
+assert.equal(report.resources?.missingExtension?.sharedPostgres,true,'Auxiliary acceptance must reuse the primary PostgreSQL service')
+assert.equal(report.resources.missingExtension.postgresContainer,report.resources.containerIds.postgres,'Auxiliary observer selected another PostgreSQL container')
+assert.equal(report.resources.missingExtension.postgresComposeProject,report.resources.composeProject,'Auxiliary database owner differs from the primary acceptance project')
+assert(/^application_group_acceptance_[0-9]+_[0-9]+$/.test(report.resources.missingExtension.database),'Dedicated auxiliary acceptance database required')
+assert.equal(report.resources.missingExtension.cleaned,true,'Auxiliary deployment must be cleaned after MCP checks')
+assert.equal(report.resources.missingExtension.databaseCleaned,true,'Auxiliary database must be cleaned after MCP checks')
 assert(Array.isArray(report.matrix) && Array.isArray(report.checks) && Array.isArray(report.ui), 'Required evidence sections missing')
 for (const row of [...report.matrix, ...report.checks, ...report.ui]) {
   assert.equal(row.status, 'passed', 'Every retained acceptance row must actually pass')
@@ -57,11 +71,11 @@ for (const testCase of projectScopeCases) for (const [index, probe] of testCase.
   assert.equal(row.skipped, undefined, label)
   assert.equal(row.expectedAllowed, probe.allowed, label)
   assert.equal(row.observed.allowed, probe.allowed, label)
-  assert.equal(row.identity.project, applicationProject, label)
+  assert.equal(row.identity.applicationGroupId, applicationProject, label)
   assert(typeof row.identity.subject === 'string' && row.identity.subject.length, label)
   assert(typeof row.identity.issuer === 'string' && row.identity.issuer.startsWith('http'), label)
   assert(Array.isArray(row.identity.audiences) && row.identity.audiences.length, label)
-  assert.deepEqual([...row.identity.projectScopes].sort(), [...testCase.scopes].sort(), label)
+  assert.deepEqual([...row.identity.applicationGroupScopes].sort(), [...testCase.scopes].sort(), label)
   assert.equal(row.resource.namespace, probe.namespace, label)
   assert.equal(row.resource.resource, probe.resource, label)
   assert.equal(row.resource.action, probe.action, label)
@@ -109,6 +123,11 @@ for (const check of report.checks) {
   checks.set(check.id, check)
 }
 for (const required of profileRequiredChecks) assert(checks.has(required), `Missing required integration check ${required}`)
+const missingProvider=checks.get('mcp-missing-extension')?.evidence
+assert.equal(missingProvider?.authorizationDenied?.error,'invalid_scope','Missing provider must reject new ordinary credentials')
+assert.equal(missingProvider.authorizationDenied.codeIssued,false)
+assert.equal(missingProvider.authorizationDenied.protocolStateUnchanged,true,'Missing provider authorization changed code/token storage')
+assert.equal(missingProvider.oldSessionRejected,true,'Previously allowed MCP session must fail closed without provider')
 const combinations = new Set()
 for (const row of report.ui) {
   assert.equal(row.passed, true, row.case)

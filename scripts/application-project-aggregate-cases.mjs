@@ -11,7 +11,7 @@ export async function runApplicationProjectAggregates(base,{planned,rest,mcp},re
   const save=async()=>{report.completed=report.checks.every(row=>row.passed);await record(structuredClone(report))}
   await save()
   const get=async(client,path)=>{const response=await client.request(path);report.requests.push({path,status:response.status});assert.equal(response.status,200);return response.json()}
-  const login=async account=>{const client=new ProductionOAuthClient(base);await client.login(account.username,account.password);await client.verifiedUiIdentity({projectId:applicationProject,subject:account.subject,audience:planned.expectedAudience});return client}
+  const login=async account=>{const client=new ProductionOAuthClient(base);await client.login(account.username,account.password);await client.verifiedUiIdentity({applicationGroupId:applicationProject,subject:account.subject,audience:planned.expectedAudience});return client}
   async function list(client,resource) {
     const items=[];let total
     for(let page=1;;page++) {

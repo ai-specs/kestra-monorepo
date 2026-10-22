@@ -11,10 +11,9 @@ const reader = (namespace, descendants = true) => [
   metadata(), serverRead(),
 ]
 const scope = (description, grants, managementGrants = []) => ({description, enabled: true, grants, managementGrants})
-export function localApplicationPolicy({issuer, audiences, directoryRevision}) {
+export function localApplicationPolicy({issuer, audiences}) {
   assert(new URL(issuer).origin === issuer, 'Acceptance issuer must be an exact origin')
   assert(Array.isArray(audiences) && audiences.length && audiences.every(value => typeof value === 'string' && value.length && !value.includes('*')))
-  assert(Number.isSafeInteger(directoryRevision) && directoryRevision > 0)
   const scopes = {
     [scopeNames.readA]: scope('A complete read', reader(namespaceDomains.a)),
     [scopeNames.writeB]: scope('B complete operate', [
@@ -34,33 +33,27 @@ export function localApplicationPolicy({issuer, audiences, directoryRevision}) {
     [scopeNames.restrictedIdB]: scope('Only the named B flow', [complete(namespaceDomains.b, 'FLOW', ['READ', 'LIST'], false, ['other-id']), metadata()]),
     [scopeNames.readOnlyIdA]: scope('A named flow READ without LIST', [complete(namespaceDomains.a, 'FLOW', ['READ'], false, ['allowed-id']), metadata()]),
     [scopeNames.listOnlyOtherIdA]: scope('A different named flow LIST without READ', [complete(namespaceDomains.a, 'FLOW', ['LIST'], false, ['other-id']), metadata()]),
-    [scopeNames.identityManager]: scope('Explicit issuer directory management', [metadata()], [{domain: 'IDENTITY', actions: ['READ', 'MANAGE'], projectIds: []}]),
-    [scopeNames.policyManager]: scope('Explicit project local policy management', [metadata()], [{domain: 'LOCAL_POLICY', actions: ['READ', 'MANAGE'], projectIds: []}]),
+    [scopeNames.identityManager]: scope('Explicit application group management', [metadata()], [{domain: 'IDENTITY', actions: ['READ', 'MANAGE'], applicationGroupIds: []}]),
+    [scopeNames.policyManager]: scope('Explicit Kestra application policy management', [metadata()], [{domain: 'LOCAL_POLICY', actions: ['READ', 'MANAGE'], applicationGroupIds: []}]),
   }
-  // An intentionally unbound directory scope is omitted from local policy. A token
-  // mixing it with a known scope must be denied, rather than using a known subset.
-  return {schemaVersion: 2, applicationProjects: {[applicationProject]: {issuer, audiences: [...audiences], enabled: true, directoryRevision, scopes}}}
+  return {schemaVersion: 2, applicationGroups: {[applicationProject]: {issuer, audiences: [...audiences], enabled: true, scopes}}}
 }
-const roleName = key => key.replace(/^acceptance-/, '').split('-').map(word => word[0].toUpperCase() + word.slice(1)).join(' ')
+const roleName = key => key===scopeNames.identityManager?'Application group administrator':key===scopeNames.policyManager?'Kestra application policy administrator':key.replace(/^acceptance-/, '').split('-').map(word => word[0].toUpperCase() + word.slice(1)).join(' ')
 export function directoryScopeInputs(localPolicy) {
-  const project = localPolicy.applicationProjects[applicationProject]
-  const definitions = Object.entries(project.scopes).map(([key, definition]) => ({scope: key, name: roleName(key), description: definition.description, active: definition.enabled,
-    resourceIntents: definition.grants.map(grant => ({vocabularyVersion: 'kestra-resources-v1', resourceType: grant.resource,
-      namespaces: grant.scope === 'TENANT' ? {kind: 'ALL', exact: [], subtrees: []}
-        : {kind: 'RESTRICTED', exact: grant.descendants ? [] : [grant.namespace], subtrees: grant.descendants ? [grant.namespace] : []},
-      resourceIds: {kind: grant.allIds ? 'ALL' : 'RESTRICTED', ids: [...grant.ids]}, actions: [...grant.actions]})),
-    managementIntents: definition.managementGrants.map(grant => ({domain: grant.domain, actions: [...grant.actions], projectIds: [...(grant.projectIds ?? [])]})),
-  }))
-  definitions.push({scope: scopeNames.unbound, name: 'Unbound role', description: 'Known directory role without a local binding', active: true,
-    resourceIntents: [{vocabularyVersion: 'kestra-resources-v1', resourceType: 'FLOW', namespaces: {kind: 'RESTRICTED', exact: [namespaceDomains.a], subtrees: []}, resourceIds: {kind: 'ALL', ids: []}, actions: ['READ', 'LIST']}], managementIntents: []})
+  const project = localPolicy.applicationGroups[applicationProject]
+  const definitions = Object.entries(project.scopes).map(([key, definition]) => ({key, name: roleName(key), description: definition.description}))
+  definitions.push({key: scopeNames.unbound, name: 'Unassigned application role', description: 'Defined group role without a Kestra resource policy'})
+  assert(definitions.every(definition => /^[a-z][a-z0-9-]{0,63}$/.test(definition.key)), 'Invalid group scope key')
+  assert.equal(new Set(definitions.map(definition => definition.key)).size, definitions.length, 'Duplicate scope key')
+  assert.equal(new Set(definitions.map(definition => definition.name)).size, definitions.length, 'Duplicate role name')
   return definitions
 }
 export const projectTestAccounts = Object.freeze(projectScopeCases.map((item, index) => Object.freeze({caseId: item.id,
-  username: 'scope-test-' + String(index + 1).padStart(2, '0'), password: 'ProjectScopeTest123!', projectScopes: item.scopes})))
+  username: 'scope-test-' + String(index + 1).padStart(2, '0'), password: 'ProjectScopeTest123!', applicationGroupScopes: item.scopes})))
 
 export const applicationPermission = (scopeKey, roleName = scopeKey) => ({key: 'access-' + createHash('sha256').update(scopeKey).digest('hex').slice(0, 20), name: 'Access ' + roleName})
 export function applicationDeclarations(fixture, clientId, keys = fixture.projectScopeCatalog) {
-  const definitions = new Map(fixture.directoryScopes.map(scope => [scope.scope, scope]))
+  const definitions = new Map(fixture.directoryScopes.map(scope => [scope.key, scope]))
   const scopes = keys.map(key => {
     const definition = definitions.get(key)
     assert(definition, 'declaration references an unknown application-group scope')

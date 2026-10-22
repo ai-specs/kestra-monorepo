@@ -29,7 +29,7 @@ export async function runApplicationProjectOauth(base,{planned,snapshot},record)
         return response
       }
       await client.login(planned.admin.username,planned.admin.password)
-      const beforeIdentity=await client.verifiedUiIdentity({projectId:applicationProject,subject:planned.admin.subject,audience:planned.expectedAudience})
+      const beforeIdentity=await client.verifiedUiIdentity({applicationGroupId:applicationProject,subject:planned.admin.subject,audience:planned.expectedAudience})
       const authenticationHashes=()=>Object.fromEntries(['JWT','oidc_session'].map(name=>[name,cookieHashes.get(name)]))
       const beforeAuthentication=authenticationHashes()
       assert(beforeAuthentication.JWT&&beforeAuthentication.oidc_session,'production login must issue both authentication cookies')
@@ -71,7 +71,7 @@ export async function runApplicationProjectOauth(base,{planned,snapshot},record)
       if(row.id==='oauth-error-callback-preserves-session') {
         const valid=await attempt(first,{status:303,clearState:true})
         const replay=await attempt(first,{status:400})
-        const afterIdentity=await client.verifiedUiIdentity({projectId:applicationProject,subject:planned.admin.subject,audience:planned.expectedAudience})
+        const afterIdentity=await client.verifiedUiIdentity({applicationGroupId:applicationProject,subject:planned.admin.subject,audience:planned.expectedAudience})
         assert.deepEqual(afterIdentity,beforeIdentity)
         row.evidence={beforeIdentity,afterIdentity,valid,replay,productionLogin:true}
       } else {

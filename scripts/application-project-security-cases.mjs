@@ -17,6 +17,7 @@ import assert from 'node:assert/strict'
 import {execFileSync} from 'node:child_process'
 import {createHash,randomBytes} from 'node:crypto'
 import {ProductionOAuthClient} from './production-oauth-client.mjs'
+import {planRestResources} from './application-project-fixture.mjs'
 import {applicationProject,scopeNames,namespaceDomains} from './application-project-cases.mjs'
 import {mcpFlowSource,mcpProtocolEvidence} from './application-project-fixture.mjs'
 import {applicationPermission} from './application-project-policy.mjs'
@@ -24,24 +25,23 @@ import {runApplicationProjectOauth,oauthCheckIds} from './application-project-oa
 
 export const securityCheckIds=Object.freeze([
   'legacy-write-api-removed',
-  'last-identity-administrator','last-local-policy-administrator',
-  'local-policy-unapproved-project-denied','management-target-action-cross-scope-denied',
-  'reconciliation-complete-project-atomic','rest-subject-revoke','wrong-tenant',
-  'wrong-issuer','wrong-audience','wrong-project','directory-unavailable','policy-unavailable',
+  'last-application-group-administrator','last-application-policy-administrator',
+  'application-policy-unregistered-group-denied','management-target-action-cross-scope-denied',
+  'scope-metadata-independent-of-application-policy','rest-subject-revoke','wrong-tenant',
+  'wrong-issuer','wrong-audience','wrong-application-group','directory-unavailable','policy-unavailable',
   ...oauthCheckIds,
 ])
 const api='/api/v1/main/extensions/rbac'
-const projectPath=api+'/projects/'+encodeURIComponent(applicationProject)
-const identityPath=api+'/identity/projects/'+encodeURIComponent(applicationProject)
-const recoveryPath=projectPath+'/reconciliation'
+const groupPath=api+'/application-groups/'+encodeURIComponent(applicationProject)
+const runtimePath=groupPath+'/applications/~'+Buffer.from('kestra-ui').toString('base64url')+'/runtime-permissions'
 const key=value=>'~'+Buffer.from(value).toString('base64url')
 const hash=value=>createHash('sha256').update(typeof value==='string'?value:JSON.stringify(value)).digest('hex')
 const delay=ms=>new Promise(resolve=>setTimeout(resolve,ms))
 // Public grant/action/ID collections are sets; JSON array order is not semantic.
 const semantic=value=>Array.isArray(value)?value.map(semantic).sort((a,b)=>String(JSON.stringify(a)).localeCompare(String(JSON.stringify(b)))):value&&typeof value==='object'?Object.fromEntries(Object.entries(value).filter(([name,item])=>!(name==='namespace'&&item===null&&value.scope==='TENANT')).sort(([a],[b])=>a.localeCompare(b)).map(([k,v])=>[k,semantic(v)])):value
 const same=(actual,expected,message)=>assert.deepEqual(semantic(actual),semantic(expected),message)
-const scopeInput=(name,value)=>({name,...structuredClone(value)})
-const directoryScopeInput=value=>Object.fromEntries(['scope','name','description','active','resourceIntents','managementIntents'].map(name=>[name,structuredClone(value[name])]))
+const scopeInput=(scopeKey,value)=>({scopeKey,...structuredClone(value)})
+const directoryScopeInput=value=>Object.fromEntries(['key','name','description'].map(name=>[name,structuredClone(value[name])]))
 class Unavailable extends Error {}
 
 export async function runApplicationProjectSecurity(base,fixture={},record) {
@@ -61,10 +61,10 @@ export async function runApplicationProjectSecurity(base,fixture={},record) {
     catch(error){active.status=error instanceof Unavailable?'not_run':'failed';active.evidence.error=safe(error);if(error.sideEffects)active.evidence.sideEffects=error.sideEffects}
     active.evidence.finishedAt=new Date().toISOString();await persist()
   }
-  async function request(client,path,method='GET',body,revision) {
+  async function request(client,path,method='GET',body,revision,{contentType='application/json'}={}) {
     const started=performance.now()
     let response
-    try{response=await client.request(path,{method,signal:AbortSignal.timeout(20_000),headers:{Accept:'application/json',...(body===undefined?{}:{'Content-Type':'application/json'}),...(revision===undefined?{}:{'If-Match':'"'+revision+'"'})},...(body===undefined?{}:{body:JSON.stringify(body)})})}
+    try{response=await client.request(path,{method,signal:AbortSignal.timeout(20_000),headers:{Accept:'application/json',...(body===undefined?{}:{'Content-Type':contentType}),...(revision===undefined?{}:{'If-Match':'"'+revision+'"'})},...(body===undefined?{}:{body:contentType==='application/json'?JSON.stringify(body):body})})}
     catch(error){report.requests.push({check:active?.id,path,method,status:null,error:safe(error),elapsedMs:Math.ceil(performance.now()-started),at:new Date().toISOString()});await persist();throw error}
     report.requests.push({check:active?.id,path,method,status:response.status,elapsedMs:Math.ceil(performance.now()-started),at:new Date().toISOString()})
     // Never persist response bodies (accounts or provider error pages can contain secrets).
@@ -77,7 +77,7 @@ export async function runApplicationProjectSecurity(base,fixture={},record) {
     assert(account?.username&&account.password&&account.subject,'actual production account required')
     const client=new ProductionOAuthClient(base)
     const login=await client.login(account.username,account.password)
-    const identity=await client.verifiedUiIdentity({projectId:applicationProject,subject:account.subject,audience:planned.expectedAudience})
+    const identity=await client.verifiedUiIdentity({applicationGroupId:applicationProject,subject:account.subject,audience:planned.expectedAudience})
     report.logins.push({check:active?.id,label,callbackPath:login.callbackPath,authenticated:login.authenticated,identity})
     await persist();return client
   }
@@ -85,23 +85,28 @@ export async function runApplicationProjectSecurity(base,fixture={},record) {
   const sql=query=>execFileSync('docker',['exec',observer.postgresContainer,'psql','-X','-U','kestra','-d','kestra','-v','ON_ERROR_STOP=1','-Atc',query],{encoding:'utf8',timeout:20_000,maxBuffer:1024*1024}).trim()
   function securitySnapshot() {
     // Published table layouts are read only. Session/token tables are deliberately
-    // excluded: production login changes them; project state and policy must not.
+    // excluded: production login changes them; group state and policy must not.
     const state=sql(`SELECT json_build_object(
-      'invalidation',(SELECT md5(coalesce(string_agg(row_to_json(t)::text,'|' ORDER BY singleton),'')) FROM oidc_project_invalidation t),
-      'directory',(SELECT md5(coalesce(string_agg(row_to_json(t)::text,'|' ORDER BY application_group_id),'')) FROM oidc_project_state t),
-      'policyHead',(SELECT md5(coalesce(string_agg(row_to_json(t)::text,'|' ORDER BY policy_id),'')) FROM rbac_project_policy_head t),
-      'policySnapshots',(SELECT md5(coalesce(string_agg(row_to_json(t)::text,'|' ORDER BY revision),'')) FROM rbac_project_policy_snapshot t))::text`)
+      'invalidation',(SELECT md5(coalesce(string_agg(row_to_json(t)::text,'|' ORDER BY group_id),'')) FROM rbac_application_group_invalidation t),
+      'directory',(SELECT md5(coalesce(string_agg(row_to_json(t)::text,'|' ORDER BY group_id),'')) FROM rbac_application_group_state t),
+      'directoryBootstrap',(SELECT md5(coalesce(string_agg(row_to_json(t)::text,'|' ORDER BY singleton_id),'')) FROM rbac_application_group_bootstrap t),
+      'retiredGroups',(SELECT md5(coalesce(string_agg(row_to_json(t)::text,'|' ORDER BY group_id),'')) FROM rbac_application_group_retired t),
+      'applicationDeclarations',(SELECT md5(coalesce(string_agg(row_to_json(t)::text,'|' ORDER BY application_group_id,client_id,scope_key),'')) FROM rbac_application_scope_declaration t),
+      'accounts',(SELECT md5(coalesce(string_agg(row_to_json(t)::text,'|' ORDER BY username),'')) FROM (SELECT username,name,email,email_verified,user_state,password_change_required,roles,directory_revision,authentication_version FROM oidc_user) t),
+      'authenticationMethods',(SELECT md5(coalesce(string_agg(row_to_json(t)::text,'|' ORDER BY id),'')) FROM (SELECT id,user_id,type,state,credential,name FROM oidc_user_auth_method) t),
+      'policyHead',(SELECT md5(coalesce(string_agg(row_to_json(t)::text,'|' ORDER BY policy_id),'')) FROM rbac_application_group_policy_head t),
+      'policySnapshots',(SELECT md5(coalesce(string_agg(row_to_json(t)::text,'|' ORDER BY revision),'')) FROM rbac_application_group_policy_snapshot t))::text`)
     const business=effects.snapshot()
     const sources={security:hash(state),business:business.hash,...business.sources}
     return {hash:hash(sources),sources}
   }
-  async function deny(client,path,method,body,revision,{statuses=[403],code,invalidTenant=false,windowMs=fixture.effectsWindowMs??5000}={}) {
+  async function deny(client,path,method,body,revision,{statuses=[403],code,invalidTenant=false,windowMs=fixture.effectsWindowMs??5000,contentType='application/json'}={}) {
     assert(windowMs>=5000&&windowMs<=60000,'bounded delayed-effect window required')
     const before=securitySnapshot(),started=performance.now()
     const evidence={expectedStatuses:statuses,expectedCode:code,before:before.hash,beforeSources:before.sources,windowMs,samples:[]}
     await step('before-denied-request',evidence)
     let result,requestFailure
-    try{result=await request(client,path,method,body,revision);evidence.status=result.status;evidence.code=result.value?.error??result.value?.code}
+    try{result=await request(client,path,method,body,revision,{contentType});evidence.status=result.status;evidence.code=result.value?.error??result.value?.code}
     catch(error){requestFailure=error;evidence.requestError=safe(error)}
     // Persist response failure AND all delayed hashes rather than throwing early.
     await step('denied-response',evidence)
@@ -132,9 +137,15 @@ export async function runApplicationProjectSecurity(base,fixture={},record) {
     catch(error){report.cleanup.push({check:active.id,name,passed:false,error:safe(error)});await persist();throw error}
   }
   async function saveScope(client,name,definition) {
-    const policy=await get(client,api+'/policy')
-    const saved=await request(client,projectPath+'/scopes/'+key(name),'PUT',scopeInput(name,definition),policy.revision)
-    assert.equal(saved.status,200,'allowed scope save');same(saved.value.policy.applicationProjects[applicationProject].scopes[name],definition)
+    const before=await get(client,runtimePath)
+    assert.equal(before.applicationGroupId,applicationProject);assert.equal(before.clientId,'kestra-ui')
+    const saved=await request(client,runtimePath+'/scopes/'+encodeURIComponent(name),'PUT',scopeInput(name,definition),before.revision)
+    assert.equal(saved.status,200,'allowed scope save');assert.deepEqual(Object.keys(saved.value),['revision'])
+    assert(saved.value.revision>before.revision)
+    const after=await get(client,runtimePath)
+    assert.equal(after.applicationGroupId,applicationProject);assert.equal(after.clientId,'kestra-ui');assert(after.revision>=saved.value.revision)
+    same(after.policy.scopes[name],definition)
+    for(const other of Object.keys(before.policy.scopes))if(other!==name)same(after.policy.scopes[other],before.policy.scopes[other])
     return saved.value
   }
   try {
@@ -155,42 +166,48 @@ export async function runApplicationProjectSecurity(base,fixture={},record) {
     securitySnapshot()
   }catch(error){for(const row of report.checks)row.evidence.reason=safe(error);report.preconditionFailure=error instanceof Unavailable?null:safe(error);await persist();return report}
 
-  await check('last-identity-administrator',async()=>{
+  await check('last-application-group-administrator',async()=>{
     let client=await manager()
     // Prove an actual identity-directory write is allowed, then restore its field.
-    const baselinePath=identityPath+'/scopes/'+key(scopeNames.readA)
+    const baselinePath=groupPath+'/scopes/'+encodeURIComponent(scopeNames.readA)
     const baselineScope=await get(client,baselinePath)
     try {
-      await management.mutateIdentity(baselinePath,'PUT',{...directoryScopeInput(baselineScope),description:baselineScope.description+' [identity allowed baseline]'},baselineScope.revision)
+      await management.mutateDirectory(baselinePath,'PUT',{...directoryScopeInput(baselineScope),description:baselineScope.description+' [identity allowed baseline]'},baselineScope.revision)
       const saved=await get(await manager(),baselinePath)
       assert.notEqual(saved.description,baselineScope.description)
       await step('allow-write-baseline',{scope:scopeNames.readA,savedDescription:true})
     }finally{await restore('identity-directory-baseline-description',async()=>{
       const current=await get(await manager(),baselinePath)
-      await management.mutateIdentity(baselinePath,'PUT',directoryScopeInput(baselineScope),current.revision)
+      await management.mutateDirectory(baselinePath,'PUT',directoryScopeInput(baselineScope),current.revision)
       assert.equal((await get(await manager(),baselinePath)).description,baselineScope.description)
     })}
     client=await manager()
-    const assignments=await get(client,identityPath+'/assignments?page=1&size=100')
+    const builtin=await get(client,groupPath)
+    assert.equal(builtin.builtIn,true,'installation group must have explicit persisted builtin identity')
+    await deny(client,groupPath,'DELETE',undefined,builtin.revision,{statuses:[400],code:'invalid_request'})
+    assert.equal((await get(await manager(),groupPath)).id,builtin.id,'builtin group deletion changed the catalog')
+    const assignments=await get(client,groupPath+'/scope-grants?page=1&size=100')
     assert(assignments.items&&assignments.total===assignments.items.length,'complete assignment baseline required')
-    const scopes=await get(client,identityPath+'/scopes?page=1&size=100')
+    const scopes=await get(client,groupPath+'/scopes?page=1&size=100')
     assert(scopes.items&&scopes.total===scopes.items.length,'complete scope baseline required')
-    const managers=new Set(scopes.items.filter(s=>s.active&&s.managementIntents.some(g=>g.domain==='IDENTITY'&&g.actions.includes('MANAGE'))).map(s=>s.scope))
-    const administrators=assignments.items.filter(a=>a.projectScopes.some(s=>managers.has(s)))
+    const actual=await get(client,runtimePath)
+    const known=new Set(scopes.items.map(scope=>scope.key))
+    const managers=new Set(Object.entries(actual.policy.scopes).filter(([name,scope])=>known.has(name)&&scope.enabled&&scope.managementGrants.some(grant=>grant.domain==='IDENTITY'&&grant.actions.includes('MANAGE'))).map(([name])=>name))
+    const administrators=assignments.items.filter(a=>a.scopeKeys.some(s=>managers.has(s)))
     if(administrators.length!==1||administrators[0].subject!==planned.admin.subject)throw new Unavailable('Test requires sole assigned identity administrator; refusing to alter other accounts')
-    const path=identityPath+'/assignments/detail?subject='+encodeURIComponent(planned.admin.subject)
+    const path=groupPath+'/scope-grants/detail?subject='+encodeURIComponent(planned.admin.subject)
     const original=await get(client,path)
-    await step('allow-baseline',{subject:original.subject,administratorCount:1,projectScopes:original.projectScopes})
-    try{await deny(client,path,'PUT',{issuer:base,subject:original.subject,projectScopes:original.projectScopes.filter(s=>!managers.has(s))},original.revision,{statuses:[409],code:'last_administrator'})}
-    finally{await restore('last-identity-administrator-unchanged',async()=>{
+    await step('allow-baseline',{subject:original.subject,administratorCount:1,applicationGroupScopes:original.scopeKeys})
+    try{await deny(client,path,'PUT',{issuer:base,subject:original.subject,scopeKeys:original.scopeKeys.filter(s=>!managers.has(s))},original.revision,{statuses:[409],code:'last_administrator'})}
+    finally{await restore('last-application-group-administrator-unchanged',async()=>{
       same(await get(await manager(),path),original)
       await step('restoration-verified',{unchanged:true,subject:original.subject})
     })}
   })
 
-  await check('last-local-policy-administrator',async()=>{
-    const client=await manager(),projection=await get(client,recoveryPath)
-    const managerScopes=Object.entries(projection.project.scopes).filter(([,s])=>s.enabled&&s.managementGrants.some(g=>g.domain==='LOCAL_POLICY'&&g.actions.includes('MANAGE')&&(!(g.projectIds?.length)||g.projectIds.includes(applicationProject))))
+  await check('last-application-policy-administrator',async()=>{
+    const client=await manager(),projection=await get(client,runtimePath)
+    const managerScopes=Object.entries(projection.policy.scopes).filter(([,s])=>s.enabled&&s.managementGrants.some(g=>g.domain==='LOCAL_POLICY'&&g.actions.includes('MANAGE')&&(!(g.applicationGroupIds?.length)||g.applicationGroupIds.includes(applicationProject))))
     if(managerScopes.length!==1)throw new Unavailable('Exactly one local management binding required; no bulk administrator removal')
     const [name,original]=managerScopes[0]
     // A real, reversible allowed write proves write authentication, CSRF and CAS.
@@ -198,106 +215,99 @@ export async function runApplicationProjectSecurity(base,fixture={},record) {
       await saveScope(client,name,{...original,description:original.description+' [security allowed baseline]'})
       await step('allow-baseline',{scope:name,savedDescription:true})
     }finally{await restore('local-manager-description',async()=>{await saveScope(await manager(),name,original)})}
-    const fresh=await manager(),policy=await get(fresh,api+'/policy')
-    try{await deny(fresh,projectPath+'/scopes/'+key(name),'PUT',scopeInput(name,{...original,enabled:false}),policy.revision,{statuses:[409],code:'last_administrator'})}
+    const fresh=await manager(),policy=await get(fresh,runtimePath)
+    try{await deny(fresh,runtimePath+'/scopes/'+encodeURIComponent(name),'PUT',scopeInput(name,{...original,enabled:false}),policy.revision,{statuses:[409],code:'last_administrator'})}
     finally{await restore('last-local-administrator-unchanged',async()=>{
-      same(await get(await manager(),projectPath+'/scopes/'+key(name)),original)
+      same(await get(await manager(),runtimePath+'/scopes/'+encodeURIComponent(name)),original)
       await step('restoration-verified',{unchanged:true,scope:name})
     })}
   })
 
-  await check('local-policy-unapproved-project-denied',async()=>{
-    const client=await manager(),id='security-unapproved-'+randomBytes(6).toString('hex'),path=api+'/identity/projects/'+id
-    let created=false
+  await check('application-policy-unregistered-group-denied',async()=>{
+    const id='security-unregistered-'+randomBytes(6).toString('hex'),path=api+'/application-groups/'+id
+    let attempted=false
+    const before=await get(await manager(),runtimePath)
     try {
-      const response=await request(client,api+'/identity/projects','POST',{id,tenant:'main',displayName:'Isolated unapproved local-policy target'})
-      assert.equal(response.status,200);created=true
-      const shared=await get(await manager(),path)
-      assert.equal(shared.id,id);assert.equal(shared.active,true)
-      await step('allow-baseline',{identityCreateStatus:response.status,identityRead:true,targetProject:id})
-      const current=await manager(),policy=await get(current,api+'/policy')
-      assert(!policy.policy.applicationProjects[id],'target must not have local binding')
-      await deny(current,api+'/projects','POST',{id,issuer:base,audiences:['kestra-ui'],enabled:true,directoryRevision:shared.revision},policy.revision)
-      assert(!(await get(await manager(),api+'/policy')).policy.applicationProjects[id])
-    }finally{
-      if(created)await restore('deactivate-isolated-identity-project',async()=>{
-        const client=await manager(),shared=await get(client,path)
-        const response=await request(client,path,'PUT',{displayName:shared.displayName,active:false},shared.revision)
-        assert.equal(response.status,200);assert.equal((await get(await manager(),path)).active,false)
-        // The public API has no project DELETE. Retain a named inactive project,
-        // only in this disposable Compose deployment; never delete DB rows.
-        await step('restoration-verified',{targetProject:id,active:false,retainedInactive:true,reason:'public project delete is unsupported'})
+      attempted=true
+      const response=await request(await manager(),api+'/application-groups','POST',{id,tenant:'main',displayName:'Isolated group without current application'})
+      assert.equal(response.status,200)
+      const group=await get(await manager(),path)
+      assert.equal(group.id,id);assert.equal(group.active,true)
+      same(await get(await manager(),runtimePath),before,'group creation changed application policy storage')
+      await step('allow-baseline',{groupCreateStatus:200,groupRead:true,applicationGroupId:id,policyRevision:before.revision})
+      const target=path+'/applications/'+key('kestra-ui')+'/runtime-permissions'
+      await deny(await manager(),target,'POST',{issuer:base,audiences:['kestra-ui'],enabled:true},before.revision,{statuses:[403,404]})
+      same(await get(await manager(),runtimePath),before)
+    } finally {
+      if(attempted)await restore('delete-empty-unregistered-application-group',async()=>{
+        const client=await manager(),existing=await request(client,path)
+        if(existing.status===200) {
+          const deletion=await request(client,path,'DELETE',undefined,existing.value.revision)
+          assert.equal(deletion.status,200,'empty ordinary group deletion must be supported')
+        }else assert([403,404].includes(existing.status),'unexpected cleanup group state')
+        const groups=await get(await manager(),api+'/application-groups?page=1&size=100')
+        assert.equal(groups.total,groups.items.length,'complete group cleanup list required')
+        assert(!groups.items.some(group=>group.id===id),'ordinary group was not deleted')
+        same(await get(await manager(),runtimePath),before)
+        await step('restoration-verified',{applicationGroupId:id,deleted:true,policyUnchanged:true})
       })
     }
   })
 
-  await check('reconciliation-complete-project-atomic',async()=>{
-    let client=await manager()
-    const directoryPath=identityPath+'/scopes/'+key(scopeNames.readA)
-    const directoryOriginal=await get(client,directoryPath)
-    const originalProjection=await get(client,recoveryPath)
-    const original=structuredClone(originalProjection.project)
-    let directoryChanged=false,localChanged=false
+  await check('scope-metadata-independent-of-application-policy',async()=>{
+    const directoryPath=groupPath+'/scopes/'+encodeURIComponent(scopeNames.readA)
+    const before=await get(await manager(),runtimePath)
+    const original=await get(await manager(),directoryPath)
+    const peer=await get(await manager(),groupPath+'/scopes/'+encodeURIComponent(scopeNames.writeB))
+    const reader=planned.accounts.reader
+    const allowed='/api/v1/main/flows/'+encodeURIComponent(namespaceDomains.a)+'/allowed-id'
+    const outside='/api/v1/main/flows/'+encodeURIComponent(namespaceDomains.b)+'/other-id'
+    const baseline=await login(reader,'metadata-before-change')
+    assert.equal((await request(baseline,allowed)).status,200);assert.equal((await request(baseline,outside)).status,403)
+    let attempted=false
     try {
-      // Advance the real directory revision without silently reconciling it.
-      const change=await request(client,directoryPath,'PUT',{...directoryScopeInput(directoryOriginal),description:directoryOriginal.description+' [atomic security review]'},directoryOriginal.revision)
-      assert.equal(change.status,200);directoryChanged=true
-      client=await manager()
-      const projection=await get(client,recoveryPath)
-      assert(projection.directoryRevision>original.directoryRevision)
-      assert.equal(projection.project.directoryRevision,original.directoryRevision)
-      const candidate={...structuredClone(projection.project),directoryRevision:projection.directoryRevision}
-      candidate.scopes[scopeNames.readA].description+=' [atomic A]'
-      candidate.scopes[scopeNames.writeB].description+=' [atomic B]'
-      // One valid edit plus another out-of-bound binding must commit NOTHING,
-      // including the new directoryRevision and the first valid description.
-      const invalid=structuredClone(candidate)
-      invalid.scopes[scopeNames.writeB].grants.find(g=>g.resource==='FLOW').namespace=namespaceDomains.outside
-      await step('allow-baseline',{reconciliationRead:true,staleRevision:original.directoryRevision,targetRevision:projection.directoryRevision,scopeCount:Object.keys(candidate.scopes).length})
-      await deny(client,recoveryPath,'PUT',invalid,projection.policyRevision,{statuses:[400]})
-      const rejected=await get(client,recoveryPath)
-      assert.equal(rejected.policyRevision,projection.policyRevision);same(rejected.project,projection.project)
-      const saved=await request(client,recoveryPath,'PUT',candidate,projection.policyRevision)
-      assert.equal(saved.status,200);localChanged=true
-      const actual=await get(await manager(),recoveryPath)
-      same(actual.project,candidate);assert.equal(actual.policyRevision,projection.policyRevision+1)
-      await step('atomic-allow-saved',{revision:actual.policyRevision,projectHash:hash(actual.project),bothDescriptionsSaved:true,directoryRevision:actual.directoryRevision})
-    }finally{
-      if(directoryChanged||localChanged)await restore('complete-project-and-directory',async()=>{
-        const client=await manager(),projection=await get(client,recoveryPath)
-        const restored={...structuredClone(original),directoryRevision:projection.directoryRevision}
-        const saved=await request(client,recoveryPath,'PUT',restored,projection.policyRevision);assert.equal(saved.status,200)
+      attempted=true
+      await management.mutateDirectory(directoryPath,'PUT',{key:original.key,name:original.name+' metadata review',description:original.description+' [metadata only]'},original.revision)
+      const changed=await get(await manager(),directoryPath)
+      assert.equal(changed.key,original.key);assert.notEqual(changed.name,original.name);assert.notEqual(changed.description,original.description)
+      same(await get(await manager(),runtimePath),before,'group metadata changed application policy or its revision')
+      const fresh=await login(reader,'metadata-after-change')
+      assert.equal((await request(fresh,allowed)).status,200);assert.equal((await request(fresh,outside)).status,403)
+      const client=await manager()
+      await deny(client,directoryPath,'PUT',{key:'renamed-scope',name:changed.name,description:changed.description},changed.revision,{statuses:[400]})
+      await deny(client,directoryPath,'PUT',{key:changed.key,name:peer.name,description:changed.description},changed.revision,{statuses:[400],code:'invalid_request'})
+      await deny(client,directoryPath,'DELETE',undefined,changed.revision,{statuses:[412]})
+      same(await get(await manager(),directoryPath),changed)
+      same(await get(await manager(),runtimePath),before)
+      await step('metadata-independent-allow-deny',{scopeKey:changed.key,policyRevision:before.revision,roleNameChanged:true,descriptionChanged:true,resourceAllowed:200,resourceOutsideDenied:403,keyRenameRejected:true,duplicateNameRejected:true,referencedDeleteRejected:true})
+    } finally {
+      if(attempted)await restore('scope-metadata-restored-without-policy-save',async()=>{
         const current=await get(await manager(),directoryPath)
-        // Original full policy semantics match planned; normal reviewed helper
-        // may now reconcile the next directory revision without inventing grants.
-        await management.mutateIdentity(directoryPath,'PUT',directoryScopeInput(directoryOriginal),current.revision)
-        const confirmed=await get(await manager(),recoveryPath)
-        same(confirmed.project.scopes,original.scopes)
-        assert.equal(confirmed.project.directoryRevision,confirmed.directoryRevision)
-        assert.equal((await get(await manager(),directoryPath)).description,directoryOriginal.description)
-        await step('restoration-verified',{scopesHash:hash(confirmed.project.scopes),directoryRevision:confirmed.directoryRevision})
+        await management.mutateDirectory(directoryPath,'PUT',directoryScopeInput(original),current.revision)
+        const restored=await get(await manager(),directoryPath)
+        same(directoryScopeInput(restored),directoryScopeInput(original))
+        same(await get(await manager(),runtimePath),before)
+        await step('restoration-verified',{scopeKey:original.key,policyRevisionUnchanged:true})
       })
     }
   })
 
   await check('rest-subject-revoke',async()=>{
     const account=planned.accounts.reader
-    const path=identityPath+'/assignments/detail?subject='+encodeURIComponent(account.subject)
+    const path=groupPath+'/scope-grants/detail?subject='+encodeURIComponent(account.subject)
     const businessPath='/api/v1/main/flows/'+encodeURIComponent(namespaceDomains.a)+'/allowed-id'
     const oldClient=await login(account,'subject-before-revoke')
     assert.equal((await request(oldClient,businessPath)).status,200)
     const original=await get(await manager(),path)
-    assert(original.projectScopes.includes(scopeNames.readA))
+    assert(original.scopeKeys.includes(scopeNames.readA))
     const bound=fixture.revokeWindowMs??60000
     assert(bound>0&&bound<=60000,'explicit bounded revocation contract required')
     let changed=false
     try {
       await management.login()
       const start=performance.now(),at=new Date().toISOString()
-      // Record commit return separately; do not wait for reconciliation before
-      // measuring denial on the old, still-held production UI cookie.
       changed=true // A transport failure may occur after the transaction committed.
-      await management.request(path,'PUT',{issuer:base,subject:account.subject,projectScopes:[]},original.revision)
+      await management.request(path,'PUT',{issuer:base,subject:account.subject,scopeKeys:[]},original.revision)
       const mutationReturnedMs=Math.ceil(performance.now()-start)
       const samples=[];let denied=false
       while(performance.now()-start<bound) {
@@ -308,199 +318,171 @@ export async function runApplicationProjectSecurity(base,fixture={},record) {
       }
       await step('old-cookie-revocation',{subject:account.subject,revokedAt:at,mutationReturnedMs,boundMs:bound,samples})
       assert(denied&&samples.at(-1).elapsedMs<=bound,'revocation deadline exceeded')
-      await management.reconcile(applicationProject)
+      await management.reauthenticateGroup(applicationProject)
       await deny(oldClient,businessPath,'GET',undefined,undefined,{statuses:[401,403]})
       const fresh=await login(account,'subject-after-revoke')
-      const identity=await fresh.verifiedUiIdentity({projectId:applicationProject,subject:account.subject,audience:planned.expectedAudience})
-      same(identity.projectScopes,[])
+      const identity=await fresh.verifiedUiIdentity({applicationGroupId:applicationProject,subject:account.subject,audience:planned.expectedAudience})
+      same(identity.applicationGroupScopes,[])
       await deny(fresh,businessPath,'GET',undefined,undefined,{statuses:[403]})
-      await step('fresh-identity-denied',{subject:account.subject,projectScopes:identity.projectScopes})
+      await step('fresh-identity-denied',{subject:account.subject,applicationGroupScopes:identity.applicationGroupScopes})
     }finally{
       if(changed)await restore('subject-project-scopes',async()=>{
-        await management.reconcile(applicationProject);const current=await management.request(path)
-        await management.mutateIdentity(path,'PUT',{issuer:base,subject:account.subject,projectScopes:original.projectScopes},current.revision)
+        await management.reauthenticateGroup(applicationProject);const current=await management.request(path)
+        await management.mutateDirectory(path,'PUT',{issuer:base,subject:account.subject,scopeKeys:original.scopeKeys},current.revision)
         const response=await request(await login(account,'subject-restored'),businessPath);assert.equal(response.status,200)
-        same((await get(await manager(),path)).projectScopes,original.projectScopes)
+        same((await get(await manager(),path)).scopeKeys,original.scopeKeys)
         await step('restoration-verified',{allowedStatus:response.status,subject:account.subject})
       })
     }
   })
 
   await check('management-target-action-cross-scope-denied',async()=>{
-    const suffix=randomBytes(5).toString('hex')
-    const targetA='security-read-a-'+suffix,targetB='security-manage-b-'+suffix
-    const readScope='security-'+suffix+'-target-a',manageScope='security-'+suffix+'-target-b'
+    const suffix=randomBytes(5).toString('hex'),target='security-manage-b-'+suffix
+    const readScope='security-'+suffix+'-read-own',manageScope='security-'+suffix+'-manage-other-write-a'
     const account={username:'security-split-'+suffix,subject:'security-split-'+suffix,password:randomBytes(24).toString('base64url')+'aA1!'}
     passwords.push(account.password)
-    const originalProjection=await get(await manager(),recoveryPath)
-    const originalScopes=structuredClone(originalProjection.project.scopes)
-    let expectedScopes=structuredClone(originalScopes),userCreated=false,assignmentCreated=false,uiOriginal,uiChanged=false
-    const targets=[],directoryScopes=[],declaredScopes=[],cleanupFailures=[]
+    const original=await get(await manager(),runtimePath),originalScopes=structuredClone(original.policy.scopes)
+    const groupMetadata=api+'/application-groups/'+target,uiPath=groupPath+'/applications/'+key('kestra-ui')
+    const assignmentPath=groupPath+'/scope-grants/detail?subject='+encodeURIComponent(account.subject)
+    const policyFor=(namespace,actions,managementActions,targets)=>({description:'Independent exact security scope '+namespace,enabled:true,
+      grants:[{scope:'NAMESPACE',tenant:'main',namespace,descendants:false,resource:'FLOW',actions,ids:[],allIds:true}],
+      managementGrants:[{domain:'LOCAL_POLICY',actions:managementActions,applicationGroupIds:targets}]})
+    const definitions={[readScope]:policyFor(namespaceDomains.b,['READ','LIST'],['READ'],[applicationProject]),
+      [manageScope]:policyFor(namespaceDomains.a,['READ','LIST','UPDATE'],['MANAGE'],[target])}
+    const createdScopes=[],declarations=[],cleanupFailures=[]
+    let targetAttempted=false,userAttempted=false,assignmentAttempted=false,uiOriginal,uiAttempted=false,businessOriginal,businessAttempted=false
+    const readBusiness='/api/v1/main/flows/'+encodeURIComponent(namespaceDomains.b)+'/other-id'
+    const writeBusiness='/api/v1/main/flows/'+encodeURIComponent(namespaceDomains.a)+'/allowed-id'
     const cleanupAttempt=async(name,run)=>{try{await restore(name,run)}catch(error){cleanupFailures.push(safe(error))}}
-    const uiPath=identityPath+'/clients/'+key(planned.expectedAudience)
-    const assignmentPath=identityPath+'/assignments/detail?subject='+encodeURIComponent(account.subject)
-    const localDefinition=(target,actions)=>({description:'Independent exact security management target '+target,enabled:true,grants:[],managementGrants:[{domain:'LOCAL_POLICY',actions:[...actions].sort(),projectIds:[target]}]})
-    const sharedDefinition=(key,local)=>({scope:key,name:key.replaceAll('-', ' '),description:local.description,active:true,resourceIntents:[],managementIntents:structuredClone(local.managementGrants)})
-    async function syncMain(desired=expectedScopes) {
-      const client=await manager(),projection=await get(client,recoveryPath)
-      same(projection.project.scopes,expectedScopes,'concurrent local changes must not be overwritten')
-      const candidate={...structuredClone(projection.project),scopes:structuredClone(desired),directoryRevision:projection.directoryRevision}
-      const shared=new Map(projection.upperBound.scopes.map(scope=>[scope.scope,scope]))
-      for(const name of [readScope,manageScope])if(candidate.scopes[name]) {
-        assert(shared.has(name),'explicit shared scope must exist before local binding')
-        const local=candidate.scopes[name],ceiling=shared.get(name)
-        for(const grant of local.managementGrants)assert(ceiling.managementIntents.some(bound=>bound.domain===grant.domain&&grant.actions.every(action=>bound.actions.includes(action))&&grant.projectIds.every(id=>bound.projectIds.includes(id))),'same-scope exact management upper bound required')
-      }
-      const saved=await request(client,recoveryPath,'PUT',candidate,projection.policyRevision)
-      assert.equal(saved.status,200,'complete reviewed main policy reconciliation required')
-      expectedScopes=structuredClone(desired)
-      same((await get(await manager(),recoveryPath)).project.scopes,expectedScopes)
-    }
-    async function directoryWrite(path,method,body,revision) {
-      const result=await request(await manager(),path,method,body,revision)
-      assert.equal(result.status,200,'public identity operation failed');await syncMain();return result.value
-    }
-    async function deactivateTarget(target,actor) {
-      if(!target.localCreated)return
-      const path=api+'/projects/'+target.id+'/reconciliation'
-      const projection=await get(actor,path)
-      const shared=await get(await manager(),api+'/identity/projects/'+target.id)
-      if(shared.active)await request(await manager(),api+'/identity/projects/'+target.id,'PUT',{displayName:shared.displayName,active:false},shared.revision).then(r=>assert.equal(r.status,200))
-      // The login project is main; only the target epoch changed. Current exact
-      // target management remains available for this complete disabled binding.
-      const fresh=await get(actor,path)
-      const candidate={...fresh.project,enabled:false,directoryRevision:fresh.directoryRevision}
-      const saved=await request(actor,path,'PUT',candidate,fresh.policyRevision);assert.equal(saved.status,200)
-      const confirmed=await get(actor,path);assert.equal(confirmed.project.enabled,false);assert.equal(confirmed.project.directoryRevision,confirmed.directoryRevision)
-      await step('target-restored',{target:target.id,localEnabled:false,directoryActive:false,retainedInactive:true,reason:'public project DELETE is unsupported',previousRevision:projection.directoryRevision,currentRevision:confirmed.directoryRevision})
-    }
     try {
-      for(const id of [targetA,targetB]) {
-        const created=await request(await manager(),api+'/identity/projects','POST',{id,tenant:'main',displayName:'Security split target '+id})
-        assert.equal(created.status,200)
-        const target={id,localCreated:false};targets.push(target)
-        // Each target owns a distinct real DCR client; never join the UI client
-        // to another project or relax unique client ownership.
-        const registered=await request(await manager(),'/oidc/register','POST',{redirect_uris:['http://127.0.0.1:19997/callback'],token_endpoint_auth_method:'none',grant_types:['authorization_code'],response_types:['code'],scope:'openid',client_name:'Security target '+id})
-        assert.equal(registered.status,201);assert(registered.value.client_id&&!registered.value.client_secret)
-        target.clientId=registered.value.client_id;target.audience=base+'/security-target/'+id
-        const shared=await get(await manager(),api+'/identity/projects/'+id)
-        const member=await request(await manager(),api+'/identity/projects/'+id+'/clients','POST',{clientId:target.clientId,approved:true,firstPartyUi:false,audiences:[target.audience],allowedProjectScopes:[]},shared.revision)
-        assert.equal(member.status,200)
+      targetAttempted=true
+      const created=await request(await manager(),api+'/application-groups','POST',{id:target,tenant:'main',displayName:'Security management target without Kestra membership'})
+      assert.equal(created.status,200);assert.equal(created.value.id,target)
+      same(await get(await manager(),runtimePath),original,'group creation must not save any application policy')
+      for(const name of [readScope,manageScope]) {
+        const current=await get(await manager(),groupPath);createdScopes.push(name)
+        await management.mutateDirectory(groupPath+'/scopes','POST',{key:name,name:'Security role '+name,description:'Declared scope metadata only'},current.revision)
+        await management.saveRuntimeScope(applicationProject,name,definitions[name])
       }
-      const r=localDefinition(targetA,['READ','MANAGE']),m=localDefinition(targetB,['MANAGE'])
-      for(const [name,definition]of [[readScope,r],[manageScope,m]]) {
-        const project=await get(await manager(),identityPath)
-        directoryScopes.push(name)
-        await directoryWrite(identityPath+'/scopes','POST',sharedDefinition(name,definition),project.revision)
-      }
-      uiOriginal=await get(await manager(),uiPath)
-      const uiBody={clientId:uiOriginal.clientId,approved:uiOriginal.approved,firstPartyUi:uiOriginal.firstPartyUi,audiences:uiOriginal.audiences,allowedProjectScopes:[...new Set([...uiOriginal.allowedProjectScopes,readScope,manageScope])]}
-      uiChanged=true;await directoryWrite(uiPath,'PUT',uiBody,uiOriginal.revision)
-      for(const scope of [readScope,manageScope]) {
-        const declared=await request(await manager(),api+'/application-groups/'+applicationProject+'/applications/'+key('kestra-ui')+'/scope-declarations/'+scope,
-          'POST',{permissions:[applicationPermission(scope)]})
+      uiOriginal=await get(await manager(),uiPath);uiAttempted=true
+      await management.mutateDirectory(uiPath,'PUT',{clientId:uiOriginal.clientId,approved:uiOriginal.approved,audiences:uiOriginal.audiences,
+        supportedScopeKeys:[...new Set([...uiOriginal.supportedScopeKeys,readScope,manageScope])]},uiOriginal.revision)
+      for(const name of [readScope,manageScope]) {
+        declarations.push(name)
+        const declared=await request(await manager(),groupPath+'/applications/'+key('kestra-ui')+'/scope-declarations/'+name,'POST',{permissions:[applicationPermission(name)]})
         assert.equal(declared.status,201)
-        declaredScopes.push(scope)
       }
-      await syncMain({...expectedScopes,[readScope]:r,[manageScope]:m})
-      const user=await request(await manager(),api+'/users','POST',{username:account.username,name:'Security split target test account',email:account.username+'@acceptance.invalid',password:account.password})
-      assert.equal(user.status,201);userCreated=true;assert.equal(user.value.subject,account.subject);await syncMain()
-      const project=await get(await manager(),identityPath)
-      assignmentCreated=true
-      await directoryWrite(identityPath+'/assignments','POST',{issuer:base,subject:account.subject,projectScopes:[readScope,manageScope]},project.revision)
-      let actor=await login(account,'split-scope-setup')
-      for(const target of targets) {
-        const shared=await get(await manager(),api+'/identity/projects/'+target.id),policy=await get(await manager(),api+'/policy')
-        const created=await request(actor,api+'/projects','POST',{id:target.id,issuer:base,audiences:[target.audience],enabled:false,directoryRevision:shared.revision},policy.revision)
-        assert.equal(created.status,200);target.localCreated=true
-        const confirmed=await get(actor,api+'/projects/'+target.id+'/reconciliation')
-        assert.equal(confirmed.project.enabled,false);assert.equal(confirmed.project.id,target.id)
-      }
-      // Narrow this NEW scope. Existing published scope semantics stay unchanged.
-      const readOnly=localDefinition(targetA,['READ'])
-      await syncMain({...expectedScopes,[readScope]:readOnly})
-      const shared=await get(await manager(),identityPath+'/scopes/'+key(readScope))
-      await directoryWrite(identityPath+'/scopes/'+key(readScope),'PUT',sharedDefinition(readScope,readOnly),shared.revision)
-      actor=await login(account,'split-scope-final-real-issuance')
-      const identity=await actor.verifiedUiIdentity({projectId:applicationProject,subject:account.subject,audience:planned.expectedAudience})
-      same([...identity.projectScopes].sort(),[readScope,manageScope].sort())
-      same(await get(actor,api+'/projects/'+targetA+'/scopes'),{})
-      const b=await get(actor,api+'/projects/'+targetB+'/reconciliation')
-      // Actual allowed write: turn target B on. Complete same-scope management
-      // grants and the real assigned member provide the required reachability.
-      const enabled={...b.project,enabled:true}
-      const allowed=await request(actor,api+'/projects/'+targetB+'/reconciliation','PUT',enabled,b.policyRevision)
-      assert.equal(allowed.status,200)
-      assert.equal((await get(actor,api+'/projects/'+targetB+'/reconciliation')).project.enabled,true)
-      await step('allow-baseline',{identity,targetA,targetB,readTargetA:200,manageTargetB:200,scopeBindings:{[readScope]:readOnly.managementGrants,[manageScope]:m.managementGrants}})
-      const policy=await get(await manager(),api+'/policy')
-      const a=targets.find(t=>t.id===targetA),sharedA=await get(await manager(),api+'/identity/projects/'+targetA)
-      // Valid target A metadata, changing a real field. Only scope READ(A) and
-      // scope MANAGE(B) are signed; their conditions must never be combined.
-      await deny(actor,api+'/projects/'+targetA,'PUT',{id:targetA,issuer:base,audiences:[a.audience],enabled:true,directoryRevision:sharedA.revision},policy.revision)
-      await deny(actor,api+'/projects/'+targetA+'/reconciliation','GET')
-      same(await get(actor,api+'/projects/'+targetA+'/scopes'),{})
-    }finally{
-      // Restore target bindings while the account still has exact management
-      // reachability. Scope A was narrowed to READ, so use a fresh, separately
-      // created cleanup scope, never widen that scope back or infer admin bypass.
-      if(targets.some(t=>t.localCreated))await cleanupAttempt('split-targets-inactive',async()=>{
-        const cleanupScope='security-'+suffix+'-cleanup'
-        const cleanupDefinition={description:'Explicit isolated cleanup authority',enabled:true,grants:[],managementGrants:[{domain:'LOCAL_POLICY',actions:['MANAGE'],projectIds:targets.filter(t=>t.localCreated).map(t=>t.id).sort()}]}
-        const project=await get(await manager(),identityPath)
-        directoryScopes.push(cleanupScope)
-        await directoryWrite(identityPath+'/scopes','POST',sharedDefinition(cleanupScope,cleanupDefinition),project.revision)
-        const ui=await get(await manager(),uiPath)
-        await directoryWrite(uiPath,'PUT',{clientId:ui.clientId,approved:ui.approved,firstPartyUi:ui.firstPartyUi,audiences:ui.audiences,allowedProjectScopes:[...ui.allowedProjectScopes,cleanupScope]},ui.revision)
-        const declared=await request(await manager(),api+'/application-groups/'+applicationProject+'/applications/'+key('kestra-ui')+'/scope-declarations/'+cleanupScope,
-          'POST',{permissions:[applicationPermission(cleanupScope)]})
-        assert.equal(declared.status,201)
-        declaredScopes.push(cleanupScope)
-        await syncMain({...expectedScopes,[cleanupScope]:cleanupDefinition})
-        const assignment=await get(await manager(),assignmentPath)
-        await directoryWrite(assignmentPath,'PUT',{issuer:base,subject:account.subject,projectScopes:[cleanupScope]},assignment.revision)
-        const actor=await login(account,'explicit-split-cleanup')
-        // Disable local target first under the still active directory; otherwise
-        // the other active target would make complete candidate validation fail.
-        for(const target of targets.filter(t=>t.localCreated)) {
-          const path=api+'/projects/'+target.id+'/reconciliation',projection=await get(actor,path)
-          if(projection.project.enabled){const saved=await request(actor,path,'PUT',{...projection.project,enabled:false},projection.policyRevision);assert.equal(saved.status,200)}
+      userAttempted=true
+      const user=await request(await manager(),api+'/users','POST',{username:account.username,name:'Security split scope test account',email:account.username+'@acceptance.invalid',password:account.password})
+      assert.equal(user.status,201);assert.equal(user.value.subject,account.subject)
+      const current=await get(await manager(),groupPath);assignmentAttempted=true
+      await management.mutateDirectory(groupPath+'/scope-grants','POST',{issuer:base,subject:account.subject,scopeKeys:[readScope,manageScope]},current.revision)
+      const actor=await login(account,'split-scope-real-issuance')
+      const identity=await actor.verifiedUiIdentity({applicationGroupId:applicationProject,subject:account.subject,audience:planned.expectedAudience})
+      same(identity.applicationGroupScopes,[readScope,manageScope])
+      const readable=await get(actor,runtimePath)
+      assert.equal(readable.applicationGroupId,applicationProject);assert.equal(readable.clientId,'kestra-ui')
+      for(const name of [readScope,manageScope])same(readable.policy.scopes[name],definitions[name])
+      const readOriginal=await get(actor,readBusiness+'?source=true');businessOriginal=await get(actor,writeBusiness+'?source=true')
+      assert(/^description:.*$/m.test(readOriginal.source)&&/^description:.*$/m.test(businessOriginal.source),'real source descriptions required')
+      const description='Security allowed A write '+suffix
+      const edited=businessOriginal.source.replace(/^description:.*$/m,'description: '+description)
+      assert.notEqual(edited,businessOriginal.source);businessAttempted=true
+      assert.equal((await request(actor,writeBusiness,'PUT',edited,undefined,{contentType:'application/x-yaml'})).status,200)
+      assert.equal((await get(actor,writeBusiness+'?source=true')).description,description)
+      await quiesceBusiness('cross-scope-after-allowed-a-write')
+      await step('allow-baseline',{identity,applicationGroupId:applicationProject,otherManagementTarget:target,applicationPolicyRead:200,businessAWrite:200,businessBRead:200,persistedDescription:description,
+        managementGrants:{[readScope]:definitions[readScope].managementGrants,[manageScope]:definitions[manageScope].managementGrants}})
+      async function listFlows(client,namespace) {
+        const records=[],seen=new Set();let total
+        for(let page=1;;page++) {
+          const query=new URLSearchParams({page:String(page),size:'25',...(namespace?{'filters[namespace][EQUALS]':namespace}:{})})
+          const value=await get(client,'/api/v1/main/flows/search?'+query)
+          assert(Array.isArray(value.results)&&Number.isSafeInteger(value.total)&&value.total>=0)
+          total??=value.total;assert.equal(value.total,total,'authorized flow total changed during pagination')
+          for(const row of value.results) {
+            assert(typeof row.namespace==='string'&&typeof row.id==='string')
+            const identifier=row.namespace+'/'+row.id;assert(!seen.has(identifier),'duplicate authorized list row');seen.add(identifier)
+            records.push({namespace:row.namespace,id:row.id})
+          }
+          if(records.length===total)return {records,total}
+          assert(value.results.length&&records.length<total&&page<1000,'authorized list pagination stalled')
         }
-        for(const target of targets.filter(t=>t.localCreated))await deactivateTarget(target,actor)
+      }
+      const expectedA=await listFlows(await manager(),namespaceDomains.a),expectedB=await listFlows(await manager(),namespaceDomains.b)
+      assert(expectedA.records.every(row=>row.namespace===namespaceDomains.a));assert(expectedB.records.every(row=>row.namespace===namespaceDomains.b))
+      const actual=await listFlows(actor)
+      assert(actual.records.every(row=>[namespaceDomains.a,namespaceDomains.b].includes(row.namespace)),'multi-role list leaked an outside or descendant namespace')
+      same(actual.records,[...expectedA.records,...expectedB.records]);assert.equal(actual.total,expectedA.total+expectedB.total)
+      assert(actual.records.some(row=>row.namespace===namespaceDomains.a&&row.id==='allowed-id'))
+      assert(actual.records.some(row=>row.namespace===namespaceDomains.b&&row.id==='other-id'))
+      const outsideSeed=planRestResources(planned).seeds.find(row=>row.namespace===namespaceDomains.outside)
+      assert(outsideSeed,'real outside namespace sentinel required')
+      const outsidePath='/api/v1/main/flows/'+encodeURIComponent(outsideSeed.namespace)+'/'+encodeURIComponent(outsideSeed.id)
+      assert.equal((await get(await manager(),outsidePath)).id,outsideSeed.id)
+      await deny(actor,outsidePath,'GET',undefined,undefined,{statuses:[403]})
+      await step('multi-role-list-boundary',{total:actual.total,actual:actual.records,namespaceAWrite:200,namespaceBRead:200,outsideReadDenied:403})
+      const before=await get(await manager(),runtimePath)
+      await deny(actor,runtimePath+'/scopes/'+readScope,'PUT',scopeInput(readScope,{...definitions[readScope],description:'Denied A policy write '+suffix}),before.revision,{statuses:[403]})
+      const deniedReadRangeWrite=readOriginal.source.replace(/^description:.*$/m,'description: Denied B business write '+suffix)
+      await deny(actor,readBusiness,'PUT',deniedReadRangeWrite,undefined,{statuses:[403],contentType:'application/x-yaml'})
+      const targetPolicy=groupMetadata+'/applications/'+key('kestra-ui')+'/runtime-permissions'
+      await deny(actor,targetPolicy,'POST',{issuer:base,audiences:['kestra-ui'],enabled:false},before.revision,{statuses:[404]})
+      same(await get(actor,runtimePath),readable,'cross-scope attempts changed the readable application policy')
+      assert.equal((await get(actor,readBusiness+'?source=true')).source,readOriginal.source)
+      assert.equal((await get(actor,writeBusiness+'?source=true')).description,description)
+    } finally {
+      if(businessAttempted&&businessOriginal)await cleanupAttempt('split-business-a-source',async()=>{
+        assert.equal((await request(await manager(),writeBusiness,'PUT',businessOriginal.source,undefined,{contentType:'application/x-yaml'})).status,200)
+        assert.equal((await get(await manager(),writeBusiness+'?source=true')).source,businessOriginal.source)
       })
-      if(assignmentCreated)await cleanupAttempt('split-subject-zero-grants',async()=>{
-        const current=await get(await manager(),assignmentPath)
-        await directoryWrite(assignmentPath,'PUT',{issuer:base,subject:account.subject,projectScopes:[]},current.revision)
-        same((await get(await manager(),assignmentPath)).projectScopes,[])
+      if(assignmentAttempted)await cleanupAttempt('split-user-scope-grant-removed',async()=>{
+        const existing=await request(await manager(),assignmentPath)
+        if(existing.status===200)await management.mutateDirectory(assignmentPath,'DELETE',undefined,existing.value.revision)
+        else assert.equal(existing.status,404)
+        assert.equal((await request(await manager(),assignmentPath)).status,404)
       })
-      if(userCreated)await cleanupAttempt('split-account-disabled',async()=>{
-        const user=await get(await manager(),api+'/users/detail?subject='+encodeURIComponent(account.subject))
-        const disabled=await request(await manager(),api+'/users/state','PUT',{subject:account.subject,active:false},user.revision)
-        assert.equal(disabled.status,200);await syncMain()
-        assert.equal((await get(await manager(),api+'/users/detail?subject='+encodeURIComponent(account.subject))).active,false)
+      if(userAttempted)await cleanupAttempt('split-test-account-disabled',async()=>{
+        const path=api+'/users/detail?subject='+encodeURIComponent(account.subject),existing=await request(await manager(),path)
+        if(existing.status===404)return
+        assert.equal(existing.status,200)
+        assert.equal((await request(await manager(),api+'/users/state','PUT',{subject:account.subject,active:false},existing.value.revision)).status,200)
+        assert.equal((await get(await manager(),path)).active,false)
       })
-      await cleanupAttempt('split-local-scopes-restored',async()=>{await syncMain(originalScopes)})
-      if(uiChanged&&uiOriginal)await cleanupAttempt('split-ui-client-membership',async()=>{
+      for(const name of declarations)await cleanupAttempt('split-application-declaration-'+name,async()=>{
+        const path=groupPath+'/applications/'+key('kestra-ui')+'/scope-declarations/'+name,existing=await request(await manager(),path)
+        if(existing.status===200)assert.equal((await request(await manager(),path,'DELETE',undefined,existing.value.revision)).status,200)
+        else assert.equal(existing.status,404)
+      })
+      if(uiAttempted&&uiOriginal)await cleanupAttempt('split-application-support-restored',async()=>{
         const current=await get(await manager(),uiPath)
-        await directoryWrite(uiPath,'PUT',{clientId:uiOriginal.clientId,approved:uiOriginal.approved,firstPartyUi:uiOriginal.firstPartyUi,audiences:uiOriginal.audiences,allowedProjectScopes:uiOriginal.allowedProjectScopes},current.revision)
+        await management.mutateDirectory(uiPath,'PUT',{clientId:uiOriginal.clientId,approved:uiOriginal.approved,audiences:uiOriginal.audiences,supportedScopeKeys:uiOriginal.supportedScopeKeys},current.revision)
+        same((await get(await manager(),uiPath)).supportedScopeKeys,uiOriginal.supportedScopeKeys)
       })
-      for(const scope of declaredScopes)await cleanupAttempt('split-application-declaration-'+scope,async()=>{
-        const path=api+'/application-groups/'+applicationProject+'/applications/'+key('kestra-ui')+'/scope-declarations/'+scope
-        const current=await get(await manager(),path)
-        assert.equal((await request(await manager(),path,'DELETE',undefined,current.revision)).status,200)
+      for(const name of createdScopes)await cleanupAttempt('split-actual-policy-'+name,async()=>{
+        const current=await get(await manager(),runtimePath)
+        if(Object.hasOwn(current.policy.scopes,name)) {
+          const saved=await request(await manager(),runtimePath+'/scopes/'+name,'DELETE',undefined,current.revision)
+          assert.equal(saved.status,200);assert(saved.value.revision>current.revision)
+        }
+        assert(!Object.hasOwn((await get(await manager(),runtimePath)).policy.scopes,name))
       })
-      for(const name of directoryScopes)await cleanupAttempt('split-directory-scope-disabled-'+name,async()=>{
-        const path=identityPath+'/scopes/'+key(name),scope=await get(await manager(),path)
-        await directoryWrite(path,'PUT',{...directoryScopeInput(scope),active:false},scope.revision)
+      for(const name of createdScopes)await cleanupAttempt('split-group-scope-'+name,async()=>{
+        const path=groupPath+'/scopes/'+name,existing=await request(await manager(),path)
+        if(existing.status===200)await management.mutateDirectory(path,'DELETE',undefined,existing.value.revision)
+        else assert.equal(existing.status,404)
+        assert.equal((await request(await manager(),path)).status,404)
       })
-      // Targets created before local binding setup can also be deactivated.
-      for(const target of targets.filter(t=>!t.localCreated))await cleanupAttempt('split-unused-target-'+target.id,async()=>{
-        const path=api+'/identity/projects/'+target.id,shared=await get(await manager(),path)
-        const saved=await request(await manager(),path,'PUT',{displayName:shared.displayName,active:false},shared.revision);assert.equal(saved.status,200)
+      if(targetAttempted)await cleanupAttempt('split-empty-management-target-deleted',async()=>{
+        const current=await request(await manager(),groupMetadata)
+        if(current.status===200)assert.equal((await request(await manager(),groupMetadata,'DELETE',undefined,current.value.revision)).status,200)
+        else assert([403,404].includes(current.status))
+        const groups=await get(await manager(),api+'/application-groups?page=1&size=100')
+        assert.equal(groups.total,groups.items.length);assert(!groups.items.some(group=>group.id===target))
       })
-      if(cleanupFailures.length)throw new Error('Cross-scope restoration failed: '+cleanupFailures.join('; '))
-      await step('restoration-verified',{originalScopeHash:hash(originalScopes),localScopeHash:hash((await get(await manager(),recoveryPath)).project.scopes),retainedDisabledTargets:targets.map(t=>t.id),retainedDisabledScopes:directoryScopes,testAccount:account.subject})
+      if(cleanupFailures.length)throw new Error('Cross-scope cleanup failed: '+cleanupFailures.join('; '))
+      same((await get(await manager(),runtimePath)).policy.scopes,originalScopes)
+      await step('restoration-verified',{originalScopeHash:hash(originalScopes),temporaryScopesRemoved:true,temporaryGroupDeleted:true,testAccountDisabled:userAttempted})
     }
   })
 
@@ -509,7 +491,7 @@ export async function runApplicationProjectSecurity(base,fixture={},record) {
     const rest='/api/v1/main/flows/'+encodeURIComponent(namespaceDomains.b)+'/allowed-id'
     const baseline=await get(client,rest+'?source=true')
     assert.equal(baseline.namespace,namespaceDomains.b);assert.equal(baseline.id,'allowed-id');assert(baseline.source)
-    let membershipPath,approved=false,session,originalRequest=client.request.bind(client)
+    let membershipPath,membershipClientId,approved=false,session,originalRequest=client.request.bind(client)
     const bearerHashes=[],cleanupFailures=[]
     const toolId='security-audience-'+randomBytes(5).toString('hex'),toolName='acceptance-'+toolId
     const toolPath='/api/v1/main/flows/'+encodeURIComponent(namespaceDomains.b)+'/'+toolId
@@ -521,11 +503,12 @@ export async function runApplicationProjectSecurity(base,fixture={},record) {
       assert([200,201].includes(created.status));toolCreated=true;await created.body?.cancel()
       assert.equal((await get(observer,toolPath+'?source=true')).id,toolId)
       const issued=await client.issueMcpScopes(['openid','mcp:flows:read',scopeNames.writeB],async registration=>{
-        membershipPath=identityPath+'/clients/'+key(registration.clientId)
+        membershipPath=groupPath+'/applications/'+key(registration.clientId)
+        membershipClientId=registration.clientId
         management.approvedClientIds.set(registration.clientId,[scopeNames.writeB]);approved=true
-        await management.approveOrdinaryClient({clientId:registration.clientId,audiences:registration.audiences,projectScopes:[scopeNames.writeB],registeredProtocolScopes:['openid','mcp:flows:read','mcp:executions:write'],requestedProtocolScopes:['openid','mcp:flows:read']})
+        await management.approveOrdinaryClient({clientId:registration.clientId,audiences:registration.audiences,applicationGroupScopes:[scopeNames.writeB],registeredProtocolScopes:['openid','mcp:flows:read','mcp:executions:write'],requestedProtocolScopes:['openid','mcp:flows:read']})
       },async current=>{await current.login(account.username,account.password)})
-      const identity=await client.verifiedAccessIdentity({projectId:applicationProject,subject:account.subject,expectedProjectScopes:[scopeNames.writeB],expectedProtocolScopes:['openid','mcp:flows:read']})
+      const identity=await client.verifiedAccessIdentity({applicationGroupId:applicationProject,subject:account.subject,expectedApplicationGroupScopes:[scopeNames.writeB],expectedProtocolScopes:['openid','mcp:flows:read']})
       same(identity.audiences,[base+'/api/v1/main/mcp/default'])
       // Observe, never expose or replace, the real Authorization header emitted by rpc.
       client.request=async(path,options,includeSession)=>{
@@ -570,11 +553,7 @@ export async function runApplicationProjectSecurity(base,fixture={},record) {
     }finally{
       client.request=originalRequest
       if(approved)await restore('remove-security-mcp-membership',async()=>{
-        // First recover a possibly committed approval before any ordinary GET.
-        await management.reconcile(applicationProject)
-        const member=await management.request(membershipPath)
-        management.approvedClientIds.delete(member.clientId)
-        await management.mutateIdentity(membershipPath,'DELETE',undefined,member.revision)
+        await management.removeOrdinaryClient(membershipClientId)
         assert.equal((await request(await manager(),membershipPath)).status,404)
       }).catch(error=>cleanupFailures.push(safe(error)))
       if(toolCreated)await restore('remove-security-audience-flow',async()=>{
@@ -608,10 +587,10 @@ export async function runApplicationProjectSecurity(base,fixture={},record) {
     try {
       const signedIn=await foreign.login(secondary.account.username,secondary.account.password)
       assert(signedIn.authenticated&&jwtCookie,'secondary issuer must sign in through production UI and emit JWT Cookie')
-      const identity=await foreign.verifiedUiIdentity({projectId:applicationProject,subject:secondary.account.subject,audience:planned.expectedAudience})
-      assert.equal(identity.issuer,secondary.base);assert(identity.projectScopes.includes(scopeNames.writeB))
+      const identity=await foreign.verifiedUiIdentity({applicationGroupId:applicationProject,subject:secondary.account.subject,audience:planned.expectedAudience})
+      assert.equal(identity.issuer,secondary.base);assert(identity.applicationGroupScopes.includes(scopeNames.writeB))
       assert([planned.admin,...Object.values(planned.accounts)].some(account=>account.subject===identity.subject),'foreign cookie must use an existing main subject, not an unknown user')
-      assert(identity.projectScopes.every(scope=>Object.hasOwn(planned.policy.applicationProjects[applicationProject].scopes,scope)),'all foreign project scopes must be known locally; unknown scope must not confound issuer rejection')
+      assert(identity.applicationGroupScopes.every(scope=>Object.hasOwn(planned.policy.applicationGroups[applicationProject].scopes,scope)),'all foreign project scopes must be known locally; unknown scope must not confound issuer rejection')
       same(identity.audiences,[planned.expectedAudience])
       const client=await login(planned.accounts.writer,'trusted-issuer-baseline')
       const path='/api/v1/main/flows/'+encodeURIComponent(namespaceDomains.b)+'/allowed-id'
@@ -643,36 +622,37 @@ export async function runApplicationProjectSecurity(base,fixture={},record) {
     }finally{foreign.request=originalRequest;jwtCookie=undefined;csrf=undefined}
   })
 
-  await check('wrong-project',async()=>{
-    const suffix=randomBytes(5).toString('hex'),id='security-business-project-'+suffix
-    const account=planned.accounts.writer,projectApi=api+'/identity/projects/'+id
-    const flowId='security-project-token-'+suffix,toolName='security-project-token-'+suffix
+  await check('wrong-application-group',async()=>{
+    const suffix=randomBytes(5).toString('hex'),id='security-business-group-'+suffix
+    const account=planned.accounts.writer,groupApi=api+'/application-groups/'+id
+    const flowId='security-group-token-'+suffix,toolName='security-group-token-'+suffix
     const flowPath='/api/v1/main/flows/'+encodeURIComponent(namespaceDomains.b)+'/'+flowId
     const owner=new ProductionOAuthClient(base),foreign=new ProductionOAuthClient(base)
-    let projectCreated=false,mainMemberPath,foreignMemberPath,foreignClientId,mainApproved=false,foreignApproved=false,assigned=false,flowCreated=false
+    let groupCreated=false,mainMemberPath,mainClientId,foreignMemberPath,foreignClientId,mainApproved=false,foreignApproved=false,assigned=false,flowCreated=false
     const cleanupFailures=[]
     const cleanup=async(name,run)=>{try{await restore(name,run)}catch(error){cleanupFailures.push(safe(error))}}
     const protocolScopes=['openid','mcp:flows:read','mcp:executions:write']
-    const directoryScope=planned.directoryScopes.find(scope=>scope.scope===scopeNames.writeB)
-    assert(directoryScope?.resourceIntents?.length,'same-name complete directory business scope required')
+    const directoryScope=planned.directoryScopes.find(scope=>scope.key===scopeNames.writeB)
+    assert(directoryScope?.key&&directoryScope.name,'same-name group scope metadata required')
     const denied=result=>[401,403].includes(result.status)||result.status===200&&(
       result.message?.error?.code===mcpProtocolEvidence.rpcDenial.code&&result.message.error.message===mcpProtocolEvidence.rpcDenial.message
       ||result.message?.result?.isError===true&&JSON.stringify(semantic(result.message.result))===JSON.stringify(semantic(mcpProtocolEvidence.toolDenial)))
     async function initialize(client,requestId) {
-      const result=await client.rpc(null,'initialize',{protocolVersion:'2025-06-18',capabilities:{},clientInfo:{name:'project-isolation-security',version:'1'}},requestId)
+      const result=await client.rpc(null,'initialize',{protocolVersion:'2025-06-18',capabilities:{},clientInfo:{name:'group-isolation-security',version:'1'}},requestId)
       assert.equal(result.status,200);assert(result.session&&result.message?.result&&!result.message.error)
       assert([200,202,204].includes((await client.rpc(result.session,'notifications/initialized')).status));return result.session
     }
     try {
-      // A real main-project token and persisted tool execution establish the
-      // complete resource/protocol allow baseline before testing another project.
+      // A real main-group token and persisted tool execution establish the
+      // complete resource/protocol allow baseline before testing another group.
       await owner.login(account.username,account.password)
       await owner.issueMcpScopes([...protocolScopes,scopeNames.writeB],async registration=>{
-        mainMemberPath=identityPath+'/clients/'+key(registration.clientId)
+        mainMemberPath=groupPath+'/applications/'+key(registration.clientId)
+        mainClientId=registration.clientId
         management.approvedClientIds.set(registration.clientId,[scopeNames.writeB]);mainApproved=true
-        await management.approveOrdinaryClient({clientId:registration.clientId,audiences:registration.audiences,projectScopes:[scopeNames.writeB],registeredProtocolScopes:protocolScopes,requestedProtocolScopes:protocolScopes})
+        await management.approveOrdinaryClient({clientId:registration.clientId,audiences:registration.audiences,applicationGroupScopes:[scopeNames.writeB],registeredProtocolScopes:protocolScopes,requestedProtocolScopes:protocolScopes})
       },async client=>{await client.login(account.username,account.password)})
-      const mainIdentity=await owner.verifiedAccessIdentity({projectId:applicationProject,subject:account.subject,expectedProjectScopes:[scopeNames.writeB],expectedProtocolScopes:protocolScopes})
+      const mainIdentity=await owner.verifiedAccessIdentity({applicationGroupId:applicationProject,subject:account.subject,expectedApplicationGroupScopes:[scopeNames.writeB],expectedProtocolScopes:protocolScopes})
       const managerClient=await manager()
       assert.equal((await request(managerClient,flowPath)).status,404,'dedicated security flow must be absent')
       const seeded=await managerClient.request('/api/v1/main/flows',{method:'POST',headers:{'Content-Type':'application/x-yaml'},body:mcpFlowSource(namespaceDomains.b,flowId,toolName),signal:AbortSignal.timeout(20000)})
@@ -681,7 +661,7 @@ export async function runApplicationProjectSecurity(base,fixture={},record) {
       const mainSession=await initialize(owner,8201)
       const list=await owner.rpc(mainSession,'tools/list',{},8202)
       assert.equal(list.status,200);assert(list.message?.result?.tools?.some(tool=>tool.name===toolName))
-      const marker='project-boundary-'+suffix
+      const marker='group-boundary-'+suffix
       const called=await owner.rpc(mainSession,'tools/call',{name:toolName,arguments:{marker}},8203)
       await step('main-tool-call-response',{status:called.status,message:called.message})
       assert.equal(called.status,200);assert(!called.message?.error&&called.message?.result?.isError!==true)
@@ -699,72 +679,83 @@ export async function runApplicationProjectSecurity(base,fixture={},record) {
       const databaseExecution=JSON.parse(sql(`SELECT json_build_object('id',value->>'id','namespace',value->>'namespace','flowId',value->>'flowId','marker',value->'inputs'->>'marker','state',value->'state'->>'current')::text FROM executions WHERE value->>'id'='${executionId}'`))
       same(databaseExecution,{id:executionId,namespace:namespaceDomains.b,flowId,marker,state:'SUCCESS'})
       await quiesceBusiness('wrong-project-allowed-execution')
-      const created=await request(await manager(),api+'/identity/projects','POST',{id,tenant:'main',displayName:'Isolated same-name business scope project'})
-      assert.equal(created.status,200);projectCreated=true
-      let project=await get(await manager(),projectApi)
-      const scope=await request(await manager(),projectApi+'/scopes','POST',{...structuredClone(directoryScope),description:'Same name and complete intents; distinct project'},project.revision)
-      assert.equal(scope.status,200);assert.equal(scope.value.scope,scopeNames.writeB)
-      project=await get(await manager(),projectApi)
+      const policyBefore=await get(await manager(),runtimePath)
+      const created=await request(await manager(),api+'/application-groups','POST',{id,tenant:'main',displayName:'Isolated same-name business scope group'})
+      assert.equal(created.status,200);groupCreated=true
+      let group=await get(await manager(),groupApi)
+      const scope=await request(await manager(),groupApi+'/scopes','POST',{...structuredClone(directoryScope),description:'Same scope key and name in a distinct group; no copied runtime permissions'},group.revision)
+      assert.equal(scope.status,200);assert.equal(scope.value.key,scopeNames.writeB)
+      group=await get(await manager(),groupApi)
       assigned=true
-      const assignment=await request(await manager(),projectApi+'/assignments','POST',{issuer:base,subject:account.subject,projectScopes:[scopeNames.writeB]},project.revision)
+      const assignment=await request(await manager(),groupApi+'/scope-grants','POST',{issuer:base,subject:account.subject,scopeKeys:[scopeNames.writeB]},group.revision)
       assert.equal(assignment.status,200)
       await foreign.login(account.username,account.password)
       const issued=await foreign.issueMcpScopes([...protocolScopes,scopeNames.writeB],async registration=>{
-        foreignMemberPath=projectApi+'/clients/'+key(registration.clientId)
+        foreignMemberPath=groupApi+'/applications/'+key(registration.clientId)
         foreignClientId=registration.clientId
-        const current=await get(await manager(),projectApi)
+        const current=await get(await manager(),groupApi)
         foreignApproved=true
-        const approved=await request(await manager(),projectApi+'/clients','POST',{clientId:registration.clientId,approved:true,firstPartyUi:false,audiences:registration.audiences,allowedProjectScopes:[scopeNames.writeB]},current.revision)
+        const approved=await request(await manager(),groupApi+'/applications','POST',{clientId:registration.clientId,approved:true,audiences:registration.audiences,supportedScopeKeys:[scopeNames.writeB]},current.revision)
         assert.equal(approved.status,200)
         const declaration=await request(await manager(),api+'/application-groups/'+id+'/applications/'+key(registration.clientId)+'/scope-declarations/'+scopeNames.writeB,
           'POST',{permissions:[applicationPermission(scopeNames.writeB)]})
         assert.equal(declaration.status,201)
       },async client=>{await client.login(account.username,account.password)})
-      const identity=await foreign.verifiedAccessIdentity({projectId:id,subject:account.subject,expectedProjectScopes:[scopeNames.writeB],expectedProtocolScopes:protocolScopes})
-      assert.equal(identity.issuer,mainIdentity.issuer);same(identity.audiences,mainIdentity.audiences);same(identity.projectScopes,mainIdentity.projectScopes);same(identity.protocolScopes,mainIdentity.protocolScopes)
-      const local=await get(await manager(),api+'/policy');assert(!local.policy.applicationProjects[id],'wrong-project target must have no local binding')
-      await step('allow-baseline',{mainIdentity,foreignIdentity:identity,sameNameScope:scopeNames.writeB,foreignClientId:issued.clientId,mainToolsList:200,mainToolCall:200,executionId,executionState:'SUCCESS',databaseVerified:true,persistedMarker:marker,localBindingAbsent:true,uiClientJoinedForeignProject:false})
+      const identity=await foreign.verifiedAccessIdentity({applicationGroupId:id,subject:account.subject,expectedApplicationGroupScopes:[scopeNames.writeB],expectedProtocolScopes:protocolScopes})
+      assert.notEqual(identity.applicationGroupId,mainIdentity.applicationGroupId);assert.notEqual(identity.clientId,mainIdentity.clientId)
+      assert.equal(identity.issuer,mainIdentity.issuer);same(identity.audiences,mainIdentity.audiences);same(identity.applicationGroupScopes,mainIdentity.applicationGroupScopes);same(identity.protocolScopes,mainIdentity.protocolScopes)
+      same(await get(await manager(),runtimePath),policyBefore,'foreign group metadata changed runtime policy storage')
+      const members=await get(await manager(),groupApi+'/applications?page=1&size=100')
+      assert.equal(members.total,members.items.length);assert(!members.items.some(member=>member.clientId==='kestra-ui'))
+      await step('allow-baseline',{mainIdentity,foreignIdentity:identity,sameNameScope:scopeNames.writeB,foreignClientId:issued.clientId,mainToolsList:200,mainToolCall:200,executionId,executionState:'SUCCESS',databaseVerified:true,persistedMarker:marker,policyRevisionUnchanged:true,currentApplicationJoinedForeignGroup:false})
       const foreignSession=await initialize(foreign,8211)
       const beforeList=securitySnapshot();let listRefusal
-      try{listRefusal=await effects.observeDenied(()=>foreign.rpc(foreignSession,'tools/list',{},8212),result=>assert(denied(result)||result.status===200&&!result.message?.error&&Array.isArray(result.message?.result?.tools)&&result.message.result.tools.length===0,'foreign project borrowed main project tool visibility'),{windowMs:fixture.effectsWindowMs??5000,intervalMs:250})}
-      finally{const afterList=securitySnapshot();await step('foreign-project-list-state',{before:beforeList.hash,after:afterList.hash,beforeSources:beforeList.sources,afterSources:afterList.sources});assert.equal(afterList.hash,beforeList.hash)}
+      try{listRefusal=await effects.observeDenied(()=>foreign.rpc(foreignSession,'tools/list',{},8212),result=>assert(denied(result)||result.status===200&&!result.message?.error&&Array.isArray(result.message?.result?.tools)&&result.message.result.tools.length===0,'foreign group borrowed main group tool visibility'),{windowMs:fixture.effectsWindowMs??5000,intervalMs:250})}
+      finally{const afterList=securitySnapshot();await step('foreign-group-list-state',{before:beforeList.hash,after:afterList.hash,beforeSources:beforeList.sources,afterSources:afterList.sources});assert.equal(afterList.hash,beforeList.hash)}
       const foreignList=listRefusal.response
-      await step('foreign-project-list-denied',{status:foreignList.status,emptyList:foreignList.message?.result?.tools?.length===0,sideEffects:listRefusal.observation,error:foreignList.message?.error?{code:foreignList.message.error.code,message:foreignList.message.error.message}:undefined})
+      await step('foreign-group-list-denied',{status:foreignList.status,emptyList:foreignList.message?.result?.tools?.length===0,sideEffects:listRefusal.observation,error:foreignList.message?.error?{code:foreignList.message.error.code,message:foreignList.message.error.message}:undefined})
       const before=securitySnapshot();let refusal
-      try{refusal=await effects.observeDenied(()=>foreign.rpc(foreignSession,'tools/call',{name:toolName,arguments:{marker:'must-not-execute-'+suffix}},8213),async result=>{await step('foreign-project-call-response',{status:result.status,message:result.message});assert(denied(result),'foreign project borrowed main project write grant')},{windowMs:fixture.effectsWindowMs??5000,intervalMs:250})}
-      finally{const after=securitySnapshot();await step('foreign-project-state',{before:before.hash,after:after.hash,beforeSources:before.sources,afterSources:after.sources});assert.equal(after.hash,before.hash)}
-      await step('foreign-project-call-denied',{status:refusal.response.status,sideEffects:refusal.observation})
+      try{refusal=await effects.observeDenied(()=>foreign.rpc(foreignSession,'tools/call',{name:toolName,arguments:{marker:'must-not-execute-'+suffix}},8213),async result=>{await step('foreign-group-call-response',{status:result.status,message:result.message});assert(denied(result),'foreign group borrowed main group write grant')},{windowMs:fixture.effectsWindowMs??5000,intervalMs:250})}
+      finally{const after=securitySnapshot();await step('foreign-group-state',{before:before.hash,after:after.hash,beforeSources:before.sources,afterSources:after.sources});assert.equal(after.hash,before.hash)}
+      await step('foreign-group-call-denied',{status:refusal.response.status,sideEffects:refusal.observation})
       const recovered=await owner.rpc(mainSession,'tools/list',{},8220)
       assert.equal(recovered.status,200);assert(recovered.message?.result?.tools?.some(tool=>tool.name===toolName))
-      await step('main-project-still-allowed',{status:200,toolName})
+      same(await get(await manager(),runtimePath),policyBefore)
+      await step('main-group-still-allowed',{status:200,toolName})
     }finally{
-      if(projectCreated&&assigned)await cleanup('wrong-project-assignment-revoked',async()=>{
-        const path=projectApi+'/assignments/detail?subject='+encodeURIComponent(account.subject),assignment=await get(await manager(),path)
-        const revoked=await request(await manager(),path,'PUT',{issuer:base,subject:account.subject,projectScopes:[]},assignment.revision);assert.equal(revoked.status,200)
+      if(groupCreated&&assigned)await cleanup('wrong-group-assignment-removed',async()=>{
+        const path=groupApi+'/scope-grants/detail?subject='+encodeURIComponent(account.subject),existing=await request(await manager(),path)
+        if(existing.status===200)assert.equal((await request(await manager(),path,'DELETE',undefined,existing.value.revision)).status,200)
+        else assert.equal(existing.status,404)
       })
-      if(foreignApproved)await cleanup('wrong-project-member-removed',async()=>{
+      if(foreignApproved)await cleanup('wrong-group-member-removed',async()=>{
         const declarationPath=api+'/application-groups/'+id+'/applications/'+key(foreignClientId)+'/scope-declarations/'+scopeNames.writeB
-        const declaration=await get(await manager(),declarationPath)
-        assert.equal((await request(await manager(),declarationPath,'DELETE',undefined,declaration.revision)).status,200)
-        const member=await get(await manager(),foreignMemberPath)
-        assert.equal((await request(await manager(),foreignMemberPath,'DELETE',undefined,member.revision)).status,200)
+        const declaration=await request(await manager(),declarationPath)
+        if(declaration.status===200)assert.equal((await request(await manager(),declarationPath,'DELETE',undefined,declaration.value.revision)).status,200)
+        else assert.equal(declaration.status,404)
+        const member=await request(await manager(),foreignMemberPath)
+        if(member.status===200)assert.equal((await request(await manager(),foreignMemberPath,'DELETE',undefined,member.value.revision)).status,200)
+        else assert.equal(member.status,404)
       })
-      if(projectCreated)await cleanup('wrong-project-disabled',async()=>{
-        const current=await get(await manager(),projectApi)
-        assert.equal((await request(await manager(),projectApi,'PUT',{displayName:current.displayName,active:false},current.revision)).status,200)
-        assert.equal((await get(await manager(),projectApi)).active,false)
+      if(groupCreated)await cleanup('wrong-group-scope-and-empty-group-removed',async()=>{
+        const path=groupApi+'/scopes/'+encodeURIComponent(scopeNames.writeB),scope=await request(await manager(),path)
+        if(scope.status===200)assert.equal((await request(await manager(),path,'DELETE',undefined,scope.value.revision)).status,200)
+        else assert.equal(scope.status,404)
+        const current=await get(await manager(),groupApi)
+        assert.equal((await request(await manager(),groupApi,'DELETE',undefined,current.revision)).status,200)
+        const groups=await get(await manager(),api+'/application-groups?page=1&size=100')
+        assert.equal(groups.total,groups.items.length);assert(!groups.items.some(group=>group.id===id))
       })
-      if(flowCreated)await cleanup('wrong-project-security-flow-removed',async()=>{
+      if(flowCreated)await cleanup('wrong-group-security-flow-removed',async()=>{
         const response=await request(await manager(),flowPath,'DELETE');assert([200,204].includes(response.status))
-        assert.equal((await request(await manager(),flowPath)).status,404);await quiesceBusiness('wrong-project-flow-deleted')
+        assert.equal((await request(await manager(),flowPath)).status,404);await quiesceBusiness('wrong-group-flow-deleted')
       })
-      if(mainApproved)await cleanup('wrong-project-main-member-restored',async()=>{
-        await management.reconcile(applicationProject);const member=await management.request(mainMemberPath)
-        management.approvedClientIds.delete(member.clientId)
-        await management.mutateIdentity(mainMemberPath,'DELETE',undefined,member.revision)
+      if(mainApproved)await cleanup('wrong-group-main-member-removed',async()=>{
+        await management.removeOrdinaryClient(mainClientId)
+        assert.equal((await request(await manager(),mainMemberPath)).status,404)
       })
-      if(cleanupFailures.length)throw new Error('Wrong-project restoration failed: '+cleanupFailures.join('; '))
-      await step('restoration-verified',{project:id,projectActive:false,foreignAssignmentEmpty:true,foreignMembershipRemoved:true,mainMembershipRemoved:true,securityFlowRemoved:true,retainedInactiveProject:true})
+      if(cleanupFailures.length)throw new Error('Wrong-group cleanup failed: '+cleanupFailures.join('; '))
+      await step('restoration-verified',{applicationGroupId:id,foreignGroupDeleted:true,foreignAssignmentRemoved:true,foreignMembershipRemoved:true,mainMembershipRemoved:true,securityFlowRemoved:true})
     }
   })
 
@@ -786,7 +777,7 @@ export async function runApplicationProjectSecurity(base,fixture={},record) {
       finally{await restore(id+'-baseline-flow-source',async()=>{await write(original.source);assert.equal((await get(client,path+'?source=true')).source,original.source)})}
       await quiesceBusiness(id+'-before-table-fault')
       const temporary='security_fault_'+table+'_'+randomBytes(5).toString('hex')
-      assert(['oidc_project_state','rbac_project_policy_head'].includes(table),'allowlisted fault table required')
+      assert(['rbac_application_group_state','rbac_application_group_policy_head'].includes(table),'allowlisted fault table required')
       assert(/^[a-z0-9_]+$/.test(temporary))
       function rename(from,to) {
         const label=execFileSync('docker',['inspect','-f','{{index .Config.Labels "com.docker.compose.project"}}',observer.postgresContainer],{encoding:'utf8',timeout:20000}).trim()
@@ -836,22 +827,32 @@ export async function runApplicationProjectSecurity(base,fixture={},record) {
       ['DELETE',api+'/roles/removed-role',undefined],
       ['PUT',api+'/bindings',{subject:planned.admin.subject,roles:['removed-role']}],
       ['PUT',api+'/role-mappings',{trustedRole:'admin',roles:['removed-role']}],
-    ])await deny(client,path,method,body,undefined,{statuses:[410],code:'legacy_policy_api_removed'})
+      ['GET',api+'/policy',undefined],
+      ['GET',api+'/projects',undefined],
+      ['GET',api+'/identity/projects',undefined],
+    ])await deny(client,path,method,body,undefined,{statuses:[403,404]})
   })
-  await dependencyFault('directory-unavailable','oidc_project_state')
-  await dependencyFault('policy-unavailable','rbac_project_policy_head')
+  await dependencyFault('directory-unavailable','rbac_application_group_state')
+  await dependencyFault('policy-unavailable','rbac_application_group_policy_head')
 
   await check('wrong-tenant',async()=>{
-    const client=await manager(),projection=await get(client,recoveryPath)
+    let client=await manager(),projection=await get(client,runtimePath)
+    const name=scopeNames.readA,definition=structuredClone(projection.policy.scopes[name])
+    assert(definition&&definition.grants.length,'actual scope policy required for a valid tenant write baseline')
+    try {
+      await saveScope(client,name,{...definition,description:definition.description+' [allowed main tenant baseline]'})
+      await step('allow-write-baseline',{tenant:'main',scopeKey:name,explicitDescriptionChanged:true})
+    }finally{await restore('main-tenant-scope-description',async()=>{await saveScope(await manager(),name,definition)})}
+    client=await manager();projection=await get(client,runtimePath)
     const allowed='/api/v1/main/flows/'+encodeURIComponent(namespaceDomains.a)+'/allowed-id'
     assert.equal((await request(client,allowed)).status,200)
-    await step('allow-baseline',{tenant:'main',flowRead:200,managementRead:200})
-    // Real URI tenant, same production identity and CSRF. No synthetic identity headers.
+    await step('allow-baseline',{tenant:'main',flowRead:200,managementRead:200,policyRevision:projection.revision})
     await deny(client,allowed.replace('/main/','/security-other-tenant/'),'GET',undefined,undefined,{statuses:[400,403,404],invalidTenant:true})
-    await deny(client,recoveryPath.replace('/main/','/security-other-tenant/'),'PUT',projection.project,projection.policyRevision,{statuses:[400,403,404],invalidTenant:true})
+    const writePath=runtimePath+'/scopes/'+encodeURIComponent(name)
+    await deny(client,writePath.replace('/main/','/security-other-tenant/'),'PUT',scopeInput(name,definition),projection.revision,{statuses:[400,403,404],invalidTenant:true})
     assert.equal((await request(client,allowed)).status,200)
-    same((await get(client,recoveryPath)).project,projection.project)
-    await step('restoration-verified',{mainTenantAllowed:true,unchanged:true})
+    same(await get(client,runtimePath),projection)
+    await step('restoration-verified',{mainTenantAllowed:true,unchanged:true,scopeKey:name})
   })
 
   await runApplicationProjectOauth(base,{planned,snapshot:securitySnapshot},async fragment=>{report.oauth=fragment;for(const row of fragment.checks){const index=report.checks.findIndex(item=>item.id===row.id);report.checks[index]=row}await persist()})
