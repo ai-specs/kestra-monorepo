@@ -1,5 +1,30 @@
 # RBAC 组合验收（2026-10-13）
 
+## 应用组目标模型验收（2026-10-22）
+
+本节为开发环境验收记录，不代表生产部署。应用组目标模型
+（`docs/application-group-target-model.md` 2026-10-20/2026-10-21 授权裁决）的首次完整
+实现通过组合验收。本轮裁决由维护者休息前授权主控代行，待维护者复核。
+
+根提交 `071ece1b489fe0571df3a35dbbab7873f0416dac` 的 CI `39723050346`（Monorepo Compose
+acceptance）成功。输入为宿主 `c2390ff22705135ba2773bce23aab27bb4e9472b`
+（CI `39712369397`）与插件 `6f23eebd89b769cf4a1842153c855fa0c175d8b4`
+（CI `39715045248`，artifact `12398852521`）。镜像 digest 为
+`sha256:50315684e3826c4fafadac834ed1fc5438c3e2c77c394740634b59a1f6591024`，
+jar SHA-256 为 `756f5703c243d116f9321b72175993a55e34db1577a160e2fc7d6ef22ce2965d`。
+
+profile 为 new-install，覆盖 REST 56 项、安全 15 项、MCP 11 项、UI 99 项：卡片、只读
+详情与显式编辑、scope key/name/description 与受限删除、声明元数据与 Kestra 实际权限
+分离、scope 交集、内置与退役组约束、absence-mode 凭据拒绝与存储副作用核对。最终
+report.json 为 `completed=true`，失败、跳过、未运行均为零。历史迁移 14 项按目标模型
+"非目标"节明确排除，不计入本轮门。52 个主题语言组合与目标声明 CRUD、撤权、退出换号
+通过；拒绝检查核对数据库、队列和存储副作用。
+
+证据位于 `.work/application-group-root-ci-071ece1/.work/ci/application-projects/` 与
+`.work/application-group-final-acceptance/`（含 `final-ci-verified.json`、
+`release-evidence.json` 与过程失败修复报告）。CI 报告确认资源已清理；实施过程与差异
+分析见 `implementation-gap-report.md`。
+
 ## 应用项目完整 scope 验收（2026-10-19）
 
 本节为开发环境验收记录，不要求恢复已不存在的旧开发数据，不代表生产部署。
