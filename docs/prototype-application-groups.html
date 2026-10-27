@@ -1,0 +1,1205 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Kestra 访问控制 · 原型</title>
+<style>
+/* ============ Kestra 设计令牌（取自宿主实测值） ============ */
+:root {
+  --bg-base: #f5f5f7; --bg-surface: #ffffff; --bg-input: #ffffff;
+  --text-primary: #08090a; --text-secondary: #6b6b75; --text-link: #631bf3;
+  --border: #e4e4ec; --primary: #631bf3; --primary-hover: #7a3cf5;
+  --success: #069d4f; --danger: #d93025; --shadow: 0 1px 3px rgba(8,9,10,.08);
+  --radius: 6px;
+}
+html.dark {
+  --bg-base: #111115; --bg-surface: #1a1c22; --bg-input: #23252e;
+  --text-primary: #ffffff; --text-secondary: #adadbf; --text-link: #cdb7fb;
+  --border: #2e2e3c; --shadow: 0 1px 3px rgba(0,0,0,.4);
+}
+* { box-sizing: border-box; }
+body { margin: 0; font: 14px/1.5 -apple-system, "SF Pro Text", "PingFang SC", "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif; background: var(--bg-base); color: var(--text-primary); }
+button { font: inherit; cursor: pointer; }
+code { font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace; font-size: 13px; background: transparent; }
+
+/* ============ 布局骨架 ============ */
+.shell { display: flex; min-height: 100vh; }
+.side { width: 220px; background: var(--bg-surface); border-right: 1px solid var(--border); padding: 12px 8px; }
+.side .group { font-size: 11px; font-weight: 600; color: var(--text-secondary); padding: 12px 12px 4px; text-transform: uppercase; letter-spacing: .4px; }
+.side a { display: block; padding: 8px 12px; border-radius: 4px; color: var(--text-primary); text-decoration: none; }
+.side a.active { background: color-mix(in srgb, var(--primary) 10%, transparent); color: var(--text-link); font-weight: 600; }
+.main { flex: 1; max-width: 1240px; margin: 0 auto; padding: 0 32px 48px; }
+.page-head { display: flex; align-items: center; gap: 12px; padding: 20px 0 0; }
+.page-head h1 { font-size: 20px; margin: 0; flex: 1; }
+
+/* ============ 工具栏（页面级操作一行：Back 左 · 操作右） ============ */
+.toolbar { display: flex; align-items: center; gap: 12px; min-height: 48px; margin-top: 12px; }
+.toolbar .status { margin-right: auto; color: var(--text-secondary); font-size: 12px; display: flex; gap: 16px; }
+
+/* ============ 按钮（全部 32px 高，与输入框齐平） ============ */
+.btn { display: inline-flex; align-items: center; gap: 6px; height: 32px; padding: 0 14px; border-radius: 4px; border: 1px solid var(--border); background: var(--bg-surface); color: var(--text-primary); }
+.btn:hover { border-color: var(--primary); color: var(--text-link); }
+.btn.primary { background: var(--primary); border-color: var(--primary); color: #fff; }
+.btn.primary:hover { background: var(--primary-hover); }
+.btn.link { border-color: transparent; background: transparent; color: var(--text-link); padding: 0 4px; height: auto; }
+.btn.danger:hover { border-color: var(--danger); color: var(--danger); }
+.btn:disabled { opacity: .5; cursor: not-allowed; }
+.icon-btn { width: 32px; padding: 0; justify-content: center; }
+
+/* ============ Tabs（Kestra box 型） ============ */
+.back-in-tabs { align-self: center; margin-right: 8px; flex: none; }
+.tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--border); background: var(--bg-surface); margin: 16px 0 0; padding: 0; border-radius: 8px 8px 0 0; }
+.tabs button { border: 0; background: transparent; padding: 10px 14px; color: var(--text-secondary); border-bottom: 2px solid transparent; margin-bottom: -1px; }
+.tabs button.active { color: var(--text-link); border-bottom-color: var(--primary); font-weight: 600; }
+
+/* ============ 顶层 tabs ============ */
+.toptabs { display: flex; gap: 8px; margin: 16px 0 0; }
+.toptabs button { border: 1px solid var(--border); background: var(--bg-surface); border-radius: 9999px; padding: 6px 16px; color: var(--text-secondary); }
+.toptabs button.active { background: color-mix(in srgb, var(--primary) 12%, var(--bg-surface)); border-color: var(--primary); color: var(--text-link); font-weight: 600; }
+
+/* ============ 卡片 ============ */
+.cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 16px; margin: 20px 0; }
+.card { background: var(--bg-surface); border: 1px solid var(--border); border-radius: 8px; padding: 16px; cursor: pointer; transition: box-shadow .15s; }
+.card:hover { box-shadow: var(--shadow); border-color: color-mix(in srgb, var(--primary) 35%, var(--border)); }
+.card h3 { margin: 0 0 2px; font-size: 16px; }
+.card .id { color: var(--text-secondary); font-size: 13px; }
+.card .meta { display: flex; gap: 8px; margin-top: 12px; flex-wrap: wrap; align-items: center; }
+
+/* ============ 徽章 ============ */
+.badge { display: inline-flex; align-items: center; gap: 4px; font-size: 12px; padding: 1px 8px; border-radius: 9999px; border: 1px solid var(--border); color: var(--text-secondary); background: var(--bg-base); }
+.badge.builtin { color: var(--text-link); border-color: color-mix(in srgb, var(--primary) 35%, var(--border)); }
+.badge.on { color: var(--success); }
+
+/* ============ 表格 ============ */
+.table-wrap { overflow-x: auto; margin: 16px 0; background: var(--bg-surface); border: 1px solid var(--border); border-radius: 8px; }
+table { width: 100%; border-collapse: collapse; font-size: 13px; }
+th { text-align: left; height: 40px; padding: 0 16px; font-size: 12px; color: var(--text-secondary); background: var(--bg-surface); border-bottom: 1px solid var(--border); white-space: nowrap; }
+td { height: 48px; padding: 0 16px; border-bottom: 1px solid var(--border); vertical-align: middle; }
+tr:last-child td { border-bottom: 0; }
+tbody tr:hover { background: color-mix(in srgb, var(--primary) 4%, transparent); }
+a.cell-link { color: var(--text-link); text-decoration: none; font-weight: 500; }
+td .row-actions { display: flex; gap: 4px; }
+.check-grid { display: flex; flex-wrap: wrap; gap: 6px 18px; }
+.check-grid label { display: inline-flex; align-items: center; gap: 6px; margin: 0; color: var(--text-primary); font-size: 13px; }
+.toast { position: fixed; top: 16px; left: 50%; transform: translateX(-50%); z-index: 80; background: var(--bg-surface); border: 1px solid var(--primary); color: var(--text-link); border-radius: 6px; padding: 8px 16px; font-size: 13px; box-shadow: var(--shadow); display: none; }
+.pagination { display: flex; align-items: center; gap: 10px; padding: 10px 16px; font-size: 12px; color: var(--text-secondary); }
+.pagination .pages { display: flex; gap: 4px; }
+.pagination button { min-width: 26px; height: 26px; border: 1px solid var(--border); background: var(--bg-surface); border-radius: 4px; color: var(--text-primary); padding: 0 6px; }
+.pagination button.cur { background: var(--primary); border-color: var(--primary); color: #fff; }
+.pagination select { width: auto; height: 26px; padding: 0 6px; }
+.tag { display: inline-block; font-size: 12px; padding: 1px 8px; border-radius: 4px; background: color-mix(in srgb, var(--primary) 8%, transparent); color: var(--text-link); margin: 2px 4px 2px 0; }
+
+/* ============ 表单 ============ */
+.form { background: var(--bg-surface); border: 1px solid var(--border); border-radius: 8px; padding: 20px 24px; margin: 16px 0; max-width: 720px; }
+.form label { display: flex; flex-direction: column; gap: 6px; margin-bottom: 16px; font-size: 13px; color: var(--text-secondary); }
+input[type=text], select { height: 32px; padding: 4px 12px; border-radius: 4px; border: 1px solid var(--border); background: var(--bg-input); color: var(--text-primary); font: inherit; width: 100%; }
+.form .checkline { display: flex; align-items: center; gap: 8px; margin-bottom: 16px; color: var(--text-primary); }
+.form .actions { display: flex; gap: 12px; padding-top: 4px; border-top: 1px solid var(--border); }
+.hint { font-size: 12px; color: var(--text-secondary); }
+.field-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px 16px; }
+
+/* ============ 详情字段 ============ */
+.dl { background: var(--bg-surface); border: 1px solid var(--border); border-radius: 8px; padding: 20px 24px; margin: 16px 0; }
+.dl .row { display: grid; grid-template-columns: 200px 1fr; gap: 12px; padding: 10px 0; border-bottom: 1px solid var(--border); }
+.dl .row:last-child { border-bottom: 0; }
+.dl .k { color: var(--text-secondary); font-size: 13px; }
+.dl .v { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.lock { font-size: 12px; color: var(--text-secondary); border: 1px dashed var(--border); border-radius: 4px; padding: 0 6px; }
+
+/* ============ 弹层 ============ */
+.overlay { position: fixed; inset: 0; background: rgba(8,9,10,.45); display: none; align-items: center; justify-content: center; z-index: 50; }
+.overlay.open { display: flex; }
+.modal { background: var(--bg-surface); border-radius: 8px; padding: 24px; width: 420px; box-shadow: var(--shadow); }
+.modal h3 { margin: 0 0 8px; }
+.modal p { color: var(--text-secondary); margin: 0 0 20px; }
+.modal .actions { display: flex; justify-content: flex-end; gap: 12px; }
+/* ============ 右侧抽屉（对齐上游 KV 页 drawer：右侧全高 + 全屏遮罩 + 55px 头） ============ */
+.drawer-overlay { position: fixed; inset: 0; background: rgba(8,9,10,.45); display: none; z-index: 50; }
+.drawer-overlay.open { display: block; }
+.drawer { position: fixed; top: 0; right: 0; height: 100vh; width: min(760px, 92vw); background: var(--bg-surface); border-left: 1px solid var(--border); box-shadow: -4px 0 16px rgba(8,9,10,.18); transform: translateX(100%); transition: transform .22s ease, width .22s ease; z-index: 55; display: flex; flex-direction: column; }
+.drawer.open { transform: translateX(0); }
+.drawer.maximized { width: 100vw; border-left: 0; }
+.drawer-head { display: flex; align-items: center; gap: 10px; height: 55px; padding: 0 20px; border-bottom: 1px solid var(--border); flex: none; }
+.drawer-head h3 { flex: 1; margin: 0; font-size: 16px; }
+.drawer-body { padding: 20px; overflow-y: auto; }
+.drawer-section { border-top: 1px solid var(--border); margin-top: 20px; padding-top: 14px; }
+.drawer-section:first-child { border-top: 0; margin-top: 0; padding-top: 0; }
+.drawer-section > h4 { margin: 0 0 10px; font-size: 14px; }
+/* 权限分组（scope 层 → 权限标识层 → 权限明细层） */
+.perm-group { border: 1px solid var(--border); border-radius: 8px; margin-bottom: 12px; }
+.perm-group-head { display: flex; align-items: center; gap: 10px; padding: 10px 14px; border-bottom: 1px solid var(--border); background: color-mix(in srgb, var(--primary) 3%, transparent); border-radius: 8px 8px 0 0; }
+.perm-group-head .perm-key { font-size: 14px; }
+.perm-group-head .scope-name { color: var(--text-secondary); font-weight: 400; font-size: 13px; }
+.perm-group-head .row-actions { margin-left: auto; }
+.perm-item { padding: 10px 14px; border-bottom: 1px solid var(--border); }
+.perm-item:last-child { border-bottom: 0; }
+.perm-item .impl { margin: 6px 0 0 0; font-size: 12px; color: var(--text-secondary); border-left: 2px solid var(--border); padding-left: 10px; }
+.impl-cell div { font-size: 12px; color: var(--text-secondary); margin: 1px 0; }
+.impl-cell details { font-size: 12px; color: var(--text-link); }
+.impl-cell summary { cursor: pointer; }
+.impl-cell details[open] summary { display: none; }
+.app-split { display: flex; align-items: stretch; gap: 0; margin: 16px 0; }
+.app-list { width: 224px; flex: none; border: 1px solid var(--border); border-radius: 8px; background: var(--bg-surface); padding: 8px; align-self: flex-start; }
+.app-list-title { font-size: 11px; font-weight: 600; color: var(--text-secondary); text-transform: uppercase; padding: 8px 12px 4px; letter-spacing: .4px; }
+.app-item { display: flex; align-items: center; gap: 8px; padding: 10px 12px; border-radius: 6px; color: var(--text-primary); text-decoration: none; }
+.corner-badge { position: absolute; top: 10px; right: 10px; }
+.badge-link { color: var(--text-link); border-color: color-mix(in srgb, var(--primary) 30%, var(--border)); }
+.badge-link:hover { border-color: var(--text-link); }
+.app-item .scope-del { display: none; margin-left: auto; }
+.app-item:hover .scope-del, .app-item.active .scope-del { display: inline-flex; }
+.app-item.active { background: color-mix(in srgb, var(--primary) 10%, transparent); color: var(--text-link); font-weight: 600; }
+.app-detail { flex: 1; min-width: 0; padding-left: 24px; }
+.selected-tags { display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 8px; min-height: 26px; }
+.selected-tags:empty { margin-bottom: 0; }
+.selected-tags .tag a { color: inherit; text-decoration: none; margin-left: 4px; }
+.kv-field select { max-width: 360px; }
+.icon-del { width: 14px; height: 14px; fill: currentColor; }
+.btn.icon-sm { width: 28px; height: 28px; padding: 0; justify-content: center; border-color: transparent; background: transparent; color: var(--text-secondary); }
+.btn.icon-sm:hover { border-color: transparent; color: var(--text-link); background: color-mix(in srgb, var(--primary) 8%, transparent); }
+.btn.icon-sm.danger:hover { color: var(--danger); background: color-mix(in srgb, var(--danger) 8%, transparent); }
+#perm-filter-chips .tag a { color: inherit; text-decoration: none; margin-left: 4px; }
+.kv-form { display: flex; flex-direction: column; gap: 16px; }
+.kv-row { display: flex; align-items: flex-start; gap: 12px; }
+.kv-row .kv-label { width: 127px; flex: none; text-align: right; padding-top: 6px; font-size: 13px; color: var(--text-secondary); }
+.kv-row .kv-field { flex: 1; min-width: 0; }
+.kv-row .kv-field input, .kv-row .kv-field select, .kv-row .kv-field textarea { width: 100%; }
+.decl-add-row { display: grid; grid-template-columns: 2fr 1.4fr 1.4fr auto; gap: 8px; align-items: end; margin-top: 8px; }
+.decl-add-row label { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--text-secondary); margin: 0; }
+
+/* ============ 通知条 ============ */
+.notice { display: flex; gap: 12px; align-items: center; background: color-mix(in srgb, var(--primary) 8%, var(--bg-surface)); border: 1px solid color-mix(in srgb, var(--primary) 30%, var(--border)); border-radius: 6px; padding: 10px 16px; margin: 16px 0; font-size: 13px; }
+
+/* ============ 原型辅助（z-index 低于遮罩/抽屉/弹窗，避免遮挡任何弹层内容） ============ */
+.proto-note { position: fixed; left: 12px; bottom: 12px; z-index: 40; font-size: 12px; color: var(--text-secondary); background: var(--bg-surface); border: 1px dashed var(--border); border-radius: 6px; padding: 6px 10px; }
+.theme-toggle { position: fixed; right: 16px; top: 12px; z-index: 40; }
+.lang-toggle { position: fixed; right: 56px; top: 12px; z-index: 40; width: auto; padding: 0 10px; font-weight: 600; }
+.search { display: inline-flex; align-items: center; gap: 6px; height: 32px; padding: 0 12px; border: 1px solid var(--border); border-radius: 4px; background: var(--bg-input); color: var(--text-secondary); min-width: 220px; }
+.view { display: none; }
+.view.active { display: block; }
+.tabpane { display: none; }
+.tabpane.active { display: block; }
+.muted { color: var(--text-secondary); }
+h2.section { font-size: 15px; margin: 24px 0 8px; }
+</style>
+</head>
+<body>
+<button class="btn lang-toggle" id="lang-toggle" onclick="toggleLang()">中</button>
+<button class="btn icon-btn theme-toggle" onclick="document.documentElement.classList.toggle('dark')" title="切换明暗主题">◐</button>
+<script type="application/rulings+json" id="proto-rulings">{
+  "_meta": {
+    "purpose": "面向实施 AI 的裁决集（维护者 2026-10-22 逐条确认）；与元素级 data-field-note 双层传递：此处为集中权威清单，属性为就地标注",
+    "source_of_truth": "docs/application-group-target-model.md（裁决记录）+ 本原型（交互/布局基准）",
+    "convention": "静态数据驱动、生产级组织；样式对齐宿主实测令牌；明暗双语"
+  },
+  "rulings": [
+    {
+      "id": "R1",
+      "topic": "应用 key 约定",
+      "ruling": "应用 key ≡ OAuth2 client_id（同一值、两个语境名称）；token 的 aud claim 也用该值；创建后不可修改"
+    },
+    {
+      "id": "R2",
+      "topic": "client secret",
+      "ruling": "在应用详情显示与管理：脱敏常显（头3+•••+尾4）；重置图标按钮；重置时一次性弹窗显示新值并附拷贝按钮；不可内联编辑；宿主以 pbkdf2 哈希存储——明文显示须在重置时一次性下发（实施差异项，涉宿主契约）"
+    },
+    {
+      "id": "R3",
+      "topic": "无批准语义",
+      "ruling": "admin 目录管理 client 接入与配置，无 OAuth2 授权批准语义；真实批准发生在用户登录授权给应用时，为对 token 的临时授予，非持久关系；持久用户-应用授权另立需求，当前不做"
+    },
+    {
+      "id": "R4",
+      "topic": "命名规则",
+      "ruling": "OAuth2 专有名称（Issuer/Audience/client secret）恒显英文不随语言切换；应用语境概念用应用语境命名（应用 key/应用描述），不用协议叫法（客户端 ID/受众）"
+    },
+    {
+      "id": "R5",
+      "topic": "运行时权限模型",
+      "ruling": "以应用自身权限为组；权限↔scope 多对多；激活条件=「应用组 key + scope key」两个固定唯一 key 的组合，UI 显示具体值；权限明细为文本副本（应用固化逻辑的描述），不参与运行时动态检测、可能滞后"
+    },
+    {
+      "id": "R6",
+      "topic": "支持的 scope",
+      "ruling": "应用简介中的支持 scope 是只读推导视图：由运行时权限各权限的激活条件聚合，随权限维护自动更新；不可在应用编辑中手工勾选"
+    },
+    {
+      "id": "R7",
+      "topic": "应用页签布局",
+      "ruling": "内容区侧边栏布局（224px，对齐宿主插件页）推广至应用与 scope 两个页签：列表侧栏（key 条目、选中高亮）+ 详情内容区；不使用详情抽屉与整页跳转；添加/编辑权限共用右侧抽屉（KV 同款 drawer，支持最大化），编辑模式锁定权限 key"
+    },
+    {
+      "id": "R8",
+      "topic": "权限声明页签",
+      "ruling": "不设独立的应用权限声明页签（2026-10-22 维护者裁决：整体删除，此前的只读总览方案一并废弃）；声明的展示与维护全部在应用页签的运行时权限区"
+    },
+    {
+      "id": "R9",
+      "topic": "key 主体原则",
+      "ruling": "全部概念以 key（code 样式）为组织主体在前，名称/描述为次要辅助文字；操作按钮右对齐随宽度自适应"
+    },
+    {
+      "id": "R10",
+      "topic": "明细压缩",
+      "ruling": "权限明细统一一行摘要（多条为 首行+N），展开后 +N 提示消失"
+    },
+    {
+      "id": "R11",
+      "topic": "交互细节",
+      "ruling": "行操作用图标按钮（✎ 编辑、垃圾桶 SVG 删除、🚫/✔ 禁用启用，title 提示）；删除为内存态即时删行（推导视图联动）；激活条件选择=下拉+已选 tag 可移除，下拉任何时列出全部 key"
+    },
+    {
+      "id": "R12",
+      "topic": "subject 页签",
+      "ruling": "第四页签为专有名称 subject（恒英文）；表格以 subject 为主视角：subject | 已授予 scope（tag 点击→scope 页签选中）| 涉及应用 key（点击→应用页签选中应用，并以该 subject 持有的全部 scope 筛选运行时权限表，显示 subject 筛选 chip）；subject 页签为\"添加\"（从用户目录下拉选择，不创建用户），创建/编辑在右侧抽屉完成"
+    }
+  ]
+}</script>
+<div class="proto-note" data-zh="原型 · 内容与结构以当前 /application-groups 为准 · 可直接改本文件批注" data-en="Prototype · mirrors /application-groups · edit this file directly">原型 · 内容与结构以当前 /application-groups 为准 · 可直接改本文件批注</div>
+
+<div class="shell">
+  <nav class="side">
+    <div class="group" data-zh="工作区" data-en="Workspace">工作区</div>
+    <a href="#" data-zh="仪表盘" data-en="Dashboards">仪表盘</a><a href="#" data-zh="流程" data-en="Flows">流程</a><a href="#" data-zh="执行" data-en="Executions">执行</a><a href="#" data-zh="日志" data-en="Logs">日志</a>
+    <div class="group" data-zh="租户" data-en="Tenant">租户</div>
+    <a href="#" data-zh="命名空间" data-en="Namespaces">命名空间</a><a href="#" data-zh="策略" data-en="Policies">策略</a><a href="#" data-zh="KV 存储" data-en="KV Store">KV 存储</a><a href="#" data-zh="密钥" data-en="Secrets">密钥</a><a href="#" data-zh="触发器" data-en="Triggers">触发器</a><a href="#">MCP Servers</a>
+    <div class="group" data-zh="扩展" data-en="Extensions">扩展</div>
+    <a href="#" class="active" onclick="show('groups');return false" data-zh="访问控制" data-en="Access management">访问控制</a>
+  </nav>
+
+  <main class="main">
+    <!-- ================= 视图 1：应用组列表 ================= -->
+    <section class="view active" id="view-groups">
+      <div class="page-head"><h1 data-zh="访问控制" data-en="Access management">访问控制</h1></div>
+      <div class="toptabs">
+        <button class="active" data-zh="应用组" data-en="Application groups">应用组</button>
+        <button onclick="show('users')" data-zh="用户" data-en="Users">用户</button>
+      </div>
+      <div class="toolbar">
+        <div class="search">🔍 <span data-zh="搜索应用组" data-en="Search application groups">搜索应用组</span></div>
+        <button class="btn icon-btn" title="Reload">⟳</button>
+        <button class="btn primary" onclick="newGroup()" data-zh="创建" data-en="Create">创建</button>
+      </div>
+      <div class="cards" id="group-cards"></div>
+    </section>
+
+    <!-- ================= 视图 2：Users 列表 ================= -->
+    <section class="view" id="view-users">
+      <div class="page-head"><h1 data-zh="访问控制" data-en="Access management">访问控制</h1></div>
+      <div class="toptabs">
+        <button onclick="show('groups')" data-zh="应用组" data-en="Application groups">应用组</button>
+        <button class="active" data-zh="用户" data-en="Users">用户</button>
+      </div>
+      <div class="toolbar">
+        <button class="btn" data-field-note="implementation: use the upstream native KsFilter component (as on /ui/main/kv); this in-prototype builder is a static mock only" onclick="toggleUsersFilterBuilder()">🔍 <span data-zh="添加过滤器" data-en="Add filters">添加过滤器</span></button>
+        <span id="users-filter-chips" style="display:flex;gap:6px;flex-wrap:wrap"></span>
+        <button class="btn" id="users-clear-btn" style="display:none" onclick="clearAllUsersFilters()" data-zh="清除所有" data-en="Clear all">清除所有</button>
+        <button class="btn icon-btn" style="margin-left:auto" onclick="clearAllUsersFilters()" title="刷新 / Refresh">⟳</button>
+        <button class="btn primary" onclick="newUser()" data-zh="创建用户" data-en="Create user">创建用户</button>
+      </div>
+      <div id="users-filter-builder" style="display:none" class="form" style="padding:12px 16px;margin-bottom:12px">
+        <div class="field-grid" style="align-items:end;grid-template-columns:1fr 1.6fr auto">
+          <label style="margin:0"><span data-zh="字段" data-en="Field">字段</span><select id="users-filter-field"><option value="subject">subject</option></select></label>
+          <label style="margin:0"><span data-zh="值" data-en="Value">值</span><select id="users-filter-value"></select></label>
+          <div><button class="btn primary" onclick="addUsersFilter()" data-zh="添加" data-en="Add">添加</button></div>
+        </div>
+      </div>
+      <div id="users-table"></div>
+        <div id="users-pager"></div>
+    </section>
+
+    <!-- ================= 视图 3：组详情（五页签） ================= -->
+    <section class="view" id="view-detail">
+      <div class="page-head"><h1><code>kestra-group</code></h1><span class="muted" data-zh="Kestra内置" data-en="Kestra built-in">Kestra内置</span></div>
+      <div class="tabs">
+        <button class="btn icon-sm back-in-tabs" onclick="show('groups')" title="返回 / Back">←</button>
+        <button class="active" onclick="tab(this,'t-overview')" data-zh="概览" data-en="Overview">概览</button>
+        <button onclick="tab(this,'t-scopes')">scope</button>
+        <button onclick="tab(this,'t-apps')" data-zh="应用" data-en="Applications">应用</button>
+        <button onclick="tab(this,'t-grants')">subject</button>
+      </div>
+
+      <!-- Overview -->
+      <div class="tabpane active" id="t-overview">
+        <div class="dl" id="overview-readonly" style="margin-top:16px">
+          <div class="row"><span class="k" data-zh="显示名称" data-en="Display name">显示名称</span><span class="v" data-zh="Kestra内置" data-en="Kestra built-in">Kestra内置</span></div>
+          <div class="row"><span class="k" data-zh="组 ID" data-en="Group ID">组 ID</span><span class="v"><code>kestra-group</code></span></div>
+          <div class="row"><span class="k" data-zh="内置" data-en="Built-in">内置</span><span class="v"><span class="badge builtin">◆ <span data-zh="内置应用组 · 不可删除" data-en="Built-in · cannot be deleted">内置应用组 · 不可删除</span></span></span></div>
+          <div class="row"><span class="k">Issuer</span><span class="v">http://localhost:8080 <span class="lock">🔒 <span data-zh="共享服务配置" data-en="shared service configuration">共享服务配置</span></span></span></div>
+          <div class="row"><span class="k">Audience</span><span class="v"><code>kestra-ui</code></span></div>
+        </div>
+        <form class="form" id="overview-editing" style="display:none" onsubmit="return false">
+          <label><span data-zh="显示名称" data-en="Display name">显示名称</span><input type="text" value="Kestra内置"></label>
+          <label><span>Issuer</span><input type="text" value="http://localhost:8080" disabled><span class="hint" data-zh="共享服务配置——不属于单个应用组" data-en="Shared service configuration — not per-group">共享服务配置——不属于单个应用组</span></label>
+          <div class="actions"><button class="btn primary" data-zh="保存更改" data-en="Save changes">保存更改</button><button class="btn" type="button" onclick="askDiscard()" data-zh="取消" data-en="Cancel">取消</button></div>
+        </form>
+      </div>
+
+      <!-- Scopes：scope 列表侧栏 + scope 详情内容区 -->
+      <div class="tabpane" id="t-scopes">
+        <div class="app-split">
+          <aside class="app-list">
+            <div class="app-list-title" style="display:flex;align-items:center"><span style="flex:1">scope</span><button class="btn icon-sm" onclick="newScope()" title="新建 scope / New scope">＋</button></div>
+            <div id="scope-sidebar"></div>
+          </aside>
+          <div class="app-detail" id="scope-detail-pane"></div>
+        </div>
+      </div>
+
+      <!-- Applications：应用列表侧栏 + 应用详情内容区（无二级弹窗） -->
+      <div class="tabpane" id="t-apps">
+        <div class="app-split">
+          <aside class="app-list">
+            <div class="app-list-title" data-zh="应用" data-en="Applications">应用</div>
+            <div id="app-sidebar"></div>
+          </aside>
+          <div class="app-detail" id="app-detail"></div>
+      </div>
+    </div>
+      <!-- subject（专有名称，恒英文）：以 subject 为主视角 -->
+      <div class="tabpane" id="t-grants">
+        <div class="toolbar">
+          <button class="btn" data-field-note="implementation: use the upstream native KsFilter component (as on /ui/main/kv); this in-prototype builder is a static mock only" onclick="toggleGrantsFilterBuilder()">🔍 <span data-zh="添加过滤器" data-en="Add filters">添加过滤器</span></button>
+          <span id="subject-filter-chip" style="display:flex;gap:6px;flex-wrap:wrap"></span>
+          <button class="btn" id="grants-clear-btn" style="display:none" onclick="clearAllGrantsFilters()" data-zh="清除所有" data-en="Clear all">清除所有</button>
+          <button class="btn primary" style="margin-left:auto" onclick="newSubject()" data-zh="添加 subject" data-en="Add subject">添加 subject</button>
+          <button class="btn icon-btn" onclick="clearAllGrantsFilters()" title="刷新 / Refresh">⟳</button>
+        </div>
+        <div id="grants-filter-builder" style="display:none" class="form" style="padding:12px 16px;margin-bottom:12px">
+          <div class="field-grid" style="align-items:end;grid-template-columns:1fr 1.6fr auto">
+            <label style="margin:0"><span data-zh="字段" data-en="Field">字段</span><select id="grants-filter-field" onchange="renderGrantsFilterValues()"><option value="subject">subject</option><option value="scope">scope</option></select></label>
+            <label style="margin:0"><span data-zh="值" data-en="Value">值</span><select id="grants-filter-value"></select></label>
+            <div><button class="btn primary" onclick="addGrantsFilter()" data-zh="添加" data-en="Add">添加</button></div>
+          </div>
+        </div>
+        <div id="grants-table"></div>
+        <div id="grants-pager"></div>
+        <div id="grants-pager"></div>
+      </div>
+    </section>
+
+    <!-- ================= 视图 5：应用详情（已改为弹窗，见页面底部 app-dialog） ================= -->
+
+    <!-- ================= 视图 6：用户详情 ================= -->
+    <section class="view" id="view-user">
+      <div class="page-head"><h1>admin</h1></div>
+      <div class="toolbar">
+        <button class="btn icon-sm" onclick="show('users')" title="返回 / Back">←</button>
+        <div class="status"><span data-zh="用户" data-en="Users">用户</span></div>
+        <button class="btn icon-btn" title="Reload">⟳</button>
+      </div>
+      <div class="dl">
+        <div class="row"><span class="k" data-zh="主体（登录用户名）" data-en="Subject (login username)">主体（登录用户名）</span><span class="v"><code>admin</code></span></div>
+        <div class="row"><span class="k" data-zh="姓名" data-en="Name">姓名</span><span class="v">Verify Admin</span></div>
+        <div class="row"><span class="k" data-zh="邮箱" data-en="Email">邮箱</span><span class="v">admin@verify.local</span></div>
+        <div class="row"><span class="k" data-zh="状态" data-en="Status">状态</span><span class="v"><span class="badge on" data-zh="启用" data-en="Active">启用</span></span></div>
+        <div style="padding-top:16px"><button class="btn" data-zh="编辑" data-en="Edit">编辑</button></div>
+      </div>
+    </section>
+  </main>
+</div>
+
+<!-- 添加权限抽屉（右侧一级弹窗，对齐上游 drawer） -->
+<div class="drawer-overlay" id="app-dialog-overlay" onclick="closePermAddDrawer()"></div>
+<aside class="drawer" id="app-dialog">
+  <div class="drawer-head">
+    <h3 id="perm-drawer-title" data-zh="添加权限" data-en="Add permission">添加权限</h3>
+    <button class="btn icon-btn drawer-max" onclick="toggleDrawerMax('app-dialog')" title="全屏 / Full screen">⤢</button>
+    <button class="btn icon-btn" onclick="closePermAddDrawer()" title="Close">✕</button>
+  </div>
+  <div class="drawer-body">
+    <form onsubmit="return false">
+      <div class="kv-form">
+        <div class="kv-row"><span class="kv-label" data-zh="权限 key" data-en="Permission key">权限 key</span><div class="kv-field"><input type="text" id="perm-key-input" placeholder="permission-key"></div></div>
+        <div class="kv-row"><span class="kv-label" data-zh="权限名称" data-en="Name">权限名称</span><div class="kv-field"><input type="text" id="perm-name-input"></div></div>
+        <div class="kv-row"><span class="kv-label" data-zh="激活条件" data-en="Activation">激活条件</span><div class="kv-field">
+          <div id="perm-add-selected" class="selected-tags"></div>
+          <select id="perm-add-scope" onchange="addActivation(this)"></select>
+          <span id="perm-add-count" class="hint"></span>
+        </div></div>
+        <div class="kv-row"><span class="kv-label" data-zh="权限明细" data-en="Details">权限明细</span><div class="kv-field"><textarea rows="4" id="perm-detail-input" placeholder="命名空间 / 资源 / 动作 描述"></textarea></div></div>
+      </div>
+      <p class="hint" style="margin:0 0 12px" data-field-note="details field is a text copy of baked-in runtime logic; not checked at runtime; may lag" data-zh="激活条件为多选：权限与 scope 是多对多。" data-en="Activation is multi-select: permissions and scopes are many-to-many.">激活条件为多选：权限与 scope 是多对多。权限明细是文本副本——运行时逻辑已固化在应用自身代码中，此副本不参与运行时动态检测，不同步也不影响。</p>
+      <div class="actions" style="margin-top:14px"><button class="btn" type="button" onclick="closePermAddDrawer()" data-zh="取消" data-en="Cancel">取消</button></div>
+</form>
+  </div>
+</aside>
+
+<!-- 重置 client secret：一次性显示 -->
+<div class="overlay" id="secret-overlay">
+  <div class="modal">
+    <h3 data-zh="已重置 client secret" data-en="client secret reset">已重置 client secret</h3>
+    <p data-zh="新 secret 仅此一次显示，关闭后无法再查看；请立即复制保存。" data-en="The new secret is shown only once and cannot be viewed again after closing; copy it now.">新 secret 仅此一次显示，关闭后无法再查看；请立即复制保存。</p>
+    <div style="display:flex;align-items:center;gap:8px;border:1px solid var(--border);border-radius:6px;padding:10px 12px;margin-bottom:20px"><code id="new-secret-value" style="flex:1;word-break:break-all"></code><button class="btn icon-sm" onclick="copySecret()" title="拷贝 / Copy" id="copy-secret-btn">⧉</button></div>
+    <div class="actions"><button class="btn primary" onclick="closeSecretModal()" data-zh="我已保存，关闭" data-en="Saved, close">我已保存，关闭</button></div>
+  </div>
+</div>
+
+<!-- subject 创建/编辑抽屉（右侧，同权限抽屉模式） -->
+<div class="drawer-overlay" id="subject-drawer-overlay" onclick="closeSubjectDrawer()"></div>
+<aside class="drawer" id="subject-drawer">
+  <div class="drawer-head">
+    <h3 id="subject-drawer-title" data-zh="添加 subject" data-en="Add subject">添加 subject</h3>
+    <button class="btn icon-btn drawer-max" onclick="toggleDrawerMax('subject-drawer')" title="全屏 / Full screen">⤢</button>
+    <button class="btn icon-btn" onclick="closeSubjectDrawer()" title="Close">✕</button>
+  </div>
+  <div class="drawer-body">
+    <form onsubmit="return false">
+      <div class="kv-form">
+        <div class="kv-row"><span class="kv-label" data-zh="subject" data-en="subject">subject</span><div class="kv-field"><select id="subject-key-input"></select></div></div>
+        <div class="kv-row" style="align-items:flex-start"><span class="kv-label" data-zh="已授予 scope" data-en="Granted scopes">已授予 scope</span><div class="kv-field"><div id="subject-scopes-selected" class="selected-tags"></div><select id="subject-scopes-select" onchange="addSubjectScope(this)" style="max-width:360px"></select></div></div>
+      </div>
+      <p class="hint" style="margin:12px 0 0" data-field-note="subject is picked from the user directory (top-level Users tab), not created here; granted scopes drive the token grant at login" data-zh="subject 从用户目录（最外层"用户"页签）中选择，此处不创建用户；已授予 scope 决定登录时 token 的授予范围。" data-en="subject is the login username (immutable); granted scopes drive the token grant.">subject 即登录用户名（创建后不可修改）；已授予 scope 决定登录时 token 的授予范围。</p>
+      <div class="actions" style="margin-top:14px"><button class="btn primary" id="subject-save-btn" onclick="saveSubject()" data-zh="添加" data-en="Add">添加</button><button class="btn" type="button" onclick="closeSubjectDrawer()" data-zh="取消" data-en="Cancel">取消</button></div>
+    </form>
+  </div>
+</aside>
+
+<!-- 用户 创建/修改抽屉 -->
+<div class="drawer-overlay" id="user-drawer-overlay" onclick="closeUserDrawer()"></div>
+<aside class="drawer" id="user-drawer">
+  <div class="drawer-head">
+    <h3 id="user-drawer-title" data-zh="创建用户" data-en="Create user">创建用户</h3>
+    <button class="btn icon-btn drawer-max" onclick="toggleDrawerMax('user-drawer')" title="全屏 / Full screen">⤢</button>
+    <button class="btn icon-btn" onclick="closeUserDrawer()" title="Close">✕</button>
+  </div>
+  <div class="drawer-body">
+    <form onsubmit="return false">
+      <div class="kv-form">
+        <div class="kv-row"><span class="kv-label" data-zh="用户名" data-en="Username">用户名</span><div class="kv-field"><input type="text" id="user-key-input" placeholder="username"></div></div>
+        <div class="kv-row"><span class="kv-label" data-zh="姓名" data-en="Name">姓名</span><div class="kv-field"><input type="text" id="user-name-input"></div></div>
+        <div class="kv-row"><span class="kv-label" data-zh="邮箱" data-en="Email">邮箱</span><div class="kv-field"><input type="text" id="user-email-input"></div></div>
+      </div>
+      <div class="actions" style="margin-top:14px"><button class="btn primary" id="user-save-btn" onclick="saveUser()" data-zh="创建" data-en="Create">创建</button><button class="btn" type="button" onclick="closeUserDrawer()" data-zh="取消" data-en="Cancel">取消</button></div>
+    </form>
+  </div>
+</aside>
+
+<!-- 应用组 创建抽屉 -->
+<div class="drawer-overlay" id="group-drawer-overlay" onclick="closeGroupDrawer()"></div>
+<aside class="drawer" id="group-drawer">
+  <div class="drawer-head">
+    <h3 data-zh="创建应用组" data-en="Create application group">创建应用组</h3>
+    <button class="btn icon-btn drawer-max" onclick="toggleDrawerMax('group-drawer')" title="全屏 / Full screen">⤢</button>
+    <button class="btn icon-btn" onclick="closeGroupDrawer()" title="Close">✕</button>
+  </div>
+  <div class="drawer-body">
+    <form onsubmit="return false">
+      <div class="kv-form">
+        <div class="kv-row"><span class="kv-label" data-zh="组 key" data-en="Group key">组 key</span><div class="kv-field"><input type="text" id="group-key-input" placeholder="group-key"></div></div>
+        <div class="kv-row"><span class="kv-label" data-zh="显示名称" data-en="Display name">显示名称</span><div class="kv-field"><input type="text" id="group-name-input"></div></div>
+        <div class="kv-row"><span class="kv-label" data-zh="描述" data-en="Description">描述</span><div class="kv-field"><input type="text" id="group-desc-input"></div></div>
+      </div>
+      <p class="hint" style="margin:12px 0 0" data-field-note="group key is fixed and unique, immutable after creation; new group starts empty (no scopes/apps/subjects) and uses the shared issuer" data-zh="组 key 固定唯一、创建后不可修改；新组初始为空（无 scope/应用/subject），使用共享 Issuer。" data-en="Group key is fixed, unique, immutable; the new group starts empty and uses the shared issuer.">组 key 固定唯一、创建后不可修改；新组初始为空（无 scope/应用/subject），使用共享 Issuer。</p>
+      <div class="actions" style="margin-top:14px"><button class="btn primary" onclick="createGroup()" data-zh="创建" data-en="Create">创建</button><button class="btn" type="button" onclick="closeGroupDrawer()" data-zh="取消" data-en="Cancel">取消</button></div>
+    </form>
+  </div>
+</aside>
+
+<!-- 删除 scope 确认 -->
+<div class="overlay" id="scope-del-overlay">
+  <div class="modal">
+    <h3 data-zh="删除 scope" data-en="Delete scope">删除 scope</h3>
+    <p><span data-zh="确认删除" data-en="Confirm deletion of">确认删除</span> <code id="scope-del-key"></code><span data-zh="？关联的权限激活条件与用户授予将失去该 scope，无法恢复。" data-en="? Permissions activated by it and user grants will lose this scope; this cannot be undone.">？关联的权限激活条件与用户授予将失去该 scope，无法恢复。</span></p>
+    <div class="actions"><button class="btn" onclick="closeDeleteScope()" data-zh="取消" data-en="Cancel">取消</button><button class="btn primary" style="background:var(--danger);border-color:var(--danger)" onclick="confirmDeleteScope()" data-zh="删除" data-en="Delete">删除</button></div>
+  </div>
+</div>
+
+<!-- 删除应用确认 -->
+<div class="overlay" id="app-del-overlay">
+  <div class="modal">
+    <h3 data-zh="删除应用" data-en="Delete application">删除应用</h3>
+    <p><span data-zh="确认删除应用" data-en="Confirm deletion of">确认删除应用</span> <code id="app-del-key"></code><span data-zh="？其全部权限声明与绑定将一并清除，无法恢复。" data-en="? All its permission declarations and bindings will be removed; cannot be undone.">？其全部权限声明与绑定将一并清除，无法恢复。</span></p>
+    <div class="actions"><button class="btn" onclick="closeDeleteApp()" data-zh="取消" data-en="Cancel">取消</button><button class="btn primary" style="background:var(--danger);border-color:var(--danger)" onclick="confirmDeleteApp()" data-zh="删除" data-en="Delete">删除</button></div>
+  </div>
+</div>
+
+<!-- 丢弃确认弹层 -->
+<div class="overlay" id="discard-overlay">
+  <div class="modal">
+    <h3 data-zh="放弃未保存的更改？" data-en="Discard unsaved changes?">放弃未保存的更改？</h3>
+    <p data-zh="本页存在未保存的更改，离开将丢失这些更改。" data-en="You have unsaved changes on this page. If you leave now, they will be lost.">本页存在未保存的更改，离开将丢失这些更改。</p>
+    <div class="actions"><button class="btn" onclick="closeDiscard()" data-zh="继续编辑" data-en="Continue editing">继续编辑</button><button class="btn primary" onclick="discard()" data-zh="放弃更改" data-en="Discard changes">放弃更改</button></div>
+  </div>
+</div>
+
+<div class="toast" id="proto-toast"></div>
+<script>
+function protoTodo(op) {
+  const t = document.getElementById('proto-toast');
+  t.textContent = (typeof lang !== 'undefined' && lang === 'en' ? 'Prototype: "' + op + '" will call the real API in implementation' : '原型示意：「' + op + '」将在实施时接入真实 API');
+  t.style.display = 'block';
+  clearTimeout(protoTodo._t);
+  protoTodo._t = setTimeout(() => { t.style.display = 'none'; }, 1800);
+}
+/* ---------- 视图与页签切换 ---------- */
+function show(id) {
+  document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
+  document.getElementById('view-' + id).classList.add('active');
+  window.scrollTo(0, 0);
+}
+function tab(btn, pane) {
+  btn.parentElement.querySelectorAll('button').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  btn.closest('section').querySelectorAll('.tabpane').forEach(p => p.classList.remove('active'));
+  document.getElementById(pane).classList.add('active');
+}
+function editGroup(on) {
+  document.getElementById('overview-readonly').style.display = on ? 'none' : '';
+  document.getElementById('overview-editing').style.display = on ? '' : 'none';
+}
+function askDiscard() { document.getElementById('discard-overlay').classList.add('open'); }
+function closeDiscard() { document.getElementById('discard-overlay').classList.remove('open'); }
+function discard() { closeDiscard(); editGroup(false); }
+function openPermAddDrawer() {
+  document.getElementById('perm-drawer-title').textContent = T('添加权限', 'Add permission');
+  document.getElementById('perm-key-input').value = '';
+  document.getElementById('perm-key-input').disabled = false;
+  document.getElementById('perm-name-input').value = '';
+  document.getElementById('perm-detail-input').value = '';
+  renderPermAddScope();
+  document.getElementById('app-dialog-overlay').classList.add('open');
+  document.getElementById('app-dialog').classList.add('open');
+}
+function openPermEdit(permKey) {
+  const pm = permissionRows().find(x => x.key === permKey);
+  if (!pm) return;
+  document.getElementById('perm-drawer-title').textContent = T('编辑权限', 'Edit permission');
+  const keyInput = document.getElementById('perm-key-input');
+  keyInput.value = permKey; keyInput.disabled = true;
+  document.getElementById('perm-name-input').value = pm.name;
+  const impl = DATA.impl[pm.scopes[0]] || [];
+  document.getElementById('perm-detail-input').value = impl.map(g => `${g.namespace}${g.descendants ? ' (含子级)' : ''} · ${g.resource} · ${g.actions.join('/')}`).join('\n');
+  renderPermAddScope();
+  for (const k of pm.scopes) selectedActivations.add(k);
+  renderActivationUI();
+  document.getElementById('app-dialog-overlay').classList.add('open');
+  document.getElementById('app-dialog').classList.add('open');
+}
+let currentSecret = 'ui-x7k2-demo';
+function masked(v) { return v.length <= 8 ? v : v.slice(0, 3) + '••••••••' + v.slice(-4); }
+function resetSecret() {
+  currentSecret = 'ui-' + Math.random().toString(36).slice(2, 10) + '-' + Date.now().toString(36).slice(-4);
+  document.getElementById('app-secret-value').textContent = masked(currentSecret);
+  document.getElementById('new-secret-value').textContent = currentSecret;
+  document.getElementById('secret-overlay').classList.add('open');
+}
+function copySecret() {
+  const text = document.getElementById('new-secret-value').textContent;
+  if (navigator.clipboard) navigator.clipboard.writeText(text).catch(() => {});
+  const t = document.getElementById('proto-toast');
+  t.textContent = T('已复制到剪贴板', 'Copied to clipboard');
+  t.style.display = 'block';
+  clearTimeout(protoTodo._t);
+  protoTodo._t = setTimeout(() => { t.style.display = 'none'; }, 1500);
+}
+function closeSecretModal() { document.getElementById('secret-overlay').classList.remove('open'); }
+function setDrawerMax(id, on) {
+  document.getElementById(id).classList.toggle('maximized', on);
+  const btn = document.getElementById(id).querySelector('.drawer-max');
+  if (btn) btn.textContent = on ? '⤡' : '⤢';
+}
+function toggleDrawerMax(id) { setDrawerMax(id, !document.getElementById(id).classList.contains('maximized')); }
+function closePermAddDrawer() { document.getElementById('app-dialog-overlay').classList.remove('open'); document.getElementById('app-dialog').classList.remove('open'); setDrawerMax('app-dialog', false); }
+
+function setDrawerMax(id, on) {
+  document.getElementById(id).classList.toggle('maximized', on);
+  const btn = document.getElementById(id).querySelector('.drawer-max');
+  if (btn) btn.textContent = on ? '⤡' : '⤢';
+}
+function toggleDrawerMax(id) { setDrawerMax(id, !document.getElementById(id).classList.contains('maximized')); }
+function appEdit(on) {
+  document.getElementById('app-readonly').style.display = on ? 'none' : '';
+  document.getElementById('app-editing').style.display = on ? '' : 'none';
+}
+
+/* ---------- 中英文切换（默认中文） ---------- */
+let lang = 'zh';
+function applyLang() {
+  document.documentElement.lang = lang === 'zh' ? 'zh-CN' : 'en';
+  document.querySelectorAll('[data-zh]').forEach(el => {
+    el.textContent = lang === 'zh' ? el.dataset.zh : el.dataset.en;
+  });
+  document.getElementById('lang-toggle').textContent = lang === 'zh' ? '中' : 'EN';
+  document.querySelectorAll('input[placeholder], option[data-placeholder-zh]').forEach(el => {
+    if (el.dataset.placeholderZh) el.placeholder = lang === 'zh' ? el.dataset.placeholderZh : (el.dataset.placeholderEn || '');
+  });
+}
+function toggleLang() { lang = lang === 'zh' ? 'en' : 'zh'; applyLang(); }
+</script>
+<script>
+/* ================= 静态数据驱动层（真实安装数据，19 scope / 19 声明 / 18 权限明细） ================= */
+const DATA = {"group": {"key": "kestra-group", "displayName": "Kestra内置", "issuer": "http://localhost:8080", "active": true, "revision": 1, "authVersion": 1}, "app": {"clientId": "kestra-ui", "approved": true, "audiences": ["kestra-ui"], "supported": ["acceptance-a-read", "acceptance-b-operate", "acceptance-a-read-only", "acceptance-a-list-only", "acceptance-b-list-only", "acceptance-a-exact", "acceptance-a-one-flow", "acceptance-b-one-flow", "acceptance-a-one-read", "acceptance-a-other-list", "acceptance-unbound", "acceptance-b-delete", "acceptance-a-outputs", "acceptance-group-manage", "acceptance-policy-manage", "acceptance-observer-complete", "acceptance-mcp-policy-operate", "acceptance-mcp-support-operate", "acceptance-mcp-user-operate"]}, "scopes": [{"key": "acceptance-a-read", "name": "A Read", "description": "A complete read", "active": true}, {"key": "acceptance-b-operate", "name": "B Operate", "description": "B complete operate", "active": true}, {"key": "acceptance-b-delete", "name": "B Delete", "description": "B read and deletion without update", "active": true}, {"key": "acceptance-a-outputs", "name": "A Outputs", "description": "A execution read/list and output access without update", "active": true}, {"key": "acceptance-a-read-only", "name": "A Read Only", "description": "A READ without LIST", "active": true}, {"key": "acceptance-a-list-only", "name": "A List Only", "description": "A LIST without READ", "active": true}, {"key": "acceptance-b-list-only", "name": "B List Only", "description": "B LIST without READ", "active": true}, {"key": "acceptance-a-exact", "name": "A Exact", "description": "A exact namespace read", "active": true}, {"key": "acceptance-a-one-flow", "name": "A One Flow", "description": "Only the named A flow", "active": true}, {"key": "acceptance-b-one-flow", "name": "B One Flow", "description": "Only the named B flow", "active": true}, {"key": "acceptance-a-one-read", "name": "A One Read", "description": "A named flow READ without LIST", "active": true}, {"key": "acceptance-a-other-list", "name": "A Other List", "description": "A different named flow LIST without READ", "active": true}, {"key": "acceptance-group-manage", "name": "Application group administrator", "description": "Explicit application group management", "active": true}, {"key": "acceptance-policy-manage", "name": "Kestra application policy administrator", "description": "Explicit Kestra application policy management", "active": true}, {"key": "acceptance-observer-complete", "name": "Observer Complete", "description": "Isolated test data observer", "active": true}, {"key": "acceptance-mcp-policy-operate", "name": "Mcp Policy Operate", "description": "MCP operator for application policy revocation", "active": true}, {"key": "acceptance-mcp-support-operate", "name": "Mcp Support Operate", "description": "MCP operator for supported scope revocation", "active": true}, {"key": "acceptance-mcp-user-operate", "name": "Mcp User Operate", "description": "MCP operator for user scope revocation", "active": true}, {"key": "acceptance-unbound", "name": "Unassigned application role", "description": "Defined group role without a Kestra resource policy", "active": true}], "declarations": {"acceptance-a-read": {"key": "access-4aa1c0aeb7bd825e46f7", "name": "Access A Read"}, "acceptance-b-operate": {"key": "access-7874756844712687f57c", "name": "Access B Operate"}, "acceptance-a-read-only": {"key": "access-a760e1838e348b9229c6", "name": "Access A Read Only"}, "acceptance-a-list-only": {"key": "access-8621fe7dc2bbd1309174", "name": "Access A List Only"}, "acceptance-b-list-only": {"key": "access-1057e860d6c35a955692", "name": "Access B List Only"}, "acceptance-a-exact": {"key": "access-15ebe2fbe9f631b3e89a", "name": "Access A Exact"}, "acceptance-a-one-flow": {"key": "access-97426ef83356747a2cec", "name": "Access A One Flow"}, "acceptance-b-one-flow": {"key": "access-ec35cbfc9c9d5aaa57c4", "name": "Access B One Flow"}, "acceptance-a-one-read": {"key": "access-80901ef7d502f2eed58a", "name": "Access A One Read"}, "acceptance-a-other-list": {"key": "access-386e7275b5b4170beb95", "name": "Access A Other List"}, "acceptance-unbound": {"key": "access-3f708eaffb8ca158cf69", "name": "Access Unassigned application role"}, "acceptance-b-delete": {"key": "access-ca373d23d9c536902016", "name": "Access B Delete"}, "acceptance-a-outputs": {"key": "access-a2d63591ac16737e493c", "name": "Access A Outputs"}, "acceptance-group-manage": {"key": "access-aa854295f90550b7b87f", "name": "Access Application group administrator"}, "acceptance-policy-manage": {"key": "access-2ee07d896cb3d240c13a", "name": "Access Kestra application policy administrator"}, "acceptance-observer-complete": {"key": "access-39e9ee06c80dd7fd81f6", "name": "Access Observer Complete"}, "acceptance-mcp-policy-operate": {"key": "access-5c563f382309bb4a2ea4", "name": "Access Mcp Policy Operate"}, "acceptance-mcp-support-operate": {"key": "access-f3d190b3702e0b5cf7b0", "name": "Access Mcp Support Operate"}, "acceptance-mcp-user-operate": {"key": "access-b46e36f1b71cb42a108a", "name": "Access Mcp User Operate"}}, "impl": {"acceptance-a-read": [{"namespace": "scope.acceptance.a", "resource": "FLOW", "actions": ["READ", "LIST"], "descendants": true, "allIds": true, "ids": []}, {"namespace": "scope.acceptance.a", "resource": "EXECUTION", "actions": ["READ", "LIST"], "descendants": true, "allIds": true, "ids": []}, {"namespace": "scope.acceptance.a", "resource": "NAMESPACE", "actions": ["READ", "LIST"], "descendants": true, "allIds": true, "ids": []}, {"namespace": "scope.acceptance.a", "resource": "LOG", "actions": ["READ", "LIST"], "descendants": true, "allIds": true, "ids": []}, {"namespace": "scope.acceptance.a", "resource": "METRIC", "actions": ["READ", "LIST"], "descendants": true, "allIds": true, "ids": []}, {"namespace": "scope.acceptance.a", "resource": "TRIGGER", "actions": ["READ", "LIST"], "descendants": true, "allIds": true, "ids": []}, {"namespace": "scope.acceptance.a", "resource": "KVSTORE", "actions": ["READ", "LIST"], "descendants": true, "allIds": true, "ids": []}, {"namespace": "scope.acceptance.a", "resource": "NAMESPACE_FILE", "actions": ["READ", "LIST"], "descendants": true, "allIds": true, "ids": []}, {"namespace": null, "resource": "METADATA", "actions": ["READ", "LIST"], "descendants": false, "allIds": true, "ids": []}, {"namespace": null, "resource": "MCP_SERVER", "actions": ["READ", "LIST"], "descendants": false, "allIds": true, "ids": []}], "acceptance-b-operate": [{"namespace": "scope.acceptance.b", "resource": "FLOW", "actions": ["READ", "LIST", "CREATE", "UPDATE", "EXECUTE"], "descendants": true, "allIds": true, "ids": []}, {"namespace": "scope.acceptance.b", "resource": "EXECUTION", "actions": ["READ", "LIST", "CREATE", "ACCESS_OUTPUTS"], "descendants": true, "allIds": true, "ids": []}, {"namespace": "scope.acceptance.b", "resource": "NAMESPACE", "actions": ["READ", "LIST"], "descendants": true, "allIds": true, "ids": []}, {"namespace": "scope.acceptance.b", "resource": "LOG", "actions": ["READ", "LIST"], "descendants": true, "allIds": true, "ids": []}, {"namespace": "scope.acceptance.b", "resource": "METRIC", "actions": ["READ", "LIST"], "descendants": true, "allIds": true, "ids": []}, {"namespace": "scope.acceptance.b", "resource": "TRIGGER", "actions": ["READ", "LIST"], "descendants": true, "allIds": true, "ids": []}, {"namespace": "scope.acceptance.b", "resource": "KVSTORE", "actions": ["READ", "LIST", "CREATE", "UPDATE"], "descendants": true, "allIds": true, "ids": []}, {"namespace": "scope.acceptance.b", "resource": "NAMESPACE_FILE", "actions": ["READ", "LIST", "CREATE", "UPDATE"], "descendants": true, "allIds": true, "ids": []}, {"namespace": null, "resource": "METADATA", "actions": ["READ", "LIST"], "descendants": false, "allIds": true, "ids": []}, {"namespace": null, "resource": "MCP_SERVER", "actions": ["READ", "LIST"], "descendants": false, "allIds": true, "ids": []}], "acceptance-b-delete": [{"namespace": "scope.acceptance.b", "resource": "FLOW", "actions": ["READ", "DELETE"], "descendants": true, "allIds": true, "ids": []}, {"namespace": null, "resource": "METADATA", "actions": ["READ", "LIST"], "descendants": false, "allIds": true, "ids": []}], "acceptance-a-outputs": [{"namespace": "scope.acceptance.a", "resource": "EXECUTION", "actions": ["READ", "LIST", "ACCESS_OUTPUTS"], "descendants": true, "allIds": true, "ids": []}, {"namespace": null, "resource": "METADATA", "actions": ["READ", "LIST"], "descendants": false, "allIds": true, "ids": []}], "acceptance-a-read-only": [{"namespace": "scope.acceptance.a", "resource": "FLOW", "actions": ["READ"], "descendants": true, "allIds": true, "ids": []}, {"namespace": null, "resource": "METADATA", "actions": ["READ", "LIST"], "descendants": false, "allIds": true, "ids": []}], "acceptance-a-list-only": [{"namespace": "scope.acceptance.a", "resource": "FLOW", "actions": ["LIST"], "descendants": true, "allIds": true, "ids": []}, {"namespace": null, "resource": "METADATA", "actions": ["READ", "LIST"], "descendants": false, "allIds": true, "ids": []}], "acceptance-b-list-only": [{"namespace": "scope.acceptance.b", "resource": "FLOW", "actions": ["LIST"], "descendants": true, "allIds": true, "ids": []}, {"namespace": null, "resource": "METADATA", "actions": ["READ", "LIST"], "descendants": false, "allIds": true, "ids": []}], "acceptance-a-exact": [{"namespace": "scope.acceptance.a", "resource": "FLOW", "actions": ["READ", "LIST"], "descendants": false, "allIds": true, "ids": []}, {"namespace": "scope.acceptance.a", "resource": "EXECUTION", "actions": ["READ", "LIST"], "descendants": false, "allIds": true, "ids": []}, {"namespace": "scope.acceptance.a", "resource": "NAMESPACE", "actions": ["READ", "LIST"], "descendants": false, "allIds": true, "ids": []}, {"namespace": "scope.acceptance.a", "resource": "LOG", "actions": ["READ", "LIST"], "descendants": false, "allIds": true, "ids": []}, {"namespace": "scope.acceptance.a", "resource": "METRIC", "actions": ["READ", "LIST"], "descendants": false, "allIds": true, "ids": []}, {"namespace": "scope.acceptance.a", "resource": "TRIGGER", "actions": ["READ", "LIST"], "descendants": false, "allIds": true, "ids": []}, {"namespace": "scope.acceptance.a", "resource": "KVSTORE", "actions": ["READ", "LIST"], "descendants": false, "allIds": true, "ids": []}, {"namespace": "scope.acceptance.a", "resource": "NAMESPACE_FILE", "actions": ["READ", "LIST"], "descendants": false, "allIds": true, "ids": []}, {"namespace": null, "resource": "METADATA", "actions": ["READ", "LIST"], "descendants": false, "allIds": true, "ids": []}, {"namespace": null, "resource": "MCP_SERVER", "actions": ["READ", "LIST"], "descendants": false, "allIds": true, "ids": []}], "acceptance-a-one-flow": [{"namespace": "scope.acceptance.a", "resource": "FLOW", "actions": ["READ", "LIST", "UPDATE"], "descendants": false, "allIds": false, "ids": ["allowed-id"]}, {"namespace": null, "resource": "METADATA", "actions": ["READ", "LIST"], "descendants": false, "allIds": true, "ids": []}], "acceptance-b-one-flow": [{"namespace": "scope.acceptance.b", "resource": "FLOW", "actions": ["READ", "LIST"], "descendants": false, "allIds": false, "ids": ["other-id"]}, {"namespace": null, "resource": "METADATA", "actions": ["READ", "LIST"], "descendants": false, "allIds": true, "ids": []}], "acceptance-a-one-read": [{"namespace": "scope.acceptance.a", "resource": "FLOW", "actions": ["READ"], "descendants": false, "allIds": false, "ids": ["allowed-id"]}, {"namespace": null, "resource": "METADATA", "actions": ["READ", "LIST"], "descendants": false, "allIds": true, "ids": []}], "acceptance-a-other-list": [{"namespace": "scope.acceptance.a", "resource": "FLOW", "actions": ["LIST"], "descendants": false, "allIds": false, "ids": ["other-id"]}, {"namespace": null, "resource": "METADATA", "actions": ["READ", "LIST"], "descendants": false, "allIds": true, "ids": []}], "acceptance-group-manage": [{"namespace": null, "resource": "METADATA", "actions": ["READ", "LIST"], "descendants": false, "allIds": true, "ids": []}], "acceptance-policy-manage": [{"namespace": null, "resource": "METADATA", "actions": ["READ", "LIST"], "descendants": false, "allIds": true, "ids": []}], "acceptance-observer-complete": [{"namespace": "scope.acceptance.a", "resource": "FLOW", "actions": ["READ", "LIST", "CREATE", "UPDATE", "DELETE", "EXECUTE"], "descendants": true, "allIds": true, "ids": []}, {"namespace": "scope.acceptance.a", "resource": "EXECUTION", "actions": ["READ", "LIST", "CREATE", "DELETE", "ACCESS_OUTPUTS"], "descendants": true, "allIds": true, "ids": []}, {"namespace": "scope.acceptance.b", "resource": "FLOW", "actions": ["READ", "LIST", "CREATE", "UPDATE", "DELETE", "EXECUTE"], "descendants": true, "allIds": true, "ids": []}, {"namespace": "scope.acceptance.b", "resource": "EXECUTION", "actions": ["READ", "LIST", "CREATE", "DELETE", "ACCESS_OUTPUTS"], "descendants": true, "allIds": true, "ids": []}, {"namespace": "scope.acceptance.outside", "resource": "FLOW", "actions": ["READ", "LIST", "CREATE", "UPDATE", "DELETE", "EXECUTE"], "descendants": true, "allIds": true, "ids": []}, {"namespace": "scope.acceptance.outside", "resource": "EXECUTION", "actions": ["READ", "LIST", "CREATE", "DELETE", "ACCESS_OUTPUTS"], "descendants": true, "allIds": true, "ids": []}, {"namespace": "scope.acceptance.a2", "resource": "FLOW", "actions": ["READ", "LIST", "CREATE", "UPDATE", "DELETE", "EXECUTE"], "descendants": true, "allIds": true, "ids": []}, {"namespace": "scope.acceptance.a2", "resource": "EXECUTION", "actions": ["READ", "LIST", "CREATE", "DELETE", "ACCESS_OUTPUTS"], "descendants": true, "allIds": true, "ids": []}, {"namespace": null, "resource": "METADATA", "actions": ["READ", "LIST"], "descendants": false, "allIds": true, "ids": []}], "acceptance-mcp-policy-operate": [{"namespace": "scope.acceptance.b", "resource": "FLOW", "actions": ["READ", "LIST", "CREATE", "UPDATE", "EXECUTE"], "descendants": true, "allIds": false, "ids": ["mcp-local"]}, {"namespace": "scope.acceptance.b", "resource": "EXECUTION", "actions": ["READ", "LIST", "CREATE", "ACCESS_OUTPUTS"], "descendants": true, "allIds": true, "ids": []}, {"namespace": "scope.acceptance.b", "resource": "NAMESPACE", "actions": ["READ", "LIST"], "descendants": true, "allIds": true, "ids": []}, {"namespace": "scope.acceptance.b", "resource": "LOG", "actions": ["READ", "LIST"], "descendants": true, "allIds": true, "ids": []}, {"namespace": "scope.acceptance.b", "resource": "METRIC", "actions": ["READ", "LIST"], "descendants": true, "allIds": true, "ids": []}, {"namespace": "scope.acceptance.b", "resource": "TRIGGER", "actions": ["READ", "LIST"], "descendants": true, "allIds": true, "ids": []}, {"namespace": "scope.acceptance.b", "resource": "KVSTORE", "actions": ["READ", "LIST", "CREATE", "UPDATE"], "descendants": true, "allIds": true, "ids": []}, {"namespace": "scope.acceptance.b", "resource": "NAMESPACE_FILE", "actions": ["READ", "LIST", "CREATE", "UPDATE"], "descendants": true, "allIds": true, "ids": []}, {"namespace": null, "resource": "METADATA", "actions": ["READ", "LIST"], "descendants": false, "allIds": true, "ids": []}, {"namespace": null, "resource": "MCP_SERVER", "actions": ["READ", "LIST"], "descendants": false, "allIds": true, "ids": []}], "acceptance-mcp-support-operate": [{"namespace": "scope.acceptance.b", "resource": "FLOW", "actions": ["READ", "LIST", "CREATE", "UPDATE", "EXECUTE"], "descendants": true, "allIds": false, "ids": ["mcp-directory"]}, {"namespace": "scope.acceptance.b", "resource": "EXECUTION", "actions": ["READ", "LIST", "CREATE", "ACCESS_OUTPUTS"], "descendants": true, "allIds": true, "ids": []}, {"namespace": "scope.acceptance.b", "resource": "NAMESPACE", "actions": ["READ", "LIST"], "descendants": true, "allIds": true, "ids": []}, {"namespace": "scope.acceptance.b", "resource": "LOG", "actions": ["READ", "LIST"], "descendants": true, "allIds": true, "ids": []}, {"namespace": "scope.acceptance.b", "resource": "METRIC", "actions": ["READ", "LIST"], "descendants": true, "allIds": true, "ids": []}, {"namespace": "scope.acceptance.b", "resource": "TRIGGER", "actions": ["READ", "LIST"], "descendants": true, "allIds": true, "ids": []}, {"namespace": "scope.acceptance.b", "resource": "KVSTORE", "actions": ["READ", "LIST", "CREATE", "UPDATE"], "descendants": true, "allIds": true, "ids": []}, {"namespace": "scope.acceptance.b", "resource": "NAMESPACE_FILE", "actions": ["READ", "LIST", "CREATE", "UPDATE"], "descendants": true, "allIds": true, "ids": []}, {"namespace": null, "resource": "METADATA", "actions": ["READ", "LIST"], "descendants": false, "allIds": true, "ids": []}, {"namespace": null, "resource": "MCP_SERVER", "actions": ["READ", "LIST"], "descendants": false, "allIds": true, "ids": []}], "acceptance-mcp-user-operate": [{"namespace": "scope.acceptance.b", "resource": "FLOW", "actions": ["READ", "LIST", "CREATE", "UPDATE", "EXECUTE"], "descendants": true, "allIds": false, "ids": ["mcp-subject"]}, {"namespace": "scope.acceptance.b", "resource": "EXECUTION", "actions": ["READ", "LIST", "CREATE", "ACCESS_OUTPUTS"], "descendants": true, "allIds": true, "ids": []}, {"namespace": "scope.acceptance.b", "resource": "NAMESPACE", "actions": ["READ", "LIST"], "descendants": true, "allIds": true, "ids": []}, {"namespace": "scope.acceptance.b", "resource": "LOG", "actions": ["READ", "LIST"], "descendants": true, "allIds": true, "ids": []}, {"namespace": "scope.acceptance.b", "resource": "METRIC", "actions": ["READ", "LIST"], "descendants": true, "allIds": true, "ids": []}, {"namespace": "scope.acceptance.b", "resource": "TRIGGER", "actions": ["READ", "LIST"], "descendants": true, "allIds": true, "ids": []}, {"namespace": "scope.acceptance.b", "resource": "KVSTORE", "actions": ["READ", "LIST", "CREATE", "UPDATE"], "descendants": true, "allIds": true, "ids": []}, {"namespace": "scope.acceptance.b", "resource": "NAMESPACE_FILE", "actions": ["READ", "LIST", "CREATE", "UPDATE"], "descendants": true, "allIds": true, "ids": []}, {"namespace": null, "resource": "METADATA", "actions": ["READ", "LIST"], "descendants": false, "allIds": true, "ids": []}, {"namespace": null, "resource": "MCP_SERVER", "actions": ["READ", "LIST"], "descendants": false, "allIds": true, "ids": []}]}, "user": {"subject": "admin", "issuer": "http://localhost:8080", "scopes": ["acceptance-group-manage", "acceptance-policy-manage", "acceptance-observer-complete"]}, "userDirectory": ["admin", "project-acceptance-manager", "project-acceptance-0", "project-acceptance-1", "project-acceptance-2", "project-acceptance-3", "project-acceptance-4", "project-acceptance-5", "project-acceptance-6", "project-acceptance-7", "project-acceptance-8", "project-acceptance-9", "project-acceptance-10", "project-acceptance-11", "project-acceptance-12", "project-mcp-allowed", "project-mcp-capabilityonly", "project-mcp-projectonly", "project-mcp-knownunbound", "project-mcp-localrevoke", "project-mcp-directoryrevoke", "project-mcp-subjectrevoke"], "userMeta": {"admin": {"name": "Verify Admin", "email": "admin@verify.local", "active": true}, "project-acceptance-manager": {"name": "—", "email": "—", "active": true}, "project-acceptance-0": {"name": "—", "email": "—", "active": true}, "project-acceptance-1": {"name": "—", "email": "—", "active": true}, "project-acceptance-2": {"name": "—", "email": "—", "active": true}, "project-acceptance-3": {"name": "—", "email": "—", "active": true}, "project-acceptance-4": {"name": "—", "email": "—", "active": true}, "project-acceptance-5": {"name": "—", "email": "—", "active": true}, "project-acceptance-6": {"name": "—", "email": "—", "active": true}, "project-acceptance-7": {"name": "—", "email": "—", "active": true}, "project-acceptance-8": {"name": "—", "email": "—", "active": true}, "project-acceptance-9": {"name": "—", "email": "—", "active": true}, "project-acceptance-10": {"name": "—", "email": "—", "active": true}, "project-acceptance-11": {"name": "—", "email": "—", "active": true}, "project-acceptance-12": {"name": "—", "email": "—", "active": true}, "project-mcp-allowed": {"name": "—", "email": "—", "active": true}, "project-mcp-capabilityonly": {"name": "—", "email": "—", "active": true}, "project-mcp-projectonly": {"name": "—", "email": "—", "active": true}, "project-mcp-knownunbound": {"name": "—", "email": "—", "active": true}, "project-mcp-localrevoke": {"name": "—", "email": "—", "active": true}, "project-mcp-directoryrevoke": {"name": "—", "email": "—", "active": true}, "project-mcp-subjectrevoke": {"name": "—", "email": "—", "active": true}}, "applications": [{"clientId": "kestra-ui", "approved": true, "audiences": ["kestra-ui"], "supported": ["acceptance-a-read", "acceptance-b-operate", "acceptance-a-read-only", "acceptance-a-list-only", "acceptance-b-list-only", "acceptance-a-exact", "acceptance-a-one-flow", "acceptance-b-one-flow", "acceptance-a-one-read", "acceptance-a-other-list", "acceptance-unbound", "acceptance-b-delete", "acceptance-a-outputs", "acceptance-group-manage", "acceptance-policy-manage", "acceptance-observer-complete", "acceptance-mcp-policy-operate", "acceptance-mcp-support-operate", "acceptance-mcp-user-operate"]}], "groups": [{"key": "kestra-group", "displayName": "Kestra内置", "issuer": "http://localhost:8080", "active": true, "revision": 1, "authVersion": 1}]};
+
+const subjects = [DATA.user];
+const DEL_SVG = '<svg viewBox="0 0 24 24" class="icon-del"><path d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z"/></svg>';
+const T = (zh, en) => (typeof lang !== 'undefined' && lang === 'en') ? en : zh;
+
+function pagerHtml(total, page, size, fn, fns) {
+  const pages = Math.max(1, Math.ceil(total / size));
+  let btns = '';
+  for (let i = 1; i <= pages; i++) btns += `<button class="${i === page ? 'cur' : ''}" onclick="${fn}(${i})">${i}</button>`;
+  return `<div class="pagination"><span>Total ${total}</span>
+    <button onclick="${fn}(${Math.max(1, page - 1)})" ${page <= 1 ? 'disabled' : ''}>‹</button>
+    <span class="pages">${btns}</span>
+    <button onclick="${fn}(${Math.min(pages, page + 1)})" ${page >= pages ? 'disabled' : ''}>›</button>
+    <select onchange="${fns}(this.value)"><option ${size == 10 ? 'selected' : ''}>10</option><option ${size == 20 ? 'selected' : ''}>20</option><option ${size == 50 ? 'selected' : ''}>50</option></select>
+    <span>${T('条 / 页', 'per page')}</span></div>`;
+}
+
+/* ---------- scope 列表侧栏 + 详情内容区 ---------- */
+let selectedScope = '';
+let pendingDeleteScope = null;
+function askDeleteScope(key) { pendingDeleteScope = key; document.getElementById('scope-del-key').textContent = key; document.getElementById('scope-del-overlay').classList.add('open'); }
+function closeDeleteScope() { document.getElementById('scope-del-overlay').classList.remove('open'); pendingDeleteScope = null; }
+function confirmDeleteScope() {
+  const key = pendingDeleteScope;
+  const i = DATA.scopes.findIndex(x => x.key === key);
+  if (i >= 0) {
+    DATA.scopes.splice(i, 1);
+    delete DATA.declarations[key];
+    delete DATA.impl[key];
+    for (const u of subjects) u.scopes = u.scopes.filter(k => k !== key);
+  }
+  closeDeleteScope();
+  if (selectedScope === key) selectedScope = DATA.scopes[0] ? DATA.scopes[0].key : '';
+  renderAll();
+}
+function renderScopeSidebar() {
+  const html = DATA.scopes.map(sc => `<a class="app-item ${!creatingScope && sc.key === selectedScope ? 'active' : ''}" href="#" onclick="showScopeDetail('${sc.key}');return false"><code>${sc.key}</code><button class="btn icon-sm danger scope-del" onclick="event.preventDefault();event.stopPropagation();askDeleteScope('${sc.key}')" title="删除 / Delete">${DEL_SVG}</button></a>`).join('');
+  document.getElementById('scope-sidebar').innerHTML = html;
+}
+function showScopeDetail(key) {
+  if (key !== selectedScope) scopeEditing = false;
+  selectedScope = key;
+  renderScopeSidebar();
+  const sc = DATA.scopes.find(x => x.key === key);
+  const slice = permissionRows().filter(pm => pm.scopes.includes(key));
+  const byApp = new Map();
+  for (const pm of slice) {
+    if (!byApp.has(DATA.app.clientId)) byApp.set(DATA.app.clientId, []);
+    byApp.get(DATA.app.clientId).push(pm);
+  }
+  const sliceRows = [...byApp.entries()].map(([app, perms]) => `<tr><td><code>${app}</code></td><td>${perms.map(pm => `<span class="tag" style="cursor:pointer" onclick="gotoAppPerm('${pm.key}')" title="${T('在应用页签中查看', 'open in Applications tab')}"><code>${pm.key}</code></span>`).join('')}</td></tr>`).join('') || `<tr><td colspan="2" class="muted" style="text-align:center">—</td></tr>`;
+  const infoHtml = scopeEditing
+    ? `<form onsubmit="return false">
+        <label style="display:flex;flex-direction:column;gap:6px;margin-bottom:12px;font-size:13px;color:var(--text-secondary)"><span data-zh="角色名称" data-en="Role name">角色名称</span><input type="text" id="scope-name-input" value="${sc.name}"></label>
+        <label style="display:flex;flex-direction:column;gap:6px;margin-bottom:12px;font-size:13px;color:var(--text-secondary)"><span data-zh="描述" data-en="Description">描述</span><input type="text" id="scope-desc-input" value="${sc.description || ''}"></label>
+        <div class="actions"><button class="btn primary" onclick="saveScope()" data-zh="保存更改" data-en="Save changes">保存更改</button><button class="btn" type="button" onclick="scopeEdit(false)" data-zh="取消" data-en="Cancel">取消</button></div>
+      </form>`
+    : `<div class="dl" style="margin:0" data-field-note="key immutable; name/description editable; full runtime-permission view and maintenance live in the Applications tab">
+        <div class="row"><span class="k" data-zh="角色名称" data-en="Role name">角色名称</span><span class="v">${sc.name}</span></div>
+        <div class="row"><span class="k" data-zh="描述" data-en="Description">描述</span><span class="v muted">${sc.description || '—'}</span></div>
+        <div style="padding-top:12px"><button class="btn" onclick="scopeEdit(true)" data-zh="编辑" data-en="Edit">编辑</button></div>
+      </div>`;
+  document.getElementById('scope-detail-pane').innerHTML = `
+    <div class="page-head" style="padding-top:0"><h1><code>${sc.key}</code></h1></div>
+    ${infoHtml}
+    <h2 class="section" data-zh="绑定的应用" data-en="Bound applications">绑定的应用</h2>
+    <p class="hint" data-field-note="scope-context view: applications bound to this scope, one row per application, permission keys as tags; maintenance lives in the Applications tab" data-zh="以应用为维度：一个应用一条数据，其下绑定此 scope 的权限 key 以标签组织；维护入口在应用页签。" data-en="Application-dimension view: one row per application with its bound permission keys as tags; maintenance lives in the Applications tab.">以应用为维度：一个应用一条数据，其下绑定此 scope 的权限 key 以标签组织；维护入口在应用页签。</p>
+    <div class="table-wrap"><table>
+      <thead><tr><th>${T('应用', 'Application')}</th><th>${T('权限 key', 'Permission keys')}</th></tr></thead>
+      <tbody>${sliceRows}</tbody></table></div>
+    <h2 class="section" data-zh="scope 授予" data-en="Scope grants">scope 授予</h2>
+    <p class="hint" data-field-note="subjects granted this scope; click to open the subject tab filtered to that subject" data-zh="当前 scope 授予的 subject；点击跳转 subject 页签并筛选。" data-en="Subjects granted this scope; click to open the subject tab filtered.">当前 scope 授予的 subject；点击跳转 subject 页签并筛选。</p>
+    <div class="table-wrap"><table>
+      <thead><tr><th>subject</th></tr></thead>
+      <tbody>${subjects.filter(u => u.scopes.includes(key)).map(u => `<tr><td><span class="tag" style="cursor:pointer" onclick="gotoSubjectTab('${u.subject}')" title="${T('在 subject 页签中查看', 'open in the subject tab')}"><code>${u.subject}</code></span></td></tr>`).join('') || `<tr><td class="muted" style="text-align:center">—</td></tr>`}</tbody></table></div>`;
+}
+let scopeEditing = false;
+function scopeEdit(on) { scopeEditing = on; showScopeDetail(selectedScope); }
+function saveScope() {
+  const sc = DATA.scopes.find(x => x.key === selectedScope);
+  sc.name = document.getElementById('scope-name-input').value;
+  sc.description = document.getElementById('scope-desc-input').value;
+  scopeEditing = false;
+  renderAll();
+}
+let creatingScope = false;
+function newScope() {
+  creatingScope = true;
+  renderScopeSidebar();
+  document.getElementById('scope-detail-pane').innerHTML = `
+    <div class="page-head" style="padding-top:0"><h1 data-zh="新建 scope" data-en="New scope">新建 scope</h1></div>
+    <form class="form" style="margin:0" onsubmit="return false" data-field-note="key is settable only at creation; immutable afterwards">
+      <label style="display:flex;flex-direction:column;gap:6px;margin-bottom:12px;font-size:13px;color:var(--text-secondary)"><span data-zh="标识 key（创建后不可修改）" data-en="Key (immutable after creation)">标识 key（创建后不可修改）</span><input type="text" id="new-scope-key" placeholder="scope-key"></label>
+      <label style="display:flex;flex-direction:column;gap:6px;margin-bottom:12px;font-size:13px;color:var(--text-secondary)"><span data-zh="角色名称" data-en="Role name">角色名称</span><input type="text" id="new-scope-name"></label>
+      <label style="display:flex;flex-direction:column;gap:6px;margin-bottom:12px;font-size:13px;color:var(--text-secondary)"><span data-zh="描述" data-en="Description">描述</span><input type="text" id="new-scope-desc"></label>
+      <div class="actions"><button class="btn primary" onclick="createScope()" data-zh="创建" data-en="Create">创建</button><button class="btn" type="button" onclick="cancelNewScope()" data-zh="取消" data-en="Cancel">取消</button></div>
+    </form>`;
+}
+function createScope() {
+  const key = document.getElementById('new-scope-key').value.trim();
+  const name = document.getElementById('new-scope-name').value.trim();
+  if (!key || !name) { protoTodo(T('key 与角色名称必填', 'key and name are required')); return; }
+  if (DATA.scopes.some(x => x.key === key)) { protoTodo(T('key 已存在：', 'key already exists: ') + key); return; }
+  DATA.scopes.push({key, name, description: document.getElementById('new-scope-desc').value.trim(), active: true});
+  creatingScope = false;
+  selectedScope = key;
+  renderAll();
+}
+function cancelNewScope() { creatingScope = false; showScopeDetail(selectedScope); }
+
+/* ---------- 应用运行时权限（按权限聚合，权限↔scope 多对多；明细为文本副本） ---------- */
+let subjectTabFilter = null, grantsFilters = [];
+function toggleGrantsFilterBuilder() { const b = document.getElementById('grants-filter-builder'); b.style.display = b.style.display === 'none' ? '' : 'none'; renderGrantsFilterValues(); }
+function renderGrantsFilterValues() {
+  const f = document.getElementById('grants-filter-field').value;
+  const sel = document.getElementById('grants-filter-value');
+  sel.innerHTML = f === 'subject'
+    ? DATA.userDirectory.map(u => `<option value="${u}">${u}</option>`).join('')
+    : DATA.scopes.map(sc => `<option value="${sc.key}">${sc.key}</option>`).join('');
+}
+function addGrantsFilter() {
+  const f = document.getElementById('grants-filter-field').value, v = document.getElementById('grants-filter-value').value;
+  if (v && !grantsFilters.some(c => c.f === f && c.v === v)) grantsFilters.push({f, v});
+  grantsPage = 1; renderGrants();
+}
+function removeGrantsFilter(i) { grantsFilters.splice(i, 1); renderGrants(); }
+function clearAllGrantsFilters() { grantsFilters = []; subjectTabFilter = null; grantsPage = 1; renderGrants(); }
+function gotoSubjectTab(subject) {
+  goTabPane('t-grants');
+  subjectTabFilter = subject;
+  grantsPage = 1;
+  renderGrants();
+}
+function clearSubjectTabFilter() { subjectTabFilter = null; renderGrants(); }
+let permPage = 1, permSize = 10, permFilters = [], subjectFilter = null;
+function permFieldText(pm, f) {
+  if (f === 'key') return pm.key.toLowerCase();
+  if (f === 'name') return pm.name.toLowerCase();
+  return pm.scopes.join(' ').toLowerCase();
+}
+function filteredPerms(perms) {
+  let base = subjectFilter ? perms.filter(pm => pm.scopes.some(k => subjectFilter.scopes.includes(k))) : perms;
+  return permFilters.reduce((acc, c) => acc.filter(pm => c.f === 'key' ? pm.key === c.v : c.f === 'name' ? pm.name === c.v : pm.scopes.includes(c.v)), base);
+}
+function renderPermFilterValues() {
+  const f = document.getElementById('filter-field').value;
+  const rows = permissionRows();
+  const values = f === 'key' ? rows.map(pm => pm.key) : f === 'name' ? [...new Set(rows.map(pm => pm.name))] : DATA.scopes.map(sc => sc.key);
+  document.getElementById('filter-value').innerHTML = values.map(v => `<option value="${v}">${v}</option>`).join('');
+}
+const FILTER_LABELS = {key: ['权限 key', 'key'], name: ['权限名称', 'name'], scope: ['scope', 'scope']};
+function renderFilterChips() {
+  const box = document.getElementById('perm-filter-chips');
+  const subChip = subjectFilter ? `<span class="tag" title="${T('来自 subject', 'from subject')} <code>${subjectFilter.subject}</code>" style="cursor:help">scope ∈ ${subjectFilter.scopes.map(k => `<code>${k}</code>`).join(' · ')} <a href="#" onclick="clearSubjectFilter();return false">✕</a></span>` : '';
+  box.innerHTML = subChip + permFilters.map((c, i) => `<span class="tag">${T(FILTER_LABELS[c.f][0], FILTER_LABELS[c.f][1])} = <code>${c.v}</code> <a href="#" onclick="removePermFilter(${i});return false">✕</a></span>`).join('');
+  document.getElementById('clear-filters-btn').style.display = (permFilters.length || subjectFilter) ? '' : 'none';
+}
+function toggleFilterBuilder() { const b = document.getElementById('filter-builder'); b.style.display = b.style.display === 'none' ? '' : 'none'; renderPermFilterValues(); }
+function addPermFilter() {
+  const f = document.getElementById('filter-field').value, v = document.getElementById('filter-value').value;
+  if (v && !permFilters.some(c => c.f === f && c.v === v)) permFilters.push({f, v});
+  permPage = 1; renderFilterChips(); renderPermGroups();
+}
+function removePermFilter(i) { permFilters.splice(i, 1); permPage = 1; renderFilterChips(); renderPermGroups(); }
+function clearPermFilters() { permFilters = []; subjectFilter = null; permPage = 1; renderFilterChips(); renderPermGroups(); }
+function clearSubjectFilter() { subjectFilter = null; permPage = 1; renderFilterChips(); renderPermGroups(); }
+function refreshPerms() { clearPermFilters(); permPage = 1; renderPermGroups(); }
+function goTabPane(paneId) {
+  const btn = [...document.querySelectorAll('#view-detail .tabs button')].find(b => b.getAttribute('onclick') && b.getAttribute('onclick').includes("'" + paneId + "'"));
+  if (btn) tab(btn, paneId);
+}
+function gotoScope(key) {
+  goTabPane('t-scopes');
+  showScopeDetail(key);
+}
+function gotoAppPerm(permKey) {
+  goTabPane('t-apps');
+  permFilters = [{f: 'key', v: permKey}];
+  permPage = 1;
+  renderFilterChips();
+  renderPermGroups();
+}
+const deletedPerms = new Set();
+function deletePerm(permKey) {
+  deletedPerms.add(permKey);
+  renderPermGroups();
+  renderSupported();
+}
+function permissionRows() {
+  const byPerm = new Map();
+  for (const sc of DATA.scopes) {
+    const d = DATA.declarations[sc.key];
+    if (!d || deletedPerms.has(d.key)) continue;
+    if (!byPerm.has(d.key)) byPerm.set(d.key, {key: d.key, name: d.name, scopes: []});
+    byPerm.get(d.key).scopes.push(sc.key);
+  }
+  return [...byPerm.values()];
+}
+function newGroup() { document.getElementById('group-key-input').value = ''; document.getElementById('group-name-input').value = ''; document.getElementById('group-desc-input').value = ''; document.getElementById('group-drawer-overlay').classList.add('open'); document.getElementById('group-drawer').classList.add('open'); }
+function closeGroupDrawer() { document.getElementById('group-drawer-overlay').classList.remove('open'); document.getElementById('group-drawer').classList.remove('open'); setDrawerMax('group-drawer', false); }
+function createGroup() {
+  const key = document.getElementById('group-key-input').value.trim();
+  const displayName = document.getElementById('group-name-input').value.trim();
+  if (!key || !displayName) { protoTodo(T('组 key 与显示名称必填', 'group key and display name are required')); return; }
+  if (DATA.groups.some(g => g.key === key)) { protoTodo(T('组 key 已存在', 'group key already exists')); return; }
+  DATA.groups.push({key, displayName});
+  closeGroupDrawer();
+  renderGroupCards();
+}
+let selectedApp = null, pendingDeleteApp = null;
+function renderGroupCards() {
+  const statsOf = g => [
+    {label: 'scope', n: DATA.scopes.length, tab: 't-scopes'},
+    {label: T('应用', 'apps'), n: DATA.applications.length, tab: 't-apps'},
+    {label: 'subject', n: subjects.length, tab: 't-grants'},
+  ];
+  document.getElementById('group-cards').innerHTML = DATA.groups.map(g => `<div class="card group-card" onclick="show('detail')" style="cursor:pointer;position:relative">
+          ${g.key === 'kestra-group' ? `<span class="badge builtin corner-badge">◆ ${T('内置', 'Built-in')}</span>` : ''}
+          <h3><code>${g.key}</code></h3>
+          <div class="id">${g.displayName}</div>
+          <div class="meta">
+            ${statsOf(g).map(i => `<span class="badge badge-link" onclick="event.stopPropagation();show('detail');setTimeout(()=>goTabPane('${i.tab}'),50)">${i.n} ${i.label}</span>`).join('')}
+          </div>
+        </div>`).join('');
+}
+function renderOverviewStats() {
+  const items = [
+    {label: T('scope', 'scope'), n: DATA.scopes.length, go: "goTabPane('t-scopes')"},
+    {label: T('应用', 'Applications'), n: DATA.applications.length, go: "goTabPane('t-apps')"},
+    {label: 'subject', n: subjects.length, go: "goTabPane('t-grants')"},
+  ];
+  document.querySelectorAll('#overview-readonly .stat-row').forEach(e => e.remove());
+  document.getElementById('overview-readonly').insertAdjacentHTML('beforeend', items.map(i =>
+    `<div class="row stat-row"><span class="k">${i.label}</span><span class="v"><a class="cell-link" href="#" onclick="${i.go};return false" style="font-weight:600">${i.n}</a></span></div>`).join(''));
+}
+function renderAppSidebar() {
+  const html = DATA.applications.map(a => `<a class="app-item ${selectedApp === a.clientId ? 'active' : ''}" href="#" onclick="selectApp('${a.clientId}');return false"><code>${a.clientId}</code><button class="btn icon-sm danger scope-del" onclick="event.preventDefault();event.stopPropagation();askDeleteApp('${a.clientId}')" title="删除 / Delete">${DEL_SVG}</button></a>`).join('');
+  document.getElementById('app-sidebar').innerHTML = html || `<p class="muted" style="padding:8px 12px">—</p>`;
+}
+function askDeleteApp(id) { pendingDeleteApp = id; document.getElementById('app-del-key').textContent = id; document.getElementById('app-del-overlay').classList.add('open'); }
+function closeDeleteApp() { document.getElementById('app-del-overlay').classList.remove('open'); pendingDeleteApp = null; }
+function confirmDeleteApp() {
+  const id = pendingDeleteApp;
+  const i = DATA.applications.findIndex(a => a.clientId === id);
+  if (i >= 0) {
+    DATA.applications.splice(i, 1);
+    DATA.declarations = {};
+    for (const u of subjects) u.scopes = [];
+  }
+  closeDeleteApp();
+  selectedApp = DATA.applications[0] ? DATA.applications[0].clientId : null;
+  renderAll();
+}
+function selectApp(id) { selectedApp = id; renderAppSidebar(); renderAppDetail(); }
+function renderAppDetail() {
+  const app = DATA.applications.find(a => a.clientId === selectedApp);
+  const pane = document.getElementById('app-detail');
+  if (!app) { pane.innerHTML = `<p class="muted">${T('暂无应用', 'No application')}</p>`; document.getElementById('perm-groups').innerHTML=''; document.getElementById('perm-pager').innerHTML=''; document.getElementById('perm-filter-chips').innerHTML=''; return; }
+  const meta = DATA.userMeta ? '' : '';
+  const supported = [...new Set(permissionRows().flatMap(pm => pm.scopes))];
+  pane.innerHTML = `
+    <div class="page-head" style="padding-top:0" data-field-note="admin directory manages client onboarding and configuration only — no OAuth2 approval semantics here; real user-consent approval happens at login time as a transient token grant, not a persistent application relationship"><h1><code>${app.clientId}</code></h1></div>
+    <div id="app-readonly">
+      <div class="dl" style="margin:0">
+        <div class="row" data-field-note="convention: application key ≡ OAuth2 client_id (one value, two context names); immutable after creation; token aud claim uses the same value"><span class="k" data-zh="应用 key" data-en="Application key">应用 key</span><span class="v"><code>${app.clientId}</code></span></div>
+        <div class="row"><span class="k" data-zh="应用描述" data-en="Description">应用描述</span><span class="v">${app.description || 'Kestra 管理 UI（第一方应用）'}</span></div>
+        <div class="row" data-field-note="masked display keeps head+tail chars; reset opens one-time modal with copy; host stores pbkdf2 hash — reveal only at reset in implementation"><span class="k">client secret</span><span class="v"><code id="app-secret-value">ui-••••••••-demo</code> <button class="btn icon-sm" onclick="resetSecret()" title="重置 / Reset">⟳</button></span></div>
+        <div class="row" style="align-items:start" data-field-note="read-only derived view: aggregated from activation conditions of runtime permissions below"><span class="k" data-zh="支持的 scope" data-en="Supported scopes">支持的 scope</span><span class="v" style="gap:4px;flex-direction:column;align-items:flex-start"><span id="app-supported-tags" style="display:flex;flex-wrap:wrap;gap:4px"></span><span class="hint" data-zh="由下方应用运行时权限中各权限的激活条件聚合推导，随权限维护自动更新。" data-en="Aggregated from activation conditions below.">由下方应用运行时权限中各权限的激活条件聚合推导，随权限维护自动更新。</span></span></div>
+      </div>
+      <div style="padding-top:12px"><button class="btn" onclick="appEdit(true)" data-zh="编辑" data-en="Edit">编辑</button></div>
+    </div>
+    <form id="app-editing" style="display:none" onsubmit="return false">
+      <label style="display:flex;flex-direction:column;gap:6px;margin-bottom:12px;font-size:13px;color:var(--text-secondary)" data-field-note="immutable after creation"><span data-zh="应用 key" data-en="Application key">应用 key</span><input type="text" value="${app.clientId}" disabled></label>
+      <label style="display:flex;flex-direction:column;gap:6px;margin-bottom:12px;font-size:13px;color:var(--text-secondary)"><span data-zh="应用描述" data-en="Description">应用描述</span><input type="text" value="${app.description || 'Kestra 管理 UI（第一方应用）'}"></label>
+      <label style="display:flex;flex-direction:column;gap:6px;margin-bottom:12px;font-size:13px;color:var(--text-secondary)" data-field-note="read-only derived view"><span data-zh="支持的 scope" data-en="Supported scopes">支持的 scope</span><div id="app-supported-edit" style="display:flex;flex-wrap:wrap;gap:4px"></div></label>
+      <div class="actions"><button class="btn primary" onclick="appEdit(false); protoTodo(this.textContent)" data-zh="保存更改" data-en="Save changes">保存更改</button><button class="btn" type="button" onclick="appEdit(false)" data-zh="取消" data-en="Cancel">取消</button></div>
+    </form>
+    <div class="drawer-section">
+      <div style="display:flex;align-items:center;gap:12px;margin:20px 0 10px;padding-top:14px;border-top:1px solid var(--border)"><h4 style="margin:0" data-zh="应用运行时权限" data-en="Application runtime permissions">应用运行时权限</h4><button class="btn primary" style="margin-left:auto" onclick="openPermAddDrawer()" data-test="add-permission" data-zh="添加权限" data-en="Add permission">添加权限</button></div>
+      <p class="hint" style="margin:0 0 12px" data-field-note="details column is a text copy; not checked at runtime" data-zh="以应用自身的权限为主体组织；权限与 scope 是多对多，激活条件为「应用组 key + scope key」组合。" data-en="Organized by the app's own permissions; many-to-many; activation is group key + scope key.">以应用自身的权限为主体组织；权限与 scope 是多对多，激活条件为「应用组 key + scope key」组合。</p>
+      <div class="toolbar" style="margin:0 0 12px;min-height:36px">
+        <button class="btn" data-field-note="implementation: use the upstream native KsFilter component" onclick="toggleFilterBuilder()" id="add-filter-btn">🔍 <span data-zh="添加过滤器" data-en="Add filters">添加过滤器</span></button>
+        <span id="perm-filter-chips" style="display:flex;gap:6px;flex-wrap:wrap"></span>
+        <button class="btn" id="clear-filters-btn" style="display:none" onclick="clearPermFilters()" data-zh="清除所有" data-en="Clear all">清除所有</button>
+        <button class="btn icon-btn" style="width:32px;height:32px;margin-left:auto" onclick="refreshPerms()" title="刷新 / Refresh">⟳</button>
+      </div>
+      <div id="perm-groups"></div>
+      <div id="perm-pager"></div>
+      <div id="filter-builder" style="display:none">
+        <div class="field-grid" style="align-items:end;grid-template-columns:1fr 1.6fr auto">
+          <label style="margin:0"><span data-zh="字段" data-en="Field">字段</span><select id="filter-field" onchange="renderPermFilterValues()"><option value="key" data-zh="权限 key" data-en="Permission key">权限 key</option><option value="name" data-zh="权限名称" data-en="Name">权限名称</option><option value="scope" data-zh="scope（激活条件）" data-en="scope">scope（激活条件）</option></select></label>
+          <label style="margin:0"><span data-zh="值" data-en="Value">值</span><select id="filter-value"></select></label>
+          <div><button class="btn primary" onclick="addPermFilter()" data-zh="添加" data-en="Add">添加</button></div>
+        </div>
+      </div>
+    </div>`;
+  renderSupported();
+}
+function renderPermGroups() {
+  const all = filteredPerms(permissionRows());
+  const perms = all.slice((permPage - 1) * permSize, permPage * permSize);
+  const body = perms.map(pm => {
+    const activation = pm.scopes.map(k => `<div><code>${DATA.group.key}: ${k}</code></div>`).join('');
+    const firstScope = pm.scopes[0];
+    const impl = DATA.impl[firstScope] || [];
+    const lines = impl.map(g => `<div><code>${g.namespace}</code>${g.descendants ? '↴' : ''} · ${g.resource} · ${g.actions.join('/')}${g.allIds ? '' : ` · ID:<code>${(g.ids || []).join(',')}</code>`}</div>`);
+    const detail = lines.length === 0 ? `<span class="muted">—</span>`
+      : lines.length === 1 ? lines[0]
+      : `${lines[0]}<details class="impl-more"><summary>+${lines.length - 1}</summary>${lines.slice(1).join('')}</details>`;
+    return `<tr>
+      <td><code>${pm.key}</code></td>
+      <td class="muted">${pm.name}</td>
+      <td>${activation}</td>
+      <td class="impl-cell">${detail}</td>
+      <td><div class="row-actions"><button class="btn icon-sm" title="${T('编辑', 'Edit')}" onclick="openPermEdit('${pm.key}')">✎</button><button class="btn icon-sm danger" title="${T('删除', 'Delete')}" onclick="deletePerm('${pm.key}')">${DEL_SVG}</button></div></td></tr>`;
+  }).join('');
+  document.getElementById('perm-groups').innerHTML = `<div class="table-wrap" style="margin:0"><table>
+    <thead><tr><th>${T('权限 key', 'Permission key')}</th><th>${T('权限名称', 'Name')}</th><th>${T('激活条件（多对多）', 'Activation (many-to-many)')}</th><th data-field-note="text copy of the application's baked-in runtime logic; not checked at runtime; may lag">${T('权限明细', 'Details')}</th><th></th></tr></thead><tbody>${body}</tbody></table></div>`;
+  document.getElementById('perm-pager').innerHTML = pagerHtml(all.length, permPage, permSize, 'gotoPermPage', 'gotoPermSize');
+}
+function gotoPermPage(p) { permPage = p; renderPermGroups(); }
+function gotoPermSize(v) { permSize = +v; permPage = 1; renderPermGroups(); }
+
+/* ---------- 支持的 scope：tag 组（自动换行）与编辑网格 ---------- */
+function renderSupported() {
+  const supported = [...new Set(permissionRows().flatMap(pm => pm.scopes))];
+  const html = supported.map(k => `<span class="tag" style="cursor:pointer" onclick="gotoScope('${k}')" title="${T('在 scope 页签中查看', 'open in the Scopes tab')}"><code>${k}</code></span>`).join('');
+  document.getElementById('app-supported-tags').innerHTML = html;
+  document.getElementById('app-supported-edit').innerHTML = html;
+}
+
+/* ---------- 激活条件：下拉选择 + 已选 tag（可移除）；多对多皆可选 ---------- */
+const selectedActivations = new Set();
+function renderPermAddScope() {
+  selectedActivations.clear();
+  renderActivationUI();
+}
+function renderActivationUI() {
+  const remaining = DATA.scopes.filter(sc => !selectedActivations.has(sc.key));
+  const sel = document.getElementById('perm-add-scope');
+  sel.innerHTML = remaining.length
+    ? `<option value="" hidden>${T('选择 scope…', 'Select a scope…')}</option>` + remaining.map(sc => `<option value="${sc.key}">${sc.key} — ${sc.name}</option>`).join('')
+    : `<option value="">${T('（已全部选择）', '(all selected)')}</option>`;
+  const usedBy = new Map();
+  for (const sc of DATA.scopes) { const d = DATA.declarations[sc.key]; if (d && !deletedPerms.has(d.key)) usedBy.set(sc.key, d.key); }
+  document.getElementById('perm-add-selected').innerHTML = [...selectedActivations].map(k =>
+    `<span class="tag"><code>${DATA.group.key}: ${k}</code> <a href="#" onclick="removeActivation('${k}');return false" title="${T('移除', 'remove')}">✕</a>${usedBy.get(k) ? ` <span class="muted">← ${usedBy.get(k)}</span>` : ''}</span>`).join('');
+  const count = document.getElementById('perm-add-count');
+  count.textContent = remaining.length
+    ? `${T('已选', 'selected')} ${selectedActivations.size} / ${DATA.scopes.length} —— ${T('多对多：任何 scope 都可被多个权限选择', 'many-to-many: every scope stays selectable')}`
+    : `${T('已全部选择', 'all selected')}（${DATA.scopes.length}）`;
+}
+function addActivation(sel) {
+  if (sel.value) { selectedActivations.add(sel.value); renderActivationUI(); }
+}
+function removeActivation(key) {
+  selectedActivations.delete(key);
+  renderActivationUI();
+}
+
+/* ---------- scope 详情（数据填充） ---------- */
+function openScopeDetail(key) {
+  const sc = DATA.scopes.find(s => s.key === key);
+  const impl = DATA.impl[key] || [];
+  document.getElementById('scope-detail-title').innerHTML = '<code>' + sc.key + '</code>';
+  document.getElementById('scope-detail-dl').innerHTML = `
+    <div class="row"><span class="k">${T('标识 key（不可修改）', 'Key (immutable)')}</span><span class="v"><code>${sc.key}</code></span></div>
+    <div class="row"><span class="k">${T('角色名称', 'Role name')}</span><span class="v">${sc.name}</span></div>
+    <div class="row"><span class="k">${T('描述', 'Description')}</span><span class="v muted">${sc.description || '—'}</span></div>
+    <div style="padding-top:16px"><button class="btn" onclick="protoTodo(this.textContent)">${T('编辑', 'Edit')}</button> <button class="btn danger" onclick="protoTodo(this.textContent)">${T('删除', 'Delete')}</button></div>`;
+  const rows = impl.map(g => `<tr><td><code>${g.namespace}</code>${g.descendants ? ` <span class="muted">${T('（含子级）', '(incl. descendants)')}</span>` : ''}</td><td>${g.resource}</td><td>${g.actions.map(a => `<span class="tag">${a}</span>`).join('')}</td><td>${g.allIds ? T('全部', 'All') : `<code>${(g.ids || []).join(', ')}</code>`}</td></tr>`).join('');
+  document.getElementById('scope-detail-impl').innerHTML = rows
+    ? `<div class="table-wrap"><table><thead><tr><th>${T('命名空间', 'Namespace')}</th><th>${T('资源', 'Resource')}</th><th>${T('动作', 'Actions')}</th><th>${T('ID 限制', 'ID restriction')}</th></tr></thead><tbody>${rows}</tbody></table></div>`
+    : `<p class="muted">（${T('无权限明细', 'no implementation detail')}）</p>`;
+  show('scope');
+}
+
+/* ---------- 初始化与双语重渲染 ---------- */
+let editingUser = null;
+function openUserDrawer() { document.getElementById('user-drawer-overlay').classList.add('open'); document.getElementById('user-drawer').classList.add('open'); }
+function closeUserDrawer() { document.getElementById('user-drawer-overlay').classList.remove('open'); document.getElementById('user-drawer').classList.remove('open'); setDrawerMax('user-drawer', false); }
+function newUser() {
+  editingUser = null;
+  const k = document.getElementById('user-key-input'); k.value = ''; k.disabled = false;
+  document.getElementById('user-name-input').value = '';
+  document.getElementById('user-email-input').value = '';
+  document.getElementById('user-drawer-title').textContent = T('创建用户', 'Create user');
+  document.getElementById('user-save-btn').textContent = T('创建', 'Create');
+  openUserDrawer();
+}
+function editUser(u) {
+  editingUser = u;
+  const k = document.getElementById('user-key-input'); k.value = u; k.disabled = true;
+  const meta = DATA.userMeta[u] || {};
+  document.getElementById('user-name-input').value = meta.name === '—' ? '' : (meta.name || '');
+  document.getElementById('user-email-input').value = meta.email === '—' ? '' : (meta.email || '');
+  document.getElementById('user-drawer-title').textContent = T('修改用户', 'Edit user');
+  document.getElementById('user-save-btn').textContent = T('保存更改', 'Save changes');
+  openUserDrawer();
+}
+function saveUser() {
+  const key = document.getElementById('user-key-input').value.trim();
+  const name = document.getElementById('user-name-input').value.trim() || '—';
+  const email = document.getElementById('user-email-input').value.trim() || '—';
+  if (!key) { protoTodo(T('用户名必填', 'username is required')); return; }
+  if (editingUser) {
+    DATA.userMeta[editingUser] = {name, email, active: (DATA.userMeta[editingUser] || {}).active !== false};
+  } else {
+    if (DATA.userDirectory.includes(key)) { protoTodo(T('用户名已存在', 'username already exists')); return; }
+    DATA.userDirectory.push(key);
+    DATA.userMeta[key] = {name, email, active: true};
+  }
+  closeUserDrawer(); renderUsers();
+}
+function deleteUser(u) {
+  const i = DATA.userDirectory.indexOf(u);
+  if (i >= 0) { DATA.userDirectory.splice(i, 1); delete DATA.userMeta[u]; }
+  const si = subjects.findIndex(x => x.subject === u);
+  if (si >= 0) subjects.splice(si, 1);
+  renderUsers(); renderGrants();
+}
+function toggleUserActive(u) {
+  const m = DATA.userMeta[u] = DATA.userMeta[u] || {name: '—', email: '—', active: true};
+  m.active = !m.active;
+  renderUsers();
+}
+let usersPage = 1, usersSize = 10;
+function gotoUsersPage(p) { usersPage = p; renderUsers(); }
+function gotoUsersSize(v) { usersSize = +v; usersPage = 1; renderUsers(); }
+let usersTabFilter = null, usersFilters = [];
+function toggleUsersFilterBuilder() { const b = document.getElementById('users-filter-builder'); b.style.display = b.style.display === 'none' ? '' : 'none'; renderUsersFilterValues(); }
+function renderUsersFilterValues() {
+  document.getElementById('users-filter-value').innerHTML = DATA.userDirectory.map(u => `<option value="${u}">${u}</option>`).join('');
+}
+function addUsersFilter() {
+  const f = document.getElementById('users-filter-field').value, v = document.getElementById('users-filter-value').value;
+  if (v && !usersFilters.some(c => c.f === f && c.v === v)) usersFilters.push({f, v});
+  usersPage = 1; renderUsers();
+}
+function removeUsersFilter(i) { usersFilters.splice(i, 1); renderUsers(); }
+function clearAllUsersFilters() { usersFilters = []; usersTabFilter = null; usersPage = 1; renderUsers(); }
+function gotoUserTab(username) {
+  usersTabFilter = username;
+  renderUsers();
+  show('users');
+}
+function clearUsersTabFilter() { usersTabFilter = null; renderUsers(); }
+function renderUsers() {
+  let list = usersTabFilter ? DATA.userDirectory.filter(u => u === usersTabFilter) : DATA.userDirectory;
+  list = usersFilters.reduce((acc, c) => acc.filter(u => u === c.v), list);
+  document.getElementById('users-filter-chips').innerHTML =
+    (usersTabFilter ? `<span class="tag">subject = <code>${usersTabFilter}</code> <a href="#" onclick="clearUsersTabFilter();return false">✕</a></span>` : '') +
+    usersFilters.map((c, i) => `<span class="tag">${c.f} = <code>${c.v}</code> <a href="#" onclick="removeUsersFilter(${i});return false">✕</a></span>`).join('');
+  document.getElementById('users-clear-btn').style.display = (usersFilters.length || usersTabFilter) ? '' : 'none';
+  const rows = list.slice((usersPage - 1) * usersSize, usersPage * usersSize).map(u => {
+    const meta = DATA.userMeta[u] || {name: '—', email: '—', active: true};
+    return `<tr>
+    <td><code>${u}</code></td>
+    <td class="muted">${meta.name}</td>
+    <td class="muted">${meta.email}</td>
+    <td><span class="badge ${meta.active ? 'on' : ''}" data-zh="${meta.active ? '启用' : '禁用'}" data-en="${meta.active ? 'Active' : 'Disabled'}">${meta.active ? '启用' : '禁用'}</span></td>
+    <td><div class="row-actions">
+      <button class="btn icon-sm" title="${T('修改', 'Edit')}" onclick="editUser('${u}')">✎</button>
+      <button class="btn icon-sm" title="${meta.active ? T('禁用', 'Disable') : T('启用', 'Enable')}" onclick="toggleUserActive('${u}')">${meta.active ? '🚫' : '✔'}</button>
+      <button class="btn icon-sm danger" title="${T('删除', 'Delete')}" onclick="deleteUser('${u}')">${DEL_SVG}</button>
+    </div></td></tr>`;
+  }).join('');
+  document.getElementById('users-table').innerHTML = `<div class="table-wrap"><table>
+    <thead><tr><th data-zh="主体" data-en="Subject">主体</th><th data-zh="姓名" data-en="Name">姓名</th><th data-zh="邮箱" data-en="Email">邮箱</th><th data-zh="状态" data-en="Status">状态</th><th></th></tr></thead>
+    <tbody>${rows}</tbody></table></div>`;
+  document.getElementById('users-pager').innerHTML = pagerHtml(list.length, usersPage, usersSize, 'gotoUsersPage', 'gotoUsersSize');
+}
+function renderGrants() {
+  let users = subjects;
+  if (subjectTabFilter) users = users.filter(u => u.subject === subjectTabFilter);
+  users = grantsFilters.reduce((acc, c) => acc.filter(u => c.f === 'subject' ? u.subject === c.v : u.scopes.includes(c.v)), users);
+  document.getElementById('subject-filter-chip').innerHTML =
+    (subjectTabFilter ? `<span class="tag">subject = <code>${subjectTabFilter}</code> <a href="#" onclick="clearSubjectTabFilter();return false">✕</a></span>` : '') +
+    grantsFilters.map((c, i) => `<span class="tag">${c.f} = <code>${c.v}</code> <a href="#" onclick="removeGrantsFilter(${i});return false">✕</a></span>`).join('');
+  document.getElementById('grants-clear-btn').style.display = (grantsFilters.length || subjectTabFilter) ? '' : 'none';
+  const rows = users.slice((grantsPage - 1) * grantsSize, grantsPage * grantsSize).map(u => {
+    const appKeys = [...new Set(permissionRows().filter(pm => pm.scopes.some(k => u.scopes.includes(k))).map(() => DATA.app.clientId))];
+    return `<tr>
+      <td><a class="cell-link" href="#" onclick="gotoUserTab('${u.subject}');return false" title="${T('在用户 tab 中查看', 'open in the Users tab')}"><code>${u.subject}</code></a></td>
+      <td>${u.scopes.map(k => `<span class="tag" style="cursor:pointer" onclick="gotoScope('${k}')" title="${T('在 scope 页签中查看', 'open in the Scopes tab')}"><code>${k}</code></span>`).join('')}</td>
+      <td>${appKeys.map(a => `<span class="tag" style="cursor:pointer" onclick="gotoAppSubjectFilter('${u.subject}')" title="${T('在应用页签中查看相关权限', 'open related permissions in the Applications tab')}"><code>${a}</code></span>`).join('')}</td>
+      <td><div class="row-actions"><button class="btn icon-sm" title="${T('编辑', 'Edit')}" onclick="editSubject('${u.subject}')">✎</button><button class="btn icon-sm danger" title="${T('删除', 'Delete')}" onclick="deleteSubject('${u.subject}')">${DEL_SVG}</button></div></td></tr>`;
+  }).join('');
+  document.getElementById('grants-table').innerHTML = `<div class="table-wrap"><table>
+    <thead><tr><th>subject</th><th>${T('已授予 scope', 'Granted scopes')}</th><th>${T('涉及应用 key', 'Involved application keys')}</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>`;
+  document.getElementById('grants-pager').innerHTML = pagerHtml(users.length, grantsPage, grantsSize, 'gotoGrantsPage', 'gotoGrantsSize');
+}
+let grantsPage = 1, grantsSize = 10;
+function gotoGrantsPage(p) { grantsPage = p; renderGrants(); }
+function gotoGrantsSize(v) { grantsSize = +v; grantsPage = 1; renderGrants(); }
+let editingSubject = null;
+const selectedSubjectScopes = new Set();
+function renderSubjectScopePicker() {
+  const remaining = DATA.scopes.filter(sc => !selectedSubjectScopes.has(sc.key));
+  document.getElementById('subject-scopes-select').innerHTML = remaining.length
+    ? `<option value="" hidden>${T('选择 scope…', 'Select a scope…')}</option>` + remaining.map(sc => `<option value="${sc.key}">${sc.key}</option>`).join('')
+    : `<option value="">${T('（已全部选择）', '(all selected)')}</option>`;
+  document.getElementById('subject-scopes-selected').innerHTML = [...selectedSubjectScopes].map(k => `<span class="tag"><code>${k}</code> <a href="#" onclick="removeSubjectScope('${k}');return false">✕</a></span>`).join('');
+}
+function addSubjectScope(sel) { if (sel.value) { selectedSubjectScopes.add(sel.value); renderSubjectScopePicker(); } }
+function removeSubjectScope(k) { selectedSubjectScopes.delete(k); renderSubjectScopePicker(); }
+function renderSubjectUserPicker() {
+  const sel = document.getElementById('subject-key-input');
+  const taken = new Set(subjects.map(x => x.subject));
+  const candidates = DATA.userDirectory.filter(u => !taken.has(u));
+  sel.disabled = false;
+  sel.innerHTML = candidates.length
+    ? `<option value="" hidden>${T('请选择…', 'Select…')}</option>` + candidates.map(u => `<option value="${u}">${u}</option>`).join('')
+    : `<option value="">${T('（用户目录已全部添加）', '(all users added)')}</option>`;
+}
+function newSubject() {
+  editingSubject = null;
+  renderSubjectUserPicker();
+  selectedSubjectScopes.clear();
+  renderSubjectScopePicker();
+  document.getElementById('subject-drawer-title').textContent = T('添加 subject', 'Add subject');
+  document.getElementById('subject-save-btn').textContent = T('添加', 'Add');
+  openSubjectDrawer();
+}
+function editSubject(subject) {
+  const u = subjects.find(x => x.subject === subject);
+  if (!u) return;
+  editingSubject = u;
+  const sel = document.getElementById('subject-key-input');
+  sel.innerHTML = `<option value="${u.subject}">${u.subject}</option>`;
+  sel.disabled = true;
+  selectedSubjectScopes.clear();
+  for (const k of u.scopes) selectedSubjectScopes.add(k);
+  renderSubjectScopePicker();
+  document.getElementById('subject-drawer-title').textContent = T('编辑 subject', 'Edit subject');
+  document.getElementById('subject-save-btn').textContent = T('保存更改', 'Save changes');
+  openSubjectDrawer();
+}
+function saveSubject() {
+  const key = document.getElementById('subject-key-input').value.trim();
+  if (!key || selectedSubjectScopes.size === 0) { protoTodo(T('subject 与已授予 scope 必填', 'subject and at least one scope are required')); return; }
+  if (editingSubject) {
+    editingSubject.scopes = [...selectedSubjectScopes];
+  } else {
+    if (subjects.some(x => x.subject === key)) { protoTodo(T('subject 已存在', 'subject already exists')); return; }
+    subjects.push({subject: key, issuer: DATA.group.issuer, scopes: [...selectedSubjectScopes]});
+  }
+  closeSubjectDrawer();
+  renderGrants();
+}
+function openSubjectDrawer() { document.getElementById('subject-drawer-overlay').classList.add('open'); document.getElementById('subject-drawer').classList.add('open'); }
+function closeSubjectDrawer() { document.getElementById('subject-drawer-overlay').classList.remove('open'); document.getElementById('subject-drawer').classList.remove('open'); setDrawerMax('subject-drawer', false); }
+function deleteSubject(subject) {
+  const i = subjects.findIndex(x => x.subject === subject);
+  if (i >= 0) subjects.splice(i, 1);
+  renderGrants();
+}
+function gotoAppSubjectFilter(subject) {
+  goTabPane('t-apps');
+  const u = subjects.find(x => x.subject === subject);
+  if (!u) return;
+  subjectFilter = {subject: u.subject, scopes: u.scopes};
+  permFilters = [];
+  permPage = 1;
+  renderFilterChips();
+  renderPermGroups();
+}
+function renderAll() { if (!selectedApp && DATA.applications.length) selectedApp = DATA.applications[0].clientId; renderGroupCards(); renderOverviewStats(); renderAppSidebar(); renderAppDetail(); if (!selectedScope && DATA.scopes.length) selectedScope = DATA.scopes[0].key; renderScopeSidebar(); showScopeDetail(selectedScope); renderPermGroups(); renderSupported(); renderPermAddScope(); renderGrants(); renderUsers(); }
+document.getElementById('lang-toggle').addEventListener('click', () => setTimeout(renderAll, 0));
+renderAll();
+</script>
+</body>
+</html>
