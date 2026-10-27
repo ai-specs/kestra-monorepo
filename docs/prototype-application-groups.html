@@ -500,8 +500,9 @@ h2.section { font-size: 15px; margin: 24px 0 8px; }
 <div class="overlay" id="scope-del-overlay">
   <div class="modal">
     <h3 data-zh="删除 scope" data-en="Delete scope">删除 scope</h3>
-    <p><span data-zh="确认删除" data-en="Confirm deletion of">确认删除</span> <code id="scope-del-key"></code><span data-zh="？关联的权限激活条件与用户授予将失去该 scope，无法恢复。" data-en="? Permissions activated by it and user grants will lose this scope; this cannot be undone.">？关联的权限激活条件与用户授予将失去该 scope，无法恢复。</span></p>
-    <div class="actions"><button class="btn" onclick="closeDeleteScope()" data-zh="取消" data-en="Cancel">取消</button><button class="btn primary" style="background:var(--danger);border-color:var(--danger)" onclick="confirmDeleteScope()" data-zh="删除" data-en="Delete">删除</button></div>
+    <p id="scope-del-body"></p>
+    <div id="scope-del-refs" style="margin:0 0 16px"></div>
+    <div class="actions" id="scope-del-actions"></div>
   </div>
 </div>
 
@@ -576,11 +577,9 @@ function openPermEdit(permKey) {
   document.getElementById('app-dialog-overlay').classList.add('open');
   document.getElementById('app-dialog').classList.add('open');
 }
-let currentSecret = 'ui-x7k2-demo';
-function masked(v) { return v.length <= 8 ? v : v.slice(0, 3) + '••••••••' + v.slice(-4); }
+let currentSecret = '';
 function resetSecret() {
   currentSecret = 'ui-' + Math.random().toString(36).slice(2, 10) + '-' + Date.now().toString(36).slice(-4);
-  document.getElementById('app-secret-value').textContent = masked(currentSecret);
   document.getElementById('new-secret-value').textContent = currentSecret;
   document.getElementById('secret-overlay').classList.add('open');
 }
@@ -650,17 +649,30 @@ function pagerHtml(total, page, size, fn, fns) {
 /* ---------- scope 列表侧栏 + 详情内容区 ---------- */
 let selectedScope = '';
 let pendingDeleteScope = null;
-function askDeleteScope(key) { pendingDeleteScope = key; document.getElementById('scope-del-key').textContent = key; document.getElementById('scope-del-overlay').classList.add('open'); }
+function askDeleteScope(key) {
+  pendingDeleteScope = key;
+  const permRefs = permissionRows().filter(pm => pm.scopes.includes(key));
+  const subjRefs = subjects.filter(u => u.scopes.includes(key));
+  const body = document.getElementById('scope-del-body');
+  const refs = document.getElementById('scope-del-refs');
+  const actions = document.getElementById('scope-del-actions');
+  if (permRefs.length || subjRefs.length) {
+    body.innerHTML = `${T('无法删除', 'Cannot delete')} <code>${key}</code>：${T('以下引用阻塞删除，请先解除引用（受限删除，不级联清理）。', 'blocked by the references below; remove them first (restricted delete, no cascade).')}`;
+    refs.innerHTML = (permRefs.length ? `<p class="hint" style="margin:6px 0 2px">${T('权限激活条件引用', 'Permission activation refs')}:</p>` + permRefs.map(pm => `<span class="tag"><code>${pm.key}</code></span>`).join('') : '')
+      + (subjRefs.length ? `<p class="hint" style="margin:6px 0 2px">subject ${T('授予引用', 'grant refs')}:</p>` + subjRefs.map(u => `<span class="tag"><code>${u.subject}</code></span>`).join('') : '');
+    actions.innerHTML = `<button class="btn primary" onclick="closeDeleteScope()" data-zh="知道了" data-en="Got it">知道了</button>`;
+  } else {
+    body.innerHTML = `${T('确认删除', 'Confirm deletion of')} <code>${key}</code>？`;
+    refs.innerHTML = '';
+    actions.innerHTML = `<button class="btn" onclick="closeDeleteScope()" data-zh="取消" data-en="Cancel">取消</button><button class="btn primary" style="background:var(--danger);border-color:var(--danger)" onclick="confirmDeleteScope()" data-zh="删除" data-en="Delete">删除</button>`;
+  }
+  document.getElementById('scope-del-overlay').classList.add('open');
+}
 function closeDeleteScope() { document.getElementById('scope-del-overlay').classList.remove('open'); pendingDeleteScope = null; }
 function confirmDeleteScope() {
   const key = pendingDeleteScope;
   const i = DATA.scopes.findIndex(x => x.key === key);
-  if (i >= 0) {
-    DATA.scopes.splice(i, 1);
-    delete DATA.declarations[key];
-    delete DATA.impl[key];
-    for (const u of subjects) u.scopes = u.scopes.filter(k => k !== key);
-  }
+  if (i >= 0) { DATA.scopes.splice(i, 1); delete DATA.declarations[key]; delete DATA.impl[key]; }
   closeDeleteScope();
   if (selectedScope === key) selectedScope = DATA.scopes[0] ? DATA.scopes[0].key : '';
   renderAll();
@@ -896,7 +908,7 @@ function renderAppDetail() {
       <div class="dl" style="margin:0">
         <div class="row" data-field-note="convention: application key ≡ OAuth2 client_id (one value, two context names); immutable after creation; token aud claim uses the same value"><span class="k" data-zh="应用 key" data-en="Application key">应用 key</span><span class="v"><code>${app.clientId}</code></span></div>
         <div class="row"><span class="k" data-zh="应用描述" data-en="Description">应用描述</span><span class="v">${app.description || 'Kestra 管理 UI（第一方应用）'}</span></div>
-        <div class="row" data-field-note="masked display keeps head+tail chars; reset opens one-time modal with copy; host stores pbkdf2 hash — reveal only at reset in implementation"><span class="k">client secret</span><span class="v"><code id="app-secret-value">ui-••••••••-demo</code> <button class="btn icon-sm" onclick="resetSecret()" title="重置 / Reset">⟳</button></span></div>
+        <div class="row" data-field-note="shows a set/unset status badge only (hash storage cannot reveal the old value); reset opens a one-time modal with the new secret and a copy button; public clients show no-secret and no reset"><span class="k">client secret</span><span class="v"><span class="badge on" id="app-secret-value" data-zh="已设置" data-en="Set">已设置</span> <button class="btn icon-sm" onclick="resetSecret()" title="重置 / Reset">⟳</button></span></div>
         <div class="row" style="align-items:start" data-field-note="read-only derived view: aggregated from activation conditions of runtime permissions below"><span class="k" data-zh="支持的 scope" data-en="Supported scopes">支持的 scope</span><span class="v" style="gap:4px;flex-direction:column;align-items:flex-start"><span id="app-supported-tags" style="display:flex;flex-wrap:wrap;gap:4px"></span><span class="hint" data-zh="由下方应用运行时权限中各权限的激活条件聚合推导，随权限维护自动更新。" data-en="Aggregated from activation conditions below.">由下方应用运行时权限中各权限的激活条件聚合推导，随权限维护自动更新。</span></span></div>
       </div>
       <div style="padding-top:12px"><button class="btn" onclick="appEdit(true)" data-zh="编辑" data-en="Edit">编辑</button></div>
@@ -925,8 +937,20 @@ function renderAppDetail() {
           <div><button class="btn primary" onclick="addPermFilter()" data-zh="添加" data-en="Add">添加</button></div>
         </div>
       </div>
+    </div>
+    <div class="drawer-section">
+      <div style="display:flex;align-items:center;gap:12px;margin:20px 0 10px;padding-top:14px;border-top:1px solid var(--border)"><h4 style="margin:0" data-zh="Kestra 实际权限（运行时策略）" data-en="Kestra actual permissions (runtime policy)">Kestra 实际权限（运行时策略）</h4><button class="btn" style="margin-left:auto" onclick="protoTodo(this.textContent)" data-zh="编辑策略" data-en="Edit policy">编辑策略</button></div>
+      <p class="hint" style="margin:0 0 12px" data-field-note="this section edits the REAL runtime policy — the sole source of resource authorization; independent from the permission declarations above (text copies)" data-zh="此分节编辑真实运行时策略——资源授权的唯一依据；与上方权限声明（文本副本）相互独立。" data-en="Edits the real runtime policy — sole source of resource authorization; independent from the declarations above.">此分节编辑真实运行时策略——资源授权的唯一依据；与上方权限声明（文本副本）相互独立。</p>
+      <div id="runtime-policy"></div>
     </div>`;
   renderSupported();
+  const grants = [];
+  for (const sc of DATA.scopes) for (const g of (DATA.impl[sc.key] || [])) grants.push({scope: sc.key, ...g});
+  const gRows = grants.map(g => `<tr><td><code>${g.namespace}</code>${g.descendants ? ` <span class="muted">↴</span>` : ''}</td><td>${g.resource}</td><td>${g.actions.map(a => `<span class="tag">${a}</span>`).join('')}</td><td>${g.allIds ? T('全部', 'All') : `<code>${(g.ids || []).join(', ')}</code>`}</td><td><code>${g.scope}</code></td></tr>`).join('');
+  const rp = document.getElementById('runtime-policy');
+  if (rp) rp.innerHTML = `<div class="table-wrap" style="margin:0"><table>
+    <thead><tr><th>${T('命名空间', 'Namespace')}</th><th>${T('资源', 'Resource')}</th><th>${T('动作', 'Actions')}</th><th>${T('ID 限制', 'IDs')}</th><th>scope</th></tr></thead>
+    <tbody>${gRows || `<tr><td colspan="5" class="muted" style="text-align:center">—</td></tr>`}</tbody></table></div>`;
 }
 function renderPermGroups() {
   const all = filteredPerms(permissionRows());
