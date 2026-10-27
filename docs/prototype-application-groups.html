@@ -326,7 +326,6 @@ h2.section { font-size: 15px; margin: 24px 0 8px; }
           <div class="row"><span class="k" data-zh="组 ID" data-en="Group ID">组 ID</span><span class="v"><code>kestra-group</code></span></div>
           <div class="row"><span class="k" data-zh="内置" data-en="Built-in">内置</span><span class="v"><span class="badge builtin">◆ <span data-zh="内置应用组 · 不可删除" data-en="Built-in · cannot be deleted">内置应用组 · 不可删除</span></span></span></div>
           <div class="row"><span class="k">Issuer</span><span class="v">http://localhost:8080 <span class="lock">🔒 <span data-zh="共享服务配置" data-en="shared service configuration">共享服务配置</span></span></span></div>
-          <div class="row"><span class="k">Audience</span><span class="v"><code>kestra-ui</code></span></div>
         </div>
         <form class="form" id="overview-editing" style="display:none" onsubmit="return false">
           <label><span data-zh="显示名称" data-en="Display name">显示名称</span><input type="text" value="Kestra内置"></label>
@@ -352,6 +351,14 @@ h2.section { font-size: 15px; margin: 24px 0 8px; }
           <aside class="app-list">
             <div class="app-list-title" data-zh="应用" data-en="Applications">应用</div>
             <div id="app-sidebar"></div>
+            <form id="app-register-form" class="form" style="padding:12px" onsubmit="registerExistingApp(event)">
+              <h4 data-zh="登记已有应用" data-en="Register existing application">登记已有应用</h4>
+              <label><span>clientId</span><input id="app-register-client-id" name="clientId" required autocomplete="off"></label>
+              <label><span data-zh="应用描述" data-en="Description">应用描述</span><input id="app-register-description" name="description" maxlength="4096"></label>
+              <p class="hint" data-zh="原型已注册示例：demo-registered-client；这里只登记，不创建 OAuth client。" data-en="Registered prototype example: demo-registered-client. Registration here does not create an OAuth client.">原型已注册示例：demo-registered-client；这里只登记，不创建 OAuth client。</p>
+              <p id="app-register-error" class="hint" role="alert" hidden></p>
+              <button class="btn primary" type="submit" data-zh="登记" data-en="Register">登记</button>
+            </form>
           </aside>
           <div class="app-detail" id="app-detail"></div>
       </div>
@@ -644,7 +651,7 @@ function pagerHtml(total, page, size, fn, fns) {
     <button onclick="${fn}(${Math.max(1, page - 1)})" ${page <= 1 ? 'disabled' : ''}>‹</button>
     <span class="pages">${btns}</span>
     <button onclick="${fn}(${Math.min(pages, page + 1)})" ${page >= pages ? 'disabled' : ''}>›</button>
-    <select onchange="${fns}(this.value)"><option ${size == 10 ? 'selected' : ''}>10</option><option ${size == 20 ? 'selected' : ''}>20</option><option ${size == 50 ? 'selected' : ''}>50</option></select>
+    <select onchange="${fns}(this.value)">${[10, 25, 50, 100].map(value => `<option ${size == value ? 'selected' : ''}>${value}</option>`).join('')}</select>
     <span>${T('条 / 页', 'per page')}</span></div>`;
 }
 
@@ -778,7 +785,7 @@ function gotoSubjectTab(subject) {
   renderGrants();
 }
 function clearSubjectTabFilter() { subjectTabFilter = null; renderGrants(); }
-let permPage = 1, permSize = 10, permFilters = [], subjectFilter = null;
+let permPage = 1, permSize = 25, permFilters = [], subjectFilter = null;
 function permFieldText(pm, f) {
   if (f === 'key') return pm.key.toLowerCase();
   if (f === 'name') return pm.name.toLowerCase();
@@ -833,6 +840,7 @@ function deletePerm(permKey) {
   renderSupported();
 }
 function permissionRows() {
+  if (selectedApp && selectedApp !== DATA.app.clientId) return [];
   const byPerm = new Map();
   for (const sc of DATA.scopes) {
     const d = DATA.declarations[sc.key];
@@ -879,6 +887,30 @@ function renderOverviewStats() {
   document.getElementById('overview-readonly').insertAdjacentHTML('beforeend', items.map(i =>
     `<div class="row stat-row"><span class="k">${i.label}</span><span class="v"><a class="cell-link" href="#" onclick="${i.go};return false" style="font-weight:600">${i.n}</a></span></div>`).join(''));
 }
+const registeredClients = new Map(DATA.applications.map(app => [app.clientId, {audiences: [...app.audiences]}]));
+registeredClients.set('demo-registered-client', {audiences: ['http://localhost:8080/demo-resource']});
+function htmlText(value) {
+  return String(value).replace(/[&<>"']/g, character => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'}[character]));
+}
+function registerExistingApp(event) {
+  event.preventDefault();
+  const form = event.currentTarget;
+  const clientId = form.elements.clientId.value.trim();
+  const error = document.getElementById('app-register-error');
+  const registration = registeredClients.get(clientId);
+  const message = !registration ? T('client 尚未注册，请先完成标准 OAuth client 注册。', 'Client is not registered. Complete standard OAuth client registration first.')
+    : DATA.applications.some(app => app.clientId === clientId) ? T('应用已在本组登记。', 'Application is already registered in this group.') : '';
+  error.textContent = message;
+  error.hidden = !message;
+  if (message) return;
+  DATA.applications.push({clientId, description: form.elements.description.value.trim(), audiences: [...registration.audiences], supported: []});
+  selectedApp = clientId;
+  permPage = 1;
+  permFilters = [];
+  subjectFilter = null;
+  form.reset();
+  renderAll();
+}
 function renderAppSidebar() {
   const html = DATA.applications.map(a => `<a class="app-item ${selectedApp === a.clientId ? 'active' : ''}" href="#" onclick="selectApp('${a.clientId}');return false"><code>${a.clientId}</code><button class="btn icon-sm danger scope-del" onclick="event.preventDefault();event.stopPropagation();askDeleteApp('${a.clientId}')" title="删除 / Delete">${DEL_SVG}</button></a>`).join('');
   document.getElementById('app-sidebar').innerHTML = html || `<p class="muted" style="padding:8px 12px">—</p>`;
@@ -909,15 +941,16 @@ function renderAppDetail() {
     <div id="app-readonly">
       <div class="dl" style="margin:0">
         <div class="row" data-field-note="convention: application key ≡ OAuth2 client_id (one value, two context names); immutable after creation; token aud claim uses the same value"><span class="k" data-zh="应用 key" data-en="Application key">应用 key</span><span class="v"><code>${app.clientId}</code></span></div>
-        <div class="row"><span class="k" data-zh="应用描述" data-en="Description">应用描述</span><span class="v">${app.description || 'Kestra 管理 UI（第一方应用）'}</span></div>
-        <div class="row" data-field-note="masked display keeps head+tail chars for identification (maintainer final ruling 2026-10-27; requires storing a masked hint alongside the hash at reset time); reset opens a one-time modal revealing the new secret with a copy button; public clients show no-secret and no reset"><span class="k">client secret</span><span class="v"><code id="app-secret-value">ui-••••••••-demo</code> <button class="btn icon-sm" onclick="resetSecret()" title="重置 / Reset">⟳</button></span></div>
+        <div class="row"><span class="k" data-zh="应用描述" data-en="Description">应用描述</span><span class="v">${htmlText(app.description || (app.clientId === DATA.app.clientId ? 'Kestra 管理 UI（第一方应用）' : '—'))}</span></div>
+        <div class="row" id="app-resource-audiences"><span class="k" data-zh="资源 Audience" data-en="Resource Audience">资源 Audience</span><span class="v">${app.audiences.map(value => `<code>${htmlText(value)}</code>`).join(' · ') || '—'}</span></div>
+        <div class="row" data-field-note="masked display keeps head+tail chars for identification (maintainer final ruling 2026-10-27; requires storing a masked hint alongside the hash at reset time); reset opens a one-time modal revealing the new secret with a copy button; public clients show no-secret and no reset"><span class="k">client secret</span><span class="v">${app.clientId === DATA.app.clientId ? `<code id="app-secret-value">${masked(currentSecret)}</code> <button class="btn icon-sm" onclick="resetSecret()" title="重置 / Reset">⟳</button>` : `<span>${T('无 secret', 'No secret')}</span>`}</span></div>
         <div class="row" style="align-items:start" data-field-note="read-only derived view: aggregated from activation conditions of runtime permissions below"><span class="k" data-zh="支持的 scope" data-en="Supported scopes">支持的 scope</span><span class="v" style="gap:4px;flex-direction:column;align-items:flex-start"><span id="app-supported-tags" style="display:flex;flex-wrap:wrap;gap:4px"></span><span class="hint" data-zh="由下方应用运行时权限中各权限的激活条件聚合推导，随权限维护自动更新。" data-en="Aggregated from activation conditions below.">由下方应用运行时权限中各权限的激活条件聚合推导，随权限维护自动更新。</span></span></div>
       </div>
       <div style="padding-top:12px"><button class="btn" onclick="appEdit(true)" data-zh="编辑" data-en="Edit">编辑</button></div>
     </div>
     <form id="app-editing" style="display:none" onsubmit="return false">
       <label style="display:flex;flex-direction:column;gap:6px;margin-bottom:12px;font-size:13px;color:var(--text-secondary)" data-field-note="immutable after creation"><span data-zh="应用 key" data-en="Application key">应用 key</span><input type="text" value="${app.clientId}" disabled></label>
-      <label style="display:flex;flex-direction:column;gap:6px;margin-bottom:12px;font-size:13px;color:var(--text-secondary)"><span data-zh="应用描述" data-en="Description">应用描述</span><input type="text" value="${app.description || 'Kestra 管理 UI（第一方应用）'}"></label>
+      <label style="display:flex;flex-direction:column;gap:6px;margin-bottom:12px;font-size:13px;color:var(--text-secondary)"><span data-zh="应用描述" data-en="Description">应用描述</span><input type="text" value="${htmlText(app.description || (app.clientId === DATA.app.clientId ? 'Kestra 管理 UI（第一方应用）' : ''))}"></label>
       <label style="display:flex;flex-direction:column;gap:6px;margin-bottom:12px;font-size:13px;color:var(--text-secondary)" data-field-note="read-only derived view"><span data-zh="支持的 scope" data-en="Supported scopes">支持的 scope</span><div id="app-supported-edit" style="display:flex;flex-wrap:wrap;gap:4px"></div></label>
       <div class="actions"><button class="btn primary" onclick="appEdit(false); protoTodo(this.textContent)" data-zh="保存更改" data-en="Save changes">保存更改</button><button class="btn" type="button" onclick="appEdit(false)" data-zh="取消" data-en="Cancel">取消</button></div>
     </form>
@@ -1071,7 +1104,7 @@ function toggleUserActive(u) {
   m.active = !m.active;
   renderUsers();
 }
-let usersPage = 1, usersSize = 10;
+let usersPage = 1, usersSize = 25;
 function gotoUsersPage(p) { usersPage = p; renderUsers(); }
 function gotoUsersSize(v) { usersSize = +v; usersPage = 1; renderUsers(); }
 let usersTabFilter = null, usersFilters = [];
@@ -1137,7 +1170,7 @@ function renderGrants() {
     <thead><tr><th>subject</th><th>${T('已授予 scope', 'Granted scopes')}</th><th>${T('涉及应用 key', 'Involved application keys')}</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>`;
   document.getElementById('grants-pager').innerHTML = pagerHtml(users.length, grantsPage, grantsSize, 'gotoGrantsPage', 'gotoGrantsSize');
 }
-let grantsPage = 1, grantsSize = 10;
+let grantsPage = 1, grantsSize = 25;
 function gotoGrantsPage(p) { grantsPage = p; renderGrants(); }
 function gotoGrantsSize(v) { grantsSize = +v; grantsPage = 1; renderGrants(); }
 let editingSubject = null;
