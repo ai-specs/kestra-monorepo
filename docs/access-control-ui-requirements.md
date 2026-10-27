@@ -27,8 +27,8 @@
   Tenant/导航）、左下角"原型"水印、`protoTodo()` toast（示意按钮）、内存态数据（刷新
   即复原）——这些仅为原型自证手段，实施时全部不实现。
 - 原型内嵌两类机器可读资产，实施 AI 必须读取：
-  - `<script type="application/rulings+json">`：裁决集 R1–R12（v2 裁决以本文 §8 为准）；
-  - 18 处 `data-field-note` 元素属性：字段级实施语义（就地提示）。
+  - `<script type="application/rulings+json">`：历史裁决集 R1–R12（按本文最新替代条款解释）；
+  - 19 处 `data-field-note` 元素属性：字段级实施语义（就地提示）。
 
 ### 0.3 文档效力（冲突时以此为准）
 
@@ -122,7 +122,7 @@ R15、R16 中“所有权限明细均为不执行的文本副本”在当前 Kes
 - 支持或用户授予缩减后，受影响旧 access token、refresh、UI/MCP 会话在提交后
   **60 秒内**失效。未知或不再支持的 scope 混入时整单拒绝。组 epoch 可保守失效该组
   全部凭据，不得失效无关组。扩大集合不自动升级旧 code/token；
-- 修改权限 name/明细、组显示名/描述、应用描述不推进撤权 epoch；对象 revision 仍
+- 修改权限 name/外部明细、组显示名/描述、应用描述不推进撤权 epoch；对象 revision 仍
   推进。仅改关联但支持集不变也不推进 epoch。凭据按当前 epoch、支持与授予校验，
   不得因纯元数据 revision 变化误拒绝，也不得复用过期授权快照；
 - subject 的"涉及应用"= 存在权限其激活 scope ∩ 该 subject 授予 ≠ ∅，且应用为组内
@@ -165,7 +165,7 @@ R15、R16 中“所有权限明细均为不执行的文本副本”在当前 Kes
 | 重置后 | 一次性弹窗显示新明文 + 拷贝按钮 + "仅此一次显示"警示；关闭后回到掩码态（新值掩码） |
 | public client（无 secret） | `无 secret`（不显示重置入口） |
 
-实施要求：掩码显示要求在**重置/下发时一并存储脱敏提示**（头 3 + 尾 4 明文片段，与哈希同存——这是宿主公开契约 F4 的一部分；存量历史 secret 无掩码提示时显示占位掩码）。重置/一次性下发是**宿主公开契约**（F4），插件不得直读宿主表；响应丢失不补
+实施要求：掩码显示要求在**重置/下发时一并存储脱敏提示**（头 3 + 尾 4 明文片段，与哈希同存——属于宿主公开契约 F4；存量历史值缺提示时显示“已设置，提示不可用”，不得编造头尾）。重置/一次性下发是**宿主公开契约**（F4），插件不得直读宿主表；响应丢失不补
 发（重新生成新版本）；重置要求 §4.7 管理权限、CSRF、强修订和审计脱敏。
 普通 confidential client 原子轮换后立即废止旧 secret；已签发用户 token 不因轮换
 延长有效期，也不另行缩短，仍按标准撤权检查。
@@ -190,13 +190,14 @@ secret 不进入 URL、日志、截图、浏览器存储或报告；一次性响
 
 **应用组 tab**：卡片列表（组 key 标题 + 显示名副行 + 数量徽章 N scope/N 应用/N subject
 ——**点击直达对应页签**；内置组右上角"◆ 内置"角标）；工具栏 ⟳ + 创建（右侧抽屉：
-组 key/显示名/描述，必填与唯一校验）。
+组 key/显示名必填、描述可空，key 唯一校验）。
 
 **用户 tab**：表（subject/姓名/邮箱/状态/操作）+ 分页；行操作 ✎ 修改（抽屉、用户名
 锁定）、SVG 垃圾桶删除（确认弹窗，联动清理其组内授予——§4.4）、🚫/✔ 禁用/启用；工具栏
 KsFilter 式筛选（字段 subject、值=用户目录枚举）+ ⟳ + 创建用户（⟳ 右侧，抽屉：用户名/
-姓名/邮箱/初始密码）。沿用宿主密码认证与校验，初始密码必填，不设置默认密码；
-姓名与邮箱可空，不改变 subject。不得以创建出无法登录的账号代替验收。
+姓名/邮箱）。宿主生成随机临时密码，一次性展示及复制，不使用公共默认密码；首次
+登录必须完成修改后才建立正常业务会话（F3 需交付完整强制修改流程）。姓名/邮箱可空，
+不改变 subject；响应丢失通过新的密码重置处理，不找回旧值。
 
 ### 3.2 组详情（tabs 与内容对齐；← 返回在概览左侧）
 
@@ -255,7 +256,8 @@ client，不撤销用户组级授予，当前 Kestra 应用移出会使其权限
 
 按 §2.3 计算支持集差异，仅最后引用消失才退出支持；受影响凭据在 60 秒内失效。
 授权相关写入在同一安全锁内重验当前身份、修订和最后管理员，失败全部回滚，不先提交
-再补偿。metadata-only 写入只推进对象 revision。
+再补偿。metadata-only 写入只推进对象 revision。Kestra grants 变更推进真实策略版本，运行时
+在 60 秒内采用新策略；若支持集同时变更，再推进组 epoch。
 
 ### 4.4 用户删除 / 禁用
 
@@ -302,7 +304,7 @@ legacy-migration 的 schema1 历史门而不运行。new-install 默认空库初
 | 组、scope、外部声明、subject 读取、统计和筛选枚举 | IDENTITY.READ | 不返回列表、详情、计数或名称 |
 | 组、scope、外部声明、subject 写入 | IDENTITY.MANAGE | 可提交已知目标及修订；只返回精确回执，不携带对象副本 |
 | 标准用户读取与枚举 | IDENTITY.READ | 不返回用户列表或选择器数据 |
-| 用户创建、修改、禁用、删除；普通 secret 重置 | IDENTITY.MANAGE | 可提交已知输入；secret 仅本次响应例外一次性返回 |
+| 用户创建、修改、禁用、删除；普通 secret 重置 | IDENTITY.MANAGE | 可提交已知输入；新建临时密码/secret 仅本次响应例外一次性返回 |
 | 当前 Kestra 权限表/grants 读取 | LOCAL_POLICY.READ（精确目标组） | 不返回策略，不要求 IDENTITY.READ |
 | 当前 Kestra 权限/grants 写入 | LOCAL_POLICY.MANAGE；若支持集变化还需 IDENTITY.MANAGE | 可写已知输入和修订，只返回回执 |
 | 正常业务操作 | 现有资源 grants、协议能力和有效身份 | 管理域不替代业务授权 |
@@ -345,7 +347,7 @@ READ 时不展示依赖枚举的编辑抽屉，但公开写 API 仍独立验收�
 
 1. 明暗双主题无硬编码色，文字对比度 ≥ 4.5:1；
 2. **中英为重点视觉验收，不收缩产品语言范围**：实施必须**消费宿主现有 i18n 机制与
-   全部已支持语言文件**（原型 data-zh/data-en 仅为原型机制；上游已有 dark-2、跟随
+   全部已支持语言与公开翻译机制，不复制宿主私有语言源码**（原型 data-zh/data-en 仅为原型机制；上游已有 dark-2、跟随
    系统等主题机制全部保留）；专有名称恒英文在全部语言生效；
 3. 控件几何：32px 齐高、同行对齐、操作右对齐自适应、tabs 与内容对齐、概览带上边距；
 4. 窄屏 ≤1280 / ≤768：换行不破损、表格横滚、抽屉自适应；
@@ -420,13 +422,13 @@ READ 时不展示依赖枚举的编辑抽屉，但公开写 API 仍独立验收�
 | R18 | subject 三层分离；零 scope 保留；删 subject=撤销授予不删账号；禁用保留授予 | 主控代行（采纳评审 #3） |
 | R19 | 应用 key≡client_id 约定仅限登录/ID 侧；access token 资源 audience 维持现状 | 主控代行（采纳评审 #6） |
 | R20 | secret **头尾掩码显示**（维护者最终裁决 2026-10-27，推翻此前"已设置"态；实施需在重置时存储脱敏提示）；明文仅重置时一次性下发；public client 无重置入口 | 维护者最终裁决 |
-| R21 | 当前 Kestra 应用权限表承载实际结构化 grants，单一维护入口；外部应用仍为自身声明，不执行外部代码 | 最新目标模型裁决，82f5657，§2.2 |
+| R21 | 当前 Kestra 应用权限表承载实际结构化 grants，单一维护入口；外部应用仍为自身声明，不执行外部代码 | **维护者最终裁决 2026-10-27**（亲自纠正主控代行 R16 的双分节错误；不可再翻案） |
 | R22 | READ/MANAGE 不互含，现有域及范围保留，不新增隐式管理域 | 本次主控裁决，§4.7 |
 | R23 | 支持集取全部权限并集；只在有效集变化时撤权，60秒界限，纯元数据不误撤权 | 本次主控裁决，§2.3 |
 | R24 | 用户删除与插件全组授予清理同连接事务原子完成 | 本次主控裁决，§4.4 |
 | R25 | 普通secret原子轮换；配置登录client走部署维护准备/激活/回退，禁止在线自锁 | 本次主控裁决，§2.6 |
 | R26 | 本轮schema2升级设置独立必需 declaration-upgrade 门 | 本次主控裁决，§4.6 |
-| R27 | 组key沿用id、不重命名安装组；无组级Audience；账号创建有初始密码 | 本次主控裁决，§12 |
+| R27 | 组key沿用id、不重命名安装组；无组级Audience；账号创建有一次性临时密码及首次强制修改 | 本次主控裁决，§12 |
 | R28 | 先调查与所属仓设计，再正式宿主→插件→root发布验收 | 本次主控裁决，§10 |
 | R29 | 冻结原型事实，完整数据提取，明确深链/筛选/分页/CAS与DOM标识 | 本次主控裁决，§11–12 |
 
@@ -436,7 +438,7 @@ READ 时不展示依赖枚举的编辑抽屉，但公开写 API 仍独立验收�
 
 ### 9.1 参考入口
 
-原型（裁决集+18 处属性）/ `docs/application-group-target-model.md` /
+原型（裁决集+19 处属性）/ `docs/application-group-target-model.md` /
 `implementation-gap-report.md` / `scripts/application-project-fixture.mjs` /
 宿主 README（F3/F4 契约入口）。
 
@@ -451,37 +453,227 @@ READ 时不展示依赖枚举的编辑抽屉，但公开写 API 仍独立验收�
    不能从哈希伪造头尾。掩码提示可持久化但不得保存完整明文。
 5. 原型 R1 的 access audience、R11 即时删除和 R3 非持久关系泛化按本文覆盖；subject
    授予是持久关系，标准 OAuth consent 与其分离。
-6. 原型缺初始密码、完整应用登记及权限错误态，按本文补齐；概览无组级 Audience。
+6. 原型缺一次性初始凭据和强制修改、完整应用登记及权限错误态，按本文补齐；概览无组级 Audience。
 7. 删用户不能仅清理可见数组，必须同事务清理所有组；所有关键操作受管理员保护。
 
 ---
 
-## 10. 实施启动与发布顺序（R28）
+## 10. 全新实施 AI 执行入口（R28）
 
-全新实施 AI 的执行序列：
+1. 动态核对 OS、shell、目录和 Docker，完整读根 AGENTS.md/README、本文、原型、目标
+   模型及 `docs/rbac-ui-contract.md`；再读 overlay/plugin 各自 AGENTS.md/README、
+   overlay `docs/r-oidc-server.md`、plugin `docs/application-groups.md`、
+   `docs/management-api.md`、`docs/authorization-flow.md`。历史 project 文档只用于定位。
+2. 执行根 `git status --short`、`git log -5 --oneline`、`git submodule status`；分别
+   检查两子仓 HEAD、远端、工作树、当前 CI、镜像和 jar。保护用户改动，不使用旧会话
+   记忆证明当前版本，不读取/改写/删除/提交 `.env.bak-round-ap`。
+3. 第一项产出是更新已有 `implementation-gap-report.md` 本轮差异表，不另建重复进度
+   文件：`N/T ID → 目标行为 → 当前源码/失败证据 → 所属仓 → 公开契约及正式输入
+   → 测试/发布门 → 状态`。包括单权限表运行评估、映射升级、描述字段、counts、secret、
+   用户删除、approved 去除、初始化、投影、撤权、管理员保护，不能只调查 UI。
+4. 差异报告后给实施方案与风险排序再大规模编码。主控把业务设计写入 plugin 自足文档，
+   通用事务生命周期、标准 client 查询/secret 机制提案写入 overlay。宿主不得承载组
+   CRUD 或组表，独立构建不得读取根需求、相邻源码或候选产物。已确定取舍直接实施。
+5. 先完成 overlay 本地门→提交推送→独立 CI→正式镜像发布；实际下载本提交报告。
+   插件从正式 digest 提取公开类型和 UI SDK，再独立编译/UI/存储/升级测试与发布 jar。
+   本轮新增宿主类型未发布前可设计插件，不得用候选 jar 补齐正式编译输入。
+6. 插件必须在独立克隆执行 README 入口，下载成功 CI artifact，核对薄 jar、bean 索引、
+   provenance、Java/UI/真实 PostgreSQL 报告。root 选择正式组合，本地完整 new-install
+   全绿后才触发对应 CI。失败下载报告，按所属仓修复并复验，不直接重跑掩盖失败。
+7. 最终报告实际下载核对最终三仓提交、digest、jar hash、矩阵、失败/跳过、profile、
+   历史排除与 cleanup。全部必需门通过，三仓 HEAD/远端一致，才可声明交付。
 
-1. **调查先行**：读本文全文 + 原型（裁决集与 `data-field-note`）+ `docs/application-group-target-model.md` + 各仓 AGENTS.md/README；产出"需求 → 现状 → 差异 → 归属（F1–F6）"对照表并核对后才开始编码。不得凭原型外观跳过模型调查。
-2. **设计先行**：先在所属仓完成模型/API/存储设计（F2/F5 归插件、F3/F4 前置契约归 overlay），设计文档落仓后再实施。
-3. **发布顺序**（与 §1 一致，不得颠倒）：overlay 宿主契约发布镜像 → 插件独立编译与 CI → 根仓 Compose 组合验收。插件编译输入只能是已发布宿主产物；不得用候选镜像或本地缓存标签。
-4. **验收收口**：按 §5 三层验收 + 最终提交 CI 报告实际下载核对（digest/jar SHA-256/矩阵/零失败零跳过）。
+默认一个主 Compose 和一个 PostgreSQL；错误 issuer 用例可按需增加辅助 JVM，共用
+PostgreSQL 的独立测试数据库，不是产品多 issuer 功能。缺插件/关闭功能只在对应阶段
+启动，阶段后按本次 owner label 清理容器/网络/卷/辅助数据库，保留 `.work` 和正式 jar，
+不动用户部署数据。schema1 历史迁移仅显式 legacy-migration；本轮 declaration-upgrade
+是额外必需门。测试/README/公开契约同步实际状态，不把候选写成已发布能力。
 
-## 11. 冻结数据提取（R29）
+## 11. 冻结原型与可复现数据（R29）
 
-原型 `DATA` 的来源与再生成（实施与验收的冻结输入）：
+基线为提交 `82f5657` 的 `docs/prototype-application-groups.html`，SHA-256：
+`c56db86a0c96fb31d00354a8b2a7ab62639be254792bc950fc9c92052c665be4`。
+实际 12 条历史 ruling、19 处字段提示；前文 v2 的“18 处”计数按本节覆盖，不为计数
+增删语义。原型只有少量 data-test，不能当成完整验收清单。执行以下完整命令核对，
+只解析 JSON，不执行原型脚本或读取本地部署：
 
-- 生成命令：`node --input-type=module -e "import {planFixture} from './scripts/application-project-fixture.mjs'; …"`（以 `kestra-plugin-rbac/scripts/` 为工作目录；fixture 不得改动）；
-- 映射规则：组 key = 演示名 `kestra-group`（实现沿用安装组实际 id，不重命名，R27）；用户目录 = fixture admin + accounts + mcpAccounts；权限声明与 grants 取 fixture declarations 与 policy grants；subject 授予取安装计划 userGrants；
-- 实施方须在验收前记录所用 fixture 文件的 SHA-256，报告中的数据核对以此为据；不得以随机重生成结果冒充冻结输入；
-- 原型中的字符串摘要（如 `access-4aa1…`）为演示截断，不作运行时解析输入。
+```bash
+python3 - <<'PY'
+from pathlib import Path
+import hashlib, json, re
+source = Path('docs/prototype-application-groups.html').read_bytes()
+assert hashlib.sha256(source).hexdigest() == 'c56db86a0c96fb31d00354a8b2a7ab62639be254792bc950fc9c92052c665be4'
+text = source.decode('utf-8')
+data = json.loads(re.search(r'const DATA\s*=\s*(\{.*?\});', text, re.S).group(1))
+rulings = json.loads(re.search(r'<script[^>]*type="application/rulings\+json"[^>]*>(.*?)</script>', text, re.S).group(1))
+assert len(rulings['rulings']) == 12 and text.count('data-field-note=') == 19
+assert [len(data[key]) for key in ['scopes', 'applications', 'declarations', 'userDirectory', 'impl']] == [19, 1, 19, 22, 18]
+assert len(set(data['userDirectory'])) == 22
+output = Path('.work/access-control-ui-requirements')
+output.mkdir(parents=True, exist_ok=True)
+(output / 'prototype-data.json').write_text(json.dumps(data, ensure_ascii=False, indent=2) + '\n')
+print('PASS prototype hash, rulings, notes and baseline counts')
+PY
+```
 
-## 12. 公开行为与稳定 DOM 标识（R27/R29）
+若维护者后续改原型，显式更新 hash、差异及预期，不自动接受全部变更。原型 DATA
+含人工演示组 key、admin 和资料占位符，并不等于当前带随机密码的 `planFixture` 输出；
+不得继续以省略命令声称重现。组 key 不得为适配原型而重命名现存安装组。
 
-**公开行为规范**：
+| 输入 | 转换与核对预期 |
+|---|---|
+| group/groups | 专用空库安装计划中 1 个内置组；UI key 对应现有 id，不改用户真实安装 |
+| scopes | 19 个角色；每个 key/name/description 集合逐项相等，不只比总数 |
+| applications/app | 1 个真实注册 client；clientId 原值对应，测试 audience 按实际服务 URL；去插件 approved，不绕过协议注册 |
+| declarations | 19 条旧声明转换为独立权限和 scope 关系；与 impl 的关系按显式升级映射计划核对 |
+| userDirectory/userMeta | 22 个标准用户，名字/邮箱“—”视为空资料展示，不保存占位符；密码来自隔离测试配置 |
+| user | 1 个持久组 subject，授予 3 个 scope；用户总数与组成员数不同 |
+| impl | 18 个真实策略记录的历史参考，不把摘要文本当可执行 grants；无实际映射的声明以空grants非执行状态保留；允许此类实体存在，但不得变成资源授权 |
 
-- 组 key 沿用安装组实际 id，不提供组重命名；内置组不显示组级 Audience 字段（概览无该行，Audience 属应用/协议语境）；
-- 创建用户（账号）生成初始密码（一次性展示 + 强制修改流程，同 secret 呈现模式）；不创建无凭据账号；
-- 深链：§3.2 全部导航链路以 URL/状态可复现（目标页签 + 筛选条件注入），刷新后保持；
-- 筛选/分页：状态在页签切换与深链间保持，语言切换重渲染不丢状态；CAS 冲突（412）提示刷新而非静默覆盖；
-- 删除/写入成功后更新（非乐观更新），失败无副作用。
+实施 agent 在编码前从该快照输出逐 key 映射预期，并用生产入口重建专用空库。新模型
+测试须另加 2 组、2 应用、同名 scope 不同组、超过 25 条记录、单/多角色及零授权账号、
+READ-only/MANAGE-only、禁用用户、public/confidential client、空关联、一权限双 scope、
+两权限同 scope。不能用原型单组单应用数量替代这些边界，不手写 token 或 SQL 授权。
 
-**稳定 DOM 标识**：实施必须为验收清单 §7 的每个 N 项提供 `data-test` 稳定标识（命名 `ac-<实体>-<元素>`，如 `ac-scope-sidebar`、`ac-perm-table`、`ac-subject-drawer`）；标识一经写入不得随重构改名，验收脚本以标识定位。
+## 12. 确定的接口行为、导航和验收
+
+本节是待实施目标，不是已发布接口。具体版本化 DTO、schema 和代码设计归所属仓；
+下面的行为必须写入其 README/公开契约，不要求独立仓构建依赖本文。
+
+### 12.1 字段与授权关系
+
+- 组 wire/storage 沿用 `id`，UI 称“组 key”。安装内唯一，退役 ID 不重用；普通组创建
+  初始为空，组删除仍要求无 scope/应用/subject。原型 `kestra-group` 不要求改名生产组。
+- 组/应用 description 新增且可空，最长 4096 Unicode code point；displayName 和
+  scope name 最长 256，scope name 必填且组内精确唯一。scope key 沿用现有 1–64
+  小写规则，组 id 沿用现有 1–128 格式；不隐式折叠大小写或翻译管理员输入。
+- 权限公共字段 `key/name/scopeKeys`，key 使用小写字母开头、后续小写字母/数字/连字符，
+  长 1–128，应用内唯一且不可改；name 必填最长 256，不要求唯一。scopeKeys 不重复、
+  只引用本组现存 scope，可空。服务端返回 implementationKind，拒绝客户端切换类型。
+- Kestra 权限体为结构化 grants/managementGrants，沿用现有 typed schema、精确
+  namespace/resource/id/action、tenant=main 和失败关闭校验；可增加 description，
+  不以 key/name 文本推断动作。external 权限体 details 为最多 16384 字符纯文本，可空；
+  不解析 HTML、YAML、表达式，不能写入本实例执行 grants。单次管理 JSON ≤1 MiB。
+- 有效组与标准 client 才可签发；去插件 approved 不删除组 active 或宿主 client
+  active/pending/owner 检查。协议 endpoint、issuer 严格校验及签名 claim 保持。
+- subject 身份用 `(issuer,subject)`，内置账号当前 subject 恰为用户名；不按 email/name
+  匹配。添加候选为启用且未加入本组的真实用户，已有禁用 subject 仍显示但无涉及应用。
+- scope 删除检查权限激活、用户授予及残留实际策略引用，不留下悬空 grants。阻塞引用
+  只返回有 READ 的信息；仅 MANAGE 者得 conflict，不从错误体获取其他人名称。
+- 当前 Kestra 权限的读取/编辑分别需要 LOCAL_POLICY.READ/MANAGE；若本次变更还改变
+  应用支持集，必须同时 IDENTITY.MANAGE。只有修改 grants 不改变支持集时不额外要求
+  IDENTITY；只有 IDENTITY 不能编辑或读取实际 grants。scope 关联概览可显示有权读取
+  的应用 key，但不借其暴露未获 LOCAL_POLICY.READ 的权限名称/明细。
+
+### 12.2 API、修订与一致性
+
+根路径 `/api/v1/main/extensions/rbac`、标准认证与 CSRF 保留。client 路径沿用规范
+`~`+base64url，scope 路径直接使用稳定 key，不改 client_id 协议值。保留组、scope、
+用户及 `/scope-grants/detail?subject=...` 公开入口；以下为变更目标：
+
+| 入口 | 必需行为 |
+|---|---|
+| `/application-groups`、`/{id}` | 原组CRUD新增 description、显式 builtIn、有权读取的 counts |
+| `/{id}/applications`、`/applications/{clientKey}` | 登记真实标准client，输入clientId/description/audiences；不接收approved或supportedScopeKeys写入，返回派生支持集 |
+| `/{id}/applications/{clientKey}/permissions`、`/permissions/{key}` | 独立权限CRUD，内容按implementationKind；单对象全量PUT，不替换整应用 |
+| DELETE `/users/detail?subject=...` | 强账号修订；标准账号与全组授予同事务删除，见§4.4 |
+| `/{id}/applications/{clientKey}/credentials` | 只读client类型、secretSet、maskedHint、credentialRevision、rotationMode；不返哈希/旧明文 |
+| POST `/{id}/applications/{clientKey}/credentials/rotate` | 强凭据修订；普通confidential一次性新值，public拒绝，当前登录client返回maintenance_required且不修改 |
+
+表中以 `/{id}` 开始的相对子路径均接 `/application-groups`。新权限实体替代旧 scope-declarations 与重复
+runtime-permissions 写入口；两套旧写路由不注册，无兼容转发。真实授权评估改用当前
+Kestra 权限实体的 typed 投影。consent 按请求且可获 scope 展示角色名与关联权限
+key/name/可读摘要，同 scope 不重复，不泄露未申请 scope；协议展示接口可投影为按
+scope 分组的只读结构，不要求物理表仍按 scope 嵌套，更不能保留旧重复 key 限制。
+
+读取需READ；写入需MANAGE及必要的双域权限。MANAGE-only可提交已知输入和revision，
+成功仅返回 `{key或id,revision,parentRevision}`/ETag，不回传对象、策略或计数；secret
+响应为明确例外。提供已知目标的 mutation-metadata capability，只返回其获准动作与
+修订，不返回目录内容。创建对象返回其提交的标识与回执，不能借创建获得READ。
+
+更新/删除强 If-Match 对应被改对象 revision：缺428、格式错400、过时412；唯一键
+冲突409，非法引用400，scope有引用409 `scope_in_use`，无权限403，未知合法目标404，
+关闭功能404，依赖不唯一/故障503。权限创建用应用revision，组子项创建沿用组revision。
+原子推进对象/必要父快照及epoch，派生支持不先写再补偿；metadata-only不误撤权。
+支持变化才受60秒撤权门；实际grants变更也必须使旧允许策略缓存60秒内失效，不能
+因此自动扩大token scope。仅name/details/description修改原凭据继续有效。
+
+锁顺序沿用公开安全锁→插件目录→策略/权限→标准身份行；READ_COMMITTED。同连接
+检查当前操作者/管理员，不commit/rollback/close宿主借用连接，不开第二连接检查。
+并发“删scope/加引用”“移出应用/改权限”“两个管理员互删或停用”“两次secret轮换”
+只能得到有效串行结果或冲突，失败无副作用。轮换不自动重试，响应丢失只可生成新版本。
+
+### 12.3 导航、筛选、统计与失败状态
+
+保留主路由 application-groups、users；组详情四页签路径为组根、scopes、applications、
+scope-grants，scope/app选择写入其子路径。侧栏只切内容与规范URL，不进详情抽屉；
+详情初始只读，显式编辑后保存/取消回只读。应用侧栏增加“登记已有应用”内联表单，
+不新增第五个抽屉，标准redirect/type/owner仍由宿主管理。
+
+深链query约定permissionKey、filterSubject、重复scopeKeys、page/size。subject跳应用
+保留来源与scope集合，READ后重新校验当前授予，不继续采用过期范围；scopeKeys内ANY，
+不同chip间AND，同字段多chip也AND。权限key精确相等、name大小写敏感包含、scope集合
+相交；用户/subject主体精确相等。非法query显示可清除错误，不写数据或跳外站；合法
+无结果显示空态。深链与手工chip共存、可单删，清除所有同步query，刷新/前进后退/复制
+URL还原状态；切组清旧组过滤，切应用清不存在权限条件。
+
+默认page1,size25，可选10/25/50/100，过滤或size变化回第一页；删除末页末行退最后
+有效页；删当前选中项按key升序选下一项、无则上一项、全空则空态。key/subject按Unicode
+码点稳定排序。Total在授权及筛选后、分页前计算；枚举只含获准真实记录，超量搜索分页，
+不能静默截断。侧栏也支持搜索分页；禁用用户可在用户列表定位但不作新subject候选。
+cards/counts使用同组快照，subject计数为组成员记录数，含零scope和禁用，不等于用户
+总数或授予条数。未加载、0、故障分别显示，读取错误不伪装空态。跨页核对catalog/group
+revision，不拼漂移快照；统计/枚举也独立READ授权。
+
+关闭抽屉、遮罩、ESC、取消、切页签/侧栏、浏览器返回，存在草稿时均须丢弃确认；
+取消后保留草稿，保存中禁闭和重复提交。成功才更新列表及派生值；409/412保留草稿，
+用户显式刷新再编辑，不自动覆盖；403清失权敏感内容并可退出换号，503可显式重试，
+POST/secret不自动重发。关闭焦点回原触发元素，已删除则回列表/侧栏标题，图标删除
+不能只靠hover，键盘focus也可操作且有可访问名称。
+
+### 12.4 验收用例索引（覆盖N1–N20）
+
+| 用例 | 覆盖 | 必需正反断言 |
+|---|---|---|
+| T1 | N1–N6 | 冻结数据逐key核对；卡片/徽章/统计各自真实点击；内置拒删，普通空组可删且id不复用 |
+| T2 | N7–N9 | key不可改、name冲突；任一应用/用户/实际策略引用拒删无副作用；无引用删除持久且选中回退 |
+| T3 | N10–N14 | P1→s1,s2、P2→s2；删P1的s2支持不变，删P2才撤s2；空关联；metadata不扩权，修改Kestra typed grants真实改变允许/拒绝 |
+| T4 | N12–N16 | ANY/AND、手工及深链chip、返回刷新、过期授予、多页Total、跨组/跨应用范围、非法与空态 |
+| T5 | N4/N5/N15/N16 | 新用户临时密码一次性展示、首次强制修改后实际登录；零scope保留；删subject不删账号；禁用保留授予；删用户全组清理而执行/审计保留 |
+| T6 | N5/N19 | 参与者写入后抛错、宿主删账号失败、并发管理员互删/停用：全部回滚或最后管理员拒绝 |
+| T7 | N11/N19 | public无入口且直调拒绝；普通secret新值成功旧值失败；修订/CSRF/失权拒绝；掩码刷新、明文一次、响应丢失不补发 |
+| T8 | N11/N19 | 配置登录client在线拒绝；prepare不影响登录、cancel、维护activate、新配置真实登录及失败回退，最终单一有效secret |
+| T9 | N14/N19 | IDENTITY/LOCAL_POLICY分离；READ-only/MANAGE-only/零授权；只写不读无泄露；联合支持变更要求双域；counts/枚举无越界 |
+| T10 | N17/N18 | 四抽屉/确认框的焦点、ESC、最大化还原、丢弃、保存中禁闭、删除取消及失败无副作用 |
+| T11 | N1–N19 | 全部现有语言×light/dark/dark-2/system；系统明暗切换、中英重点样式、1280/768/390宽度、键盘/错误/刷新/实际计算样式 |
+| T12 | N20/F2–F6 | 新装、schema2升级/冲突/幂等/回滚；旧凭据不自动扩权、60秒撤权、MCP允许/拒绝/refresh、缺插件/关闭功能、最终CI及cleanup |
+
+T3增加“把外部说明改成管理员描述仍无本实例权限”反例；T9保留多角色互不包含资源
+范围、精确namespace、同scope完整授权与禁止跨scope拼接。T11使用所选正式宿主MCP
+Servers/Namespaces等实测参照；截图不替代实际请求、持久结果与计算样式。新旧用例
+数量因目标变化可增加，必须先映射后更新数量门，不把删除、未运行或历史排除算通过。
+主profile为new-install，14项schema1历史排除明确列出；declaration-upgrade另报且必须
+通过。失败也保留已执行行和文档/请求来源，不能整体忽略console。最终对应提交的
+overlay/plugin/root CI成功且报告实际下载核对，必需项零失败零跳过零未运行才交付。
+
+### 12.5 稳定业务标识
+
+生产新增data-test至少包含以下语义，重复项用data-group-id/data-client-key/
+data-scope-key/data-permission-key/data-subject精确关联，不把凭据写进属性：
+
+```text
+access-control-root, tab-application-groups, tab-users, group-card,
+group-count-scopes, group-count-applications, group-count-subjects, group-detail, group-edit,
+scope-sidebar, scope-item, scope-detail, scope-add, scope-save, scope-delete,
+application-sidebar, application-item, application-register, application-detail,
+application-permissions, permission-row, permission-add, permission-edit, permission-delete,
+application-supported-scopes, application-credentials, credential-rotate, credential-once,
+subject-list, subject-row, subject-add, user-list, user-row, user-create, user-delete,
+drawer-group, drawer-user, drawer-permission, drawer-subject, drawer-maximize, drawer-close,
+discard-confirm, delete-confirm, filter-chip, list-total, request-error, conflict-refresh
+```
+
+使用公开组件允许其内部DOM变化，不要求复制原型CSS/标签树。语义角色/可访问名称仍
+必须正确，不能只凭data-test存在判通过。交付对照表列N/T ID、实际标识、目标API、所属
+仓测试文件、实际报告及发布状态。页面可见、200或按钮点击本身不等于保存或授权成功。
+
