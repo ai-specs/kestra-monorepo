@@ -220,7 +220,7 @@ name/desc 编辑、**绑定的应用**（应用维度行 + 权限 key tag 深链
   删除，提示先解除引用；
 - **不做级联清理**（原型演示的级联行为废除，§9.2 #1）。
 
-**应用**：侧栏（应用 key 条目 + 悬停删除 → 确认弹窗，删除语义见 §4.2）+ 详情区：
+**应用**：侧栏（应用 key 条目 + 标题行"＋"登记入口 + 悬停删除 → 确认弹窗，删除语义见 §4.2）+ 详情区：
 应用 key（只读）/应用描述/资源 Audience（只读）/client secret（§2.6）/支持的 scope（只读推导 tag 组，自动
 换行，tag 点击跳 scope 页签）；**应用运行时权限**表（权限 key/权限名称/激活条件
 `组key: scopekey` 具体值多对多多行/权限明细一行摘要+N 展开（展开后提示消失）/操作 ✎
@@ -445,7 +445,7 @@ READ 时不展示依赖枚举的编辑抽屉，但公开写 API 仍独立验收�
 
 ### 9.1 参考入口
 
-原型（裁决集+19 处属性）/ `docs/application-group-target-model.md` /
+原型（裁决集+20 处属性）/ `docs/application-group-target-model.md` /
 `implementation-gap-report.md` / `scripts/application-project-fixture.mjs` /
 宿主 README（F3/F4 契约入口）。
 
@@ -503,7 +503,7 @@ PostgreSQL 的独立测试数据库，不是产品多 issuer 功能。缺插件/
 基线来源为提交 `82f5657`，经2026-10-27本次反向评审同步后的
 `docs/prototype-application-groups.html`，当前冻结文件 SHA-256：
 `089b9a8093223580d7618925a282f7e9fd239cb10c167bb078b5d5e0f08e5140`。
-实际 12 条历史 ruling、19 处字段提示；不为计数增删语义。原型只有少量 data-test，
+实际 12 条历史 ruling、20 处字段提示；不为计数增删语义。原型只有少量 data-test，
 不能当成完整验收清单。执行以下完整命令核对，
 只解析 JSON，不执行原型脚本或读取本地部署：
 
@@ -516,7 +516,7 @@ assert hashlib.sha256(source).hexdigest() == '089b9a8093223580d7618925a282f7e9fd
 text = source.decode('utf-8')
 data = json.loads(re.search(r'const DATA\s*=\s*(\{.*?\});', text, re.S).group(1))
 rulings = json.loads(re.search(r'<script[^>]*type="application/rulings\+json"[^>]*>(.*?)</script>', text, re.S).group(1))
-assert len(rulings['rulings']) == 12 and text.count('data-field-note=') == 19
+assert len(rulings['rulings']) == 12 and text.count('data-field-note=') == 20
 assert [len(data[key]) for key in ['scopes', 'applications', 'declarations', 'userDirectory', 'impl']] == [19, 1, 19, 22, 18]
 assert len(set(data['userDirectory'])) == 22
 output = Path('.work/access-control-ui-requirements')
@@ -526,7 +526,7 @@ print('PASS prototype hash, rulings, notes and baseline counts')
 PY
 ```
 
-若维护者后续改原型，显式更新 hash、差异及预期，不自动接受全部变更。原型 DATA
+若维护者后续改原型，显式更新 hash、差异及预期，不自动接受全部变更。变更记录：2026-10-27 应用侧栏标题行增加"＋"登记入口（详情区表单，scope 同款模式），data-field-note 19→20。原型 DATA
 含人工演示组 key、admin 和资料占位符，并不等于当前带随机密码的 `planFixture` 输出；
 不得继续以省略命令声称重现。组 key 不得为适配原型而重命名现存安装组。
 
@@ -540,7 +540,7 @@ PY
 | 统一所有原型分页默认值与选项 | §12.3规定page1/size25，允许10/25/50/100；权限、用户、subject列表共同采用 |
 
 以上四处变更的旧冻结hash为
-`c56db86a0c96fb31d00354a8b2a7ab62639be254792bc950fc9c92052c665be4`；新hash见本节
+`d29dc31069016d54cedaa0d6c598c9accdf7160ddbc0ff1a02181d8ccd749214`；新hash见本节
 当前冻结值和上方校验命令，两者必须一致。历史rulings仍12条，data-field-note仍19处，
 DATA快照计数不变。登记示例`demo-registered-client`存在于原型独立的标准注册模拟表，
 初始未加入组，不计入DATA的1个应用；其resource Audience为示例URL、类型为public。
