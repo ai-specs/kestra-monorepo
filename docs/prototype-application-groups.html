@@ -351,14 +351,6 @@ h2.section { font-size: 15px; margin: 24px 0 8px; }
           <aside class="app-list">
             <div class="app-list-title" style="display:flex;align-items:center"><span style="flex:1" data-zh="应用" data-en="Applications">应用</span><button class="btn icon-sm" onclick="newApplication()" title="登记已有应用 / Register application">＋</button></div>
             <div id="app-sidebar"></div>
-            <form id="app-register-form" class="form" style="padding:12px" onsubmit="registerExistingApp(event)">
-              <h4 data-zh="登记已有应用" data-en="Register existing application">登记已有应用</h4>
-              <label><span>clientId</span><input id="app-register-client-id" name="clientId" required autocomplete="off"></label>
-              <label><span data-zh="应用描述" data-en="Description">应用描述</span><input id="app-register-description" name="description" maxlength="4096"></label>
-              <p class="hint" data-zh="原型已注册示例：demo-registered-client；这里只登记，不创建 OAuth client。" data-en="Registered prototype example: demo-registered-client. Registration here does not create an OAuth client.">原型已注册示例：demo-registered-client；这里只登记，不创建 OAuth client。</p>
-              <p id="app-register-error" class="hint" role="alert" hidden></p>
-              <button class="btn primary" type="submit" data-zh="登记" data-en="Register">登记</button>
-            </form>
           </aside>
           <div class="app-detail" id="app-detail"></div>
       </div>
@@ -867,10 +859,11 @@ function newApplication() {
   renderAppSidebar();
   document.getElementById('app-detail').innerHTML = `
     <div class="page-head" style="padding-top:0"><h1 data-zh="登记已有应用" data-en="Register application">登记已有应用</h1></div>
-    <form class="form" style="margin:0" onsubmit="return false" data-field-note="register an EXISTING OAuth client (client_id must already be registered with the host); redirect/type/owner are host-managed, not here">
+    <form class="form" style="margin:0" data-test="application-register" onsubmit="return false" data-field-note="register an EXISTING OAuth client (client_id must already be registered with the host); redirect/type/owner are host-managed, not here">
       <label style="display:flex;flex-direction:column;gap:6px;margin-bottom:12px;font-size:13px;color:var(--text-secondary)"><span data-zh="应用 key（client_id，须已在宿主注册）" data-en="Application key (client_id, must be registered)">应用 key（client_id，须已在宿主注册）</span><input type="text" id="new-app-key" placeholder="client-id"></label>
       <label style="display:flex;flex-direction:column;gap:6px;margin-bottom:12px;font-size:13px;color:var(--text-secondary)"><span data-zh="应用描述" data-en="Description">应用描述</span><input type="text" id="new-app-desc"></label>
       <label style="display:flex;flex-direction:column;gap:6px;margin-bottom:12px;font-size:13px;color:var(--text-secondary)"><span data-zh="资源 Audience（每行一个，可空）" data-en="Resource audiences (one per line, optional)">资源 Audience（每行一个，可空）</span><input type="text" id="new-app-audiences" placeholder="https://mcp.example.com"></label>
+      <p class="hint" data-zh="原型已注册示例：demo-registered-client；这里只登记，不创建 OAuth client。" data-en="Registered prototype example: demo-registered-client. Registration here does not create an OAuth client.">原型已注册示例：demo-registered-client；这里只登记，不创建 OAuth client。</p>
       <div class="actions"><button class="btn primary" onclick="registerApplication()" data-zh="登记" data-en="Register">登记</button><button class="btn" type="button" onclick="cancelRegisterApp()" data-zh="取消" data-en="Cancel">取消</button></div>
     </form>`;
 }
@@ -878,6 +871,7 @@ function cancelRegisterApp() { registeringApp = false; renderAppSidebar(); rende
 function registerApplication() {
   const key = document.getElementById('new-app-key').value.trim();
   if (!key) { protoTodo(T('应用 key 必填', 'application key is required')); return; }
+  if (!registeredClients.has(key)) { protoTodo(T('client 尚未注册，请先完成标准 OAuth client 注册。', 'Client is not registered. Complete standard OAuth client registration first.')); return; }
   if (DATA.applications.some(a => a.clientId === key)) { protoTodo(T('应用已在组内', 'application already in group')); return; }
   DATA.applications.push({clientId: key, description: document.getElementById('new-app-desc').value.trim(), audiences: document.getElementById('new-app-audiences').value.trim().split(/[\n,]/).map(x => x.trim()).filter(Boolean)});
   registeringApp = false;
@@ -914,25 +908,6 @@ const registeredClients = new Map(DATA.applications.map(app => [app.clientId, {a
 registeredClients.set('demo-registered-client', {audiences: ['http://localhost:8080/demo-resource']});
 function htmlText(value) {
   return String(value).replace(/[&<>"']/g, character => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'}[character]));
-}
-function registerExistingApp(event) {
-  event.preventDefault();
-  const form = event.currentTarget;
-  const clientId = form.elements.clientId.value.trim();
-  const error = document.getElementById('app-register-error');
-  const registration = registeredClients.get(clientId);
-  const message = !registration ? T('client 尚未注册，请先完成标准 OAuth client 注册。', 'Client is not registered. Complete standard OAuth client registration first.')
-    : DATA.applications.some(app => app.clientId === clientId) ? T('应用已在本组登记。', 'Application is already registered in this group.') : '';
-  error.textContent = message;
-  error.hidden = !message;
-  if (message) return;
-  DATA.applications.push({clientId, description: form.elements.description.value.trim(), audiences: [...registration.audiences], supported: []});
-  selectedApp = clientId;
-  permPage = 1;
-  permFilters = [];
-  subjectFilter = null;
-  form.reset();
-  renderAll();
 }
 function renderAppSidebar() {
   const html = DATA.applications.map(a => `<a class="app-item ${!registeringApp && selectedApp === a.clientId ? 'active' : ''}" href="#" onclick="selectApp('${a.clientId}');return false"><code>${a.clientId}</code><button class="btn icon-sm danger scope-del" onclick="event.preventDefault();event.stopPropagation();askDeleteApp('${a.clientId}')" title="删除 / Delete">${DEL_SVG}</button></a>`).join('');

@@ -526,7 +526,7 @@ print('PASS prototype hash, rulings, notes and baseline counts')
 PY
 ```
 
-若维护者后续改原型，显式更新 hash、差异及预期，不自动接受全部变更。变更记录：2026-10-27 应用侧栏标题行增加"＋"登记入口（详情区表单，scope 同款模式），data-field-note 19→20。原型 DATA
+若维护者后续改原型，显式更新 hash、差异及预期，不自动接受全部变更。变更记录：2026-10-27 应用侧栏标题行增加"＋"登记入口（详情区表单，scope 同款模式），data-field-note 19→20；同日移除侧栏内联登记表单（校验逻辑并入 scope 模式表单，data-test=application-register）。原型 DATA
 含人工演示组 key、admin 和资料占位符，并不等于当前带随机密码的 `planFixture` 输出；
 不得继续以省略命令声称重现。组 key 不得为适配原型而重命名现存安装组。
 
@@ -540,7 +540,7 @@ PY
 | 统一所有原型分页默认值与选项 | §12.3规定page1/size25，允许10/25/50/100；权限、用户、subject列表共同采用 |
 
 以上四处变更的旧冻结hash为
-`d29dc31069016d54cedaa0d6c598c9accdf7160ddbc0ff1a02181d8ccd749214`；新hash见本节
+`7bb5c48639f78c018971bb7b768625f463a421c8a6251f60330ed8f7829f929a`；新hash见本节
 当前冻结值和上方校验命令，两者必须一致。历史rulings仍12条，data-field-note仍19处，
 DATA快照计数不变。登记示例`demo-registered-client`存在于原型独立的标准注册模拟表，
 初始未加入组，不计入DATA的1个应用；其resource Audience为示例URL、类型为public。
