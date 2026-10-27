@@ -419,7 +419,7 @@ h2.section { font-size: 15px; margin: 24px 0 8px; }
         </div></div>
         <div class="kv-row"><span class="kv-label" data-zh="权限明细" data-en="Details">权限明细</span><div class="kv-field"><textarea rows="4" id="perm-detail-input" placeholder="命名空间 / 资源 / 动作 描述"></textarea></div></div>
       </div>
-      <p class="hint" style="margin:0 0 12px" data-field-note="details field is a text copy of baked-in runtime logic; not checked at runtime; may lag" data-zh="激活条件为多选：权限与 scope 是多对多。" data-en="Activation is multi-select: permissions and scopes are many-to-many.">激活条件为多选：权限与 scope 是多对多。权限明细是文本副本——运行时逻辑已固化在应用自身代码中，此副本不参与运行时动态检测，不同步也不影响。</p>
+      <p class="hint" style="margin:0 0 12px" data-field-note="details field contains the real grants — actual resource authorization data" data-zh="激活条件为多选：权限与 scope 是多对多。" data-en="Activation is multi-select: permissions and scopes are many-to-many.">激活条件为多选：权限与 scope 是多对多。权限明细是文本副本——运行时逻辑已固化在应用自身代码中，此副本不参与运行时动态检测，不同步也不影响。</p>
       <div class="actions" style="margin-top:14px"><button class="btn" type="button" onclick="closePermAddDrawer()" data-zh="取消" data-en="Cancel">取消</button></div>
 </form>
   </div>
@@ -923,7 +923,7 @@ function renderAppDetail() {
     </form>
     <div class="drawer-section">
       <div style="display:flex;align-items:center;gap:12px;margin:20px 0 10px;padding-top:14px;border-top:1px solid var(--border)"><h4 style="margin:0" data-zh="应用运行时权限" data-en="Application runtime permissions">应用运行时权限</h4><button class="btn primary" style="margin-left:auto" onclick="openPermAddDrawer()" data-test="add-permission" data-zh="添加权限" data-en="Add permission">添加权限</button></div>
-      <p class="hint" style="margin:0 0 12px" data-field-note="details column is a text copy; not checked at runtime" data-zh="以应用自身的权限为主体组织；权限与 scope 是多对多，激活条件为「应用组 key + scope key」组合。" data-en="Organized by the app's own permissions; many-to-many; activation is group key + scope key.">以应用自身的权限为主体组织；权限与 scope 是多对多，激活条件为「应用组 key + scope key」组合。</p>
+      <p class="hint" style="margin:0 0 12px" data-field-note="details column shows the real grants — the actual resource authorization data" data-zh="以应用自身的权限为主体组织；权限与 scope 是多对多，激活条件为「应用组 key + scope key」组合。" data-en="Organized by the app's own permissions; many-to-many; activation is group key + scope key.">以应用自身的权限为主体组织；权限与 scope 是多对多，激活条件为「应用组 key + scope key」组合。</p>
       <div class="toolbar" style="margin:0 0 12px;min-height:36px">
         <button class="btn" data-field-note="implementation: use the upstream native KsFilter component" onclick="toggleFilterBuilder()" id="add-filter-btn">🔍 <span data-zh="添加过滤器" data-en="Add filters">添加过滤器</span></button>
         <span id="perm-filter-chips" style="display:flex;gap:6px;flex-wrap:wrap"></span>
@@ -940,19 +940,8 @@ function renderAppDetail() {
         </div>
       </div>
     </div>
-    <div class="drawer-section">
-      <div style="display:flex;align-items:center;gap:12px;margin:20px 0 10px;padding-top:14px;border-top:1px solid var(--border)"><h4 style="margin:0" data-zh="Kestra 实际权限（运行时策略）" data-en="Kestra actual permissions (runtime policy)">Kestra 实际权限（运行时策略）</h4><button class="btn" style="margin-left:auto" onclick="protoTodo(this.textContent)" data-zh="编辑策略" data-en="Edit policy">编辑策略</button></div>
-      <p class="hint" style="margin:0 0 12px" data-field-note="this section edits the REAL runtime policy — the sole source of resource authorization; independent from the permission declarations above (text copies)" data-zh="此分节编辑真实运行时策略——资源授权的唯一依据；与上方权限声明（文本副本）相互独立。" data-en="Edits the real runtime policy — sole source of resource authorization; independent from the declarations above.">此分节编辑真实运行时策略——资源授权的唯一依据；与上方权限声明（文本副本）相互独立。</p>
-      <div id="runtime-policy"></div>
-    </div>`;
+    <div data-field-note="the runtime permissions table IS the actual policy — one table, one edit entry; details column shows the real grants (namespace/resource/actions) organized by permission key; no separate policy section (maintainer ruling 2026-10-27)"></div>`;
   renderSupported();
-  const grants = [];
-  for (const sc of DATA.scopes) for (const g of (DATA.impl[sc.key] || [])) grants.push({scope: sc.key, ...g});
-  const gRows = grants.map(g => `<tr><td><code>${g.namespace}</code>${g.descendants ? ` <span class="muted">↴</span>` : ''}</td><td>${g.resource}</td><td>${g.actions.map(a => `<span class="tag">${a}</span>`).join('')}</td><td>${g.allIds ? T('全部', 'All') : `<code>${(g.ids || []).join(', ')}</code>`}</td><td><code>${g.scope}</code></td></tr>`).join('');
-  const rp = document.getElementById('runtime-policy');
-  if (rp) rp.innerHTML = `<div class="table-wrap" style="margin:0"><table>
-    <thead><tr><th>${T('命名空间', 'Namespace')}</th><th>${T('资源', 'Resource')}</th><th>${T('动作', 'Actions')}</th><th>${T('ID 限制', 'IDs')}</th><th>scope</th></tr></thead>
-    <tbody>${gRows || `<tr><td colspan="5" class="muted" style="text-align:center">—</td></tr>`}</tbody></table></div>`;
 }
 function renderPermGroups() {
   const all = filteredPerms(permissionRows());
@@ -973,7 +962,7 @@ function renderPermGroups() {
       <td><div class="row-actions"><button class="btn icon-sm" title="${T('编辑', 'Edit')}" onclick="openPermEdit('${pm.key}')">✎</button><button class="btn icon-sm danger" title="${T('删除', 'Delete')}" onclick="deletePerm('${pm.key}')">${DEL_SVG}</button></div></td></tr>`;
   }).join('');
   document.getElementById('perm-groups').innerHTML = `<div class="table-wrap" style="margin:0"><table>
-    <thead><tr><th>${T('权限 key', 'Permission key')}</th><th>${T('权限名称', 'Name')}</th><th>${T('激活条件（多对多）', 'Activation (many-to-many)')}</th><th data-field-note="text copy of the application's baked-in runtime logic; not checked at runtime; may lag">${T('权限明细', 'Details')}</th><th></th></tr></thead><tbody>${body}</tbody></table></div>`;
+    <thead><tr><th>${T('权限 key', 'Permission key')}</th><th>${T('权限名称', 'Name')}</th><th>${T('激活条件（多对多）', 'Activation (many-to-many)')}</th><th data-field-note="the REAL grants (namespace/resource/actions) organized under this permission — participates in runtime resource authorization; one table, no separate policy section">${T('权限明细', 'Details')}</th><th></th></tr></thead><tbody>${body}</tbody></table></div>`;
   document.getElementById('perm-pager').innerHTML = pagerHtml(all.length, permPage, permSize, 'gotoPermPage', 'gotoPermSize');
 }
 function gotoPermPage(p) { permPage = p; renderPermGroups(); }
