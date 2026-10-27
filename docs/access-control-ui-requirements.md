@@ -15,7 +15,7 @@
 2. **维护者裁决**：2026-10-20 至 10-27，维护者对概念模型、信息架构、交互、命名作出
    R1–R12 共 12 项裁决，逐条落地高保真原型并由维护者浏览器验证。
 3. **评审修订**：v1 文档经独立评审，暴露"模型变更被归为 UI 重构、前置被排除"的结构性
-   缺陷；维护者授权主控代行裁决 R13–R20 补齐，形成本 v2 基线。
+   缺陷；维护者授权主控代行裁决 R13–R20 补齐形成 v2；独立评审后升级为 v3 基线（含 R21–R29）。
 
 ### 0.2 原型地位（重要）
 
@@ -58,6 +58,10 @@
 
 **发布顺序**（AGENTS.md 固定顺序）：overlay 宿主契约（F3/F4 前置）发布镜像 → 插件独立
 编译 CI → 根仓组合验收。任何 UI 不得以未发布宿主候选产物为编译输入。
+
+F3 同时覆盖新用户临时凭据一次性下发及首次强制修改。修改完成前只能进入受限的
+密码修改/退出流程，不签发带业务授权的正常会话；不能仅保存 password_change_required
+标志却不提供可达的生产修改页面。创建失败或返回中断不得产生带默认密码的可登录账号。
 
 **明确延期**（本轮不做，UI 无对应入口）：多 issuer；持久化 OAuth consent 管理（§2.4
 区分）；跨组权限激活及跨组资源授权的新机制。不新增管理授权域。现有 IDENTITY 的
@@ -336,7 +340,7 @@ READ 时不展示依赖枚举的编辑抽屉，但公开写 API 仍独立验收�
 2. **维护流逐项核对持久结果**（刷新后仍在）：组创建（校验）、scope 创建/编辑（key
    锁定）/受限删除（有引用拒删并列出引用；无引用可删）、权限添加/编辑（key 锁定）/
    删除（支持范围联动）、subject 添加（目录下拉同源）/编辑/删除（授予清空账号保留）、
-   用户创建/修改/禁用/删除（授予联动清理）、secret 重置（一次性弹窗+拷贝+"已设置"态）；
+   用户创建/修改/禁用/删除（授予联动清理）、secret 重置（一次性弹窗+拷贝+掩码态——有脱敏提示显示头尾掩码，存量无提示显示"已设置，提示不可用"，R20）；
 3. **筛选体系**三处 + 分页联动 + 页码重置 + 深链 chip 共存；
 4. **弹层规范**（含 Escape/焦点/未保存确认/保存中禁闭）；
 5. **权限矩阵**（§4.7 全行）与**状态矩阵**（§4.5：人为制造 403/409/503 验证行为）；
@@ -377,9 +381,10 @@ READ 时不展示依赖枚举的编辑抽屉，但公开写 API 仍独立验收�
 
 ---
 
-## 7. 需求编号清单（验收核对表骨架）
+## 7. 需求编号清单（与 §12 用例对应）
 
-> 格式：ID | 内容 | 裁决/节 | 原型位置（区域）。实施时逐条补 API 与验收用例列。
+> 公开行为、验收用例和最低 DOM 标识已在 §12 确定。实施时补所属仓测试文件和实际
+> 报告，不再自行裁决缺失的产品规则。
 
 | ID | 内容 | 依据 | 原型位置 |
 |---|---|---|---|
@@ -493,8 +498,8 @@ PostgreSQL 的独立测试数据库，不是产品多 issuer 功能。缺插件/
 
 基线为提交 `82f5657` 的 `docs/prototype-application-groups.html`，SHA-256：
 `c56db86a0c96fb31d00354a8b2a7ab62639be254792bc950fc9c92052c665be4`。
-实际 12 条历史 ruling、19 处字段提示；前文 v2 的“18 处”计数按本节覆盖，不为计数
-增删语义。原型只有少量 data-test，不能当成完整验收清单。执行以下完整命令核对，
+实际 12 条历史 ruling、19 处字段提示；不为计数增删语义。原型只有少量 data-test，
+不能当成完整验收清单。执行以下完整命令核对，
 只解析 JSON，不执行原型脚本或读取本地部署：
 
 ```bash
@@ -554,6 +559,17 @@ READ-only/MANAGE-only、禁用用户、public/confidential client、空关联、
   namespace/resource/id/action、tenant=main 和失败关闭校验；可增加 description，
   不以 key/name 文本推断动作。external 权限体 details 为最多 16384 字符纯文本，可空；
   不解析 HTML、YAML、表达式，不能写入本实例执行 grants。单次管理 JSON ≤1 MiB。
+- 新建当前 Kestra 权限允许先保存空 grants，但它不能提供业务或管理授权；有效
+  scope 没有启用的完整实际策略时，资源请求失败关闭，混入该 scope 的旧已验证拒绝
+  用例不能被删掉。权限启用状态、资源范围与管理目标沿用原有运行时约束；不能因
+  展示表合并扩大任何旧未获准操作。
+- Kestra 权限另有 `enabled`（创建默认 true）、`grants` 与 `managementGrants`。enabled
+  只控制该权限的实际执行效力，不偷偷改变登记的支持集；支持仍由全部实体 scopeKeys
+  并集计算。权限停用后真实资源与管理员判断忽略其 grants，并按真实策略撤权时限
+  生效；外部声明不引入执行开关。迁移时保留原有 disabled 的实际效力，不默认启用。
+- 单权限更新同时包含 name/scopeKeys 与上述完整内容字段，缺必需字段拒绝而不清空
+  既有策略；外部体只允许 details，不接受 grants/managementGrants/implementationKind
+  写入。具体读 DTO 可另带只读 revision/parentRevision，不允许客户端控制 epoch。
 - 有效组与标准 client 才可签发；去插件 approved 不删除组 active 或宿主 client
   active/pending/owner 检查。协议 endpoint、issuer 严格校验及签名 claim 保持。
 - subject 身份用 `(issuer,subject)`，内置账号当前 subject 恰为用户名；不按 email/name
@@ -577,6 +593,7 @@ READ-only/MANAGE-only、禁用用户、public/confidential client、空关联、
 | `/{id}/applications`、`/applications/{clientKey}` | 登记真实标准client，输入clientId/description/audiences；不接收approved或supportedScopeKeys写入，返回派生支持集 |
 | `/{id}/applications/{clientKey}/permissions`、`/permissions/{key}` | 独立权限CRUD，内容按implementationKind；单对象全量PUT，不替换整应用 |
 | DELETE `/users/detail?subject=...` | 强账号修订；标准账号与全组授予同事务删除，见§4.4 |
+| POST `/users` | 输入username/name/email；宿主生成临时凭据，一次性响应且首次强制修改；不能通过GET重取 |
 | `/{id}/applications/{clientKey}/credentials` | 只读client类型、secretSet、maskedHint、credentialRevision、rotationMode；不返哈希/旧明文 |
 | POST `/{id}/applications/{clientKey}/credentials/rotate` | 强凭据修订；普通confidential一次性新值，public拒绝，当前登录client返回maintenance_required且不修改 |
 
