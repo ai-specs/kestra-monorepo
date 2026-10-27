@@ -577,10 +577,12 @@ function openPermEdit(permKey) {
   document.getElementById('app-dialog-overlay').classList.add('open');
   document.getElementById('app-dialog').classList.add('open');
 }
-let currentSecret = '';
+let currentSecret = 'ui-7f3k-demo';
+function masked(v) { return v.length <= 8 ? v : v.slice(0, 3) + '••••••••' + v.slice(-4); }
 function resetSecret() {
   currentSecret = 'ui-' + Math.random().toString(36).slice(2, 10) + '-' + Date.now().toString(36).slice(-4);
   document.getElementById('new-secret-value').textContent = currentSecret;
+  document.getElementById('app-secret-value').textContent = masked(currentSecret);
   document.getElementById('secret-overlay').classList.add('open');
 }
 function copySecret() {
@@ -908,7 +910,7 @@ function renderAppDetail() {
       <div class="dl" style="margin:0">
         <div class="row" data-field-note="convention: application key ≡ OAuth2 client_id (one value, two context names); immutable after creation; token aud claim uses the same value"><span class="k" data-zh="应用 key" data-en="Application key">应用 key</span><span class="v"><code>${app.clientId}</code></span></div>
         <div class="row"><span class="k" data-zh="应用描述" data-en="Description">应用描述</span><span class="v">${app.description || 'Kestra 管理 UI（第一方应用）'}</span></div>
-        <div class="row" data-field-note="shows a set/unset status badge only (hash storage cannot reveal the old value); reset opens a one-time modal with the new secret and a copy button; public clients show no-secret and no reset"><span class="k">client secret</span><span class="v"><span class="badge on" id="app-secret-value" data-zh="已设置" data-en="Set">已设置</span> <button class="btn icon-sm" onclick="resetSecret()" title="重置 / Reset">⟳</button></span></div>
+        <div class="row" data-field-note="masked display keeps head+tail chars for identification (maintainer final ruling 2026-10-27; requires storing a masked hint alongside the hash at reset time); reset opens a one-time modal revealing the new secret with a copy button; public clients show no-secret and no reset"><span class="k">client secret</span><span class="v"><code id="app-secret-value">ui-••••••••-demo</code> <button class="btn icon-sm" onclick="resetSecret()" title="重置 / Reset">⟳</button></span></div>
         <div class="row" style="align-items:start" data-field-note="read-only derived view: aggregated from activation conditions of runtime permissions below"><span class="k" data-zh="支持的 scope" data-en="Supported scopes">支持的 scope</span><span class="v" style="gap:4px;flex-direction:column;align-items:flex-start"><span id="app-supported-tags" style="display:flex;flex-wrap:wrap;gap:4px"></span><span class="hint" data-zh="由下方应用运行时权限中各权限的激活条件聚合推导，随权限维护自动更新。" data-en="Aggregated from activation conditions below.">由下方应用运行时权限中各权限的激活条件聚合推导，随权限维护自动更新。</span></span></div>
       </div>
       <div style="padding-top:12px"><button class="btn" onclick="appEdit(true)" data-zh="编辑" data-en="Edit">编辑</button></div>
