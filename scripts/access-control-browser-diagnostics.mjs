@@ -21,6 +21,11 @@ export function classifyAccessControlDiagnostics({events,base,requests=[],expect
       const feed=event.method==='GET'&&event.url.startsWith('https://api.kestra.io/v1/feeds?')
       const next=navigation.find(next=>order.get(next.id)>order.get(original.id)&&next.frameId===original.frameId&&next.documentId!==event.documentId)
       if((read||query||feed)&&next&&Math.abs(at(next)-at(event))<=1000){add(event,'cancelled-read-on-document-unload',{requestId:event.requestId,documentId:event.documentId,nextDocumentId:next.documentId,navigationEventId:next.id});continue}
+      if(event.method==='GET'&&event.url===base+'/ui-extensions/main/manifest') {
+        const route=(byDocument.get(event.documentId)??[]).find(route=>route.kind==='document-route'&&order.get(route.id)>order.get(event.id)&&at(route)-at(event)<=1000&&route.url!==original.documentUrl)
+        const replacement=(byDocument.get(event.documentId)??[]).find(response=>response.kind==='http-response'&&response.url===event.url&&response.status===200&&response.requestId!==event.requestId&&order.get(response.id)>order.get(event.id)&&at(response)-at(event)<=1000)
+        if(route&&replacement){add(event,'superseded-host-manifest-during-canonical-route',{requestId:event.requestId,documentId:event.documentId,routeEventId:route.id,replacementRequestId:replacement.requestId,replacementEventId:replacement.id});continue}
+      }
     }
     if(event.kind!=='http-error'||!original||event.method!=='GET')continue
     const url=new URL(event.url)
@@ -37,12 +42,14 @@ export function classifyAccessControlDiagnostics({events,base,requests=[],expect
   }
   for(const event of events.filter(event=>event.kind==='console-error')) {
     const response=(byRequest.get(event.requestId)??[]).find(response=>same(response,event)&&indexed.has(response.id)&&['http-error','request-failed'].includes(response.kind))
-    if(event.source==='network'&&response&&/^Failed to load resource: the server responded with a status of (400|401|403|404|409|412|428|503) /.test(event.message)){add(event,'network-console-for-classified-request',{requestId:event.requestId,responseEventId:response.id,documentId:event.documentId});continue}
+    if(event.source==='network'&&response&&(/^Failed to load resource: the server responded with a status of (400|401|403|404|409|412|428|503) /.test(event.message)||indexed.get(response.id).reason==='explicit-once-only-response-drop'&&event.message==='Failed to load resource: net::ERR_FAILED')){add(event,'network-console-for-classified-request',{requestId:event.requestId,responseEventId:response.id,documentId:event.documentId});continue}
     const first=event.message.split('\n')[0]
+    const errorStack=[...event.message.matchAll(/\bat (?:async )?([^\s(]+) \((https?:\/\/[^\s)]+):(\d+):(\d+)\)/g)].map(match=>({functionName:match[1],url:match[2],line:Number(match[3])-1,column:Number(match[4])-1}))
+    const originFrames=[...(event.stack??[]),...errorStack]
     const auth=first==='Error during authentication check: TypeError: Failed to fetch'
     const native=first==='TypeError: Failed to fetch'&&['/ui/main/dashboards','/ui/main/namespaces','/ui/main/flows'].includes(new URL(event.documentUrl).pathname)
     if((auth||native)&&event.stack?.length&&event.stack.every(frame=>!frame.url||frame.url.startsWith(base+'/ui/assets/'))) {
-      const abort=(byDocument.get(event.documentId)??[]).find(failed=>indexed.get(failed.id)?.reason==='cancelled-read-on-document-unload'&&Math.abs(at(event)-at(failed))<=100&&(!auth||failed.url===base+'/api/v1/main/extensions/rbac/capabilities'||failed.url===base+'/ui-extensions/main/manifest')&&(byRequest.get(failed.requestId)??[]).some(request=>request.kind==='request'&&same(request,failed)&&request.initiatorStack?.some(origin=>origin.functionName&&event.stack.some(frame=>frame.url===origin.url&&frame.functionName===origin.functionName&&frame.line===origin.line))))
+      const abort=(byDocument.get(event.documentId)??[]).find(failed=>indexed.get(failed.id)?.reason==='cancelled-read-on-document-unload'&&Math.abs(at(event)-at(failed))<=100&&(!auth||failed.url===base+'/api/v1/main/extensions/rbac/capabilities'||failed.url===base+'/ui-extensions/main/manifest')&&(byRequest.get(failed.requestId)??[]).some(request=>request.kind==='request'&&same(request,failed)&&request.initiatorStack?.some(origin=>origin.functionName&&originFrames.some(frame=>frame.url===origin.url&&frame.functionName===origin.functionName&&frame.line===origin.line))))
       if(abort)add(event,'host-fetch-console-for-proven-document-unload',{documentId:event.documentId,abortedEventId:abort.id,navigationEventId:indexed.get(abort.id).evidence.navigationEventId})
     }
   }

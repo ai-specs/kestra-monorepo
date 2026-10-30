@@ -86,3 +86,24 @@ test('target restricted account does not excuse pre-login previous identity conf
   assert.equal(run([configRequest,configDenied],{identityWindows:[window]}).errors.length,1)
   assert.equal(run([configRequest,configDenied],{identityWindows:[{...window,authenticatedAt:time(50)}]}).errors.length,0)
 })
+test('canonical host manifest cancellation requires different same-document route and successful replacement',()=>{
+  const url=base+'/ui-extensions/main/manifest',r={...request,url},a={...abort,url}
+  const route=event('route','document-route',{url:base+'/ui/main/extensions/rbac/application-groups/kestra/applications/~a2VzdHJh',observedAt:time(110)})
+  const replacement=event('replacement','http-response',{url,requestId:'new-request',status:200,observedAt:time(120)})
+  assert.equal(run([r,a,route,replacement]).errors.length,0)
+  assert.equal(run([r,a,route]).errors.length,1)
+  assert.equal(run([r,a,replacement]).errors.length,1)
+  assert.equal(run([r,a,route,{...replacement,documentId:'other'}]).errors.length,1)
+})
+test('error message stack may identify originating fetch instead of console logging call stack',()=>{
+  const origin={url:base+'/ui/assets/app.js',functionName:'fetchIdentity',line:2,column:3}
+  const consoleEvent=event('console','console-error',{requestId:undefined,message:'Error during authentication check: TypeError: Failed to fetch\n    at fetchIdentity ('+origin.url+':3:4)',stack:[{url:base+'/ui/assets/app.js',functionName:'logError',line:100}]})
+  assert.equal(run([{...request,initiatorStack:[origin]},abort,navigation,consoleEvent]).errors.length,0)
+  assert.equal(run([{...request,initiatorStack:[{...origin,functionName:'other'}]},abort,navigation,consoleEvent]).errors.length,1)
+})
+test('once-only deliberately dropped response console cannot excuse any other network failure',()=>{
+  const failed={...abort,message:'net::ERR_FAILED'},consoleEvent=event('console','console-error',{source:'network',message:'Failed to load resource: net::ERR_FAILED'})
+  const expectedTransportFailures=[{case:'ui-secret-response-lost-once',requestId:'r1',documentId:'old',url:request.url,message:'net::ERR_FAILED'}]
+  assert.equal(run([request,failed,consoleEvent],{expectedTransportFailures}).errors.length,0)
+  assert.equal(run([request,failed,consoleEvent]).errors.length,2)
+})

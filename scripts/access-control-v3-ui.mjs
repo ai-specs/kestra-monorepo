@@ -382,7 +382,7 @@ export async function completeFirstPasswordChange(page,account,contract,onDenial
   await page.waitForFunction(path=>location.pathname===path,contract.path)
   const previous=new Set((await page.diagnostics()).events.map(event=>event.id))
   const acceptanceRequestId='root-ui-'+randomBytes(12).toString('hex')
-  const denied=await page.evaluate(async acceptanceRequestId=>{const response=await fetch('/api/v1/main/flows/search?size=1',{credentials:'same-origin',redirect:'manual',headers:{'X-Acceptance-Request-Id':acceptanceRequestId}});await response.body?.cancel();return response.status},acceptanceRequestId)
+  const denied=await page.evaluate(async acceptanceRequestId=>{const response=await fetch('/api/v1/main/flows/search?size=1',{credentials:'same-origin',redirect:'manual',headers:{'X-Acceptance-Request-Id':acceptanceRequestId}});await response.text();return response.status},acceptanceRequestId)
   assert([401,403].includes(denied),'temporary credential obtained normal business access before password change')
   const deniedUrl=new URL('/api/v1/main/flows/search?size=1',await page.evaluate(()=>location.origin)).href
   const diagnostics=(await page.diagnostics()).events
@@ -1329,7 +1329,7 @@ export async function runAccessControlV3Ui(page,base,fixture,record) {
       assert.equal(beforeCredentials.clientType,'confidential');assert.equal(beforeCredentials.rotationMode,'online')
       const previous=new Set((await page.diagnostics()).events.map(event=>event.id))
       const acceptanceRequestId='root-ui-'+randomBytes(12).toString('hex')
-      const rejected=await page.evaluate(async({path,revision,acceptanceRequestId})=>{const response=await fetch(path,{method:'POST',credentials:'same-origin',redirect:'error',headers:{Accept:'application/json','X-Acceptance-Request-Id':acceptanceRequestId,'If-Match':'"'+revision+'"'}});if(response.status!==403){await response.body?.cancel();return {status:response.status}}const error=await response.json().catch(()=>null);return {status:response.status,code:error?.code}},{path:api+path+'/rotate',revision:beforeCredentials.credentialRevision,acceptanceRequestId})
+      const rejected=await page.evaluate(async({path,revision,acceptanceRequestId})=>{const response=await fetch(path,{method:'POST',credentials:'same-origin',redirect:'error',headers:{Accept:'application/json','X-Acceptance-Request-Id':acceptanceRequestId,'If-Match':'"'+revision+'"'}});if(response.status!==403){await response.text();return {status:response.status}}const error=await response.json().catch(()=>null);return {status:response.status,code:error?.code}},{path:api+path+'/rotate',revision:beforeCredentials.credentialRevision,acceptanceRequestId})
       report.requests.push({case:currentCase,path:api+path+'/rotate',method:'POST',status:rejected.status,requestId:await browserResponseId(previous,document,api+path+'/rotate','POST',rejected.status,acceptanceRequestId),source:document,expectedStatuses:[403]});await note({beforeCredentials,csrfRejection:rejected})
       assert.equal(rejected.status,403);equal(await read(path),beforeCredentials,'CSRF rejection changed credential revision/hint');await effectsUnchanged(before)
       return {clientId:controls.clientId,missingCsrfRejected:true,credentialStateUnchanged:true}
@@ -1501,7 +1501,7 @@ export async function runAccessControlV3Ui(page,base,fixture,record) {
       await page.click('[data-testid="return-to-login"]');await page.waitForFunction(()=>location.pathname==='/oidc/login'&&Boolean(document.querySelector('input[name="username"]')))
       await page.waitForFunction(({locale,login})=>document.documentElement.lang.replaceAll('_','-').toLowerCase()===locale.replaceAll('_','-').toLowerCase()&&document.querySelector('[data-i18n="setup.login"]')?.textContent.trim()===login,{locale,login:expected.login})
       const anonymousSource=await source(),previous=new Set((await page.diagnostics()).events.map(event=>event.id)),acceptanceRequestId='root-ui-'+randomBytes(12).toString('hex')
-      const anonymous=await page.evaluate(async acceptanceRequestId=>{const response=await fetch('/api/v1/main/flows/search?size=1',{credentials:'same-origin',redirect:'manual',headers:{'X-Acceptance-Request-Id':acceptanceRequestId}});await response.body?.cancel();return response.status},acceptanceRequestId)
+      const anonymous=await page.evaluate(async acceptanceRequestId=>{const response=await fetch('/api/v1/main/flows/search?size=1',{credentials:'same-origin',redirect:'manual',headers:{'X-Acceptance-Request-Id':acceptanceRequestId}});await response.text();return response.status},acceptanceRequestId)
       report.requests.push({case:currentCase,path:'/api/v1/main/flows/search?size=1',method:'GET',status:anonymous,requestId:await browserResponseId(previous,anonymousSource,'/api/v1/main/flows/search?size=1','GET',anonymous,acceptanceRequestId),source:anonymousSource,expectedStatuses:[401,403]});assert([401,403].includes(anonymous))
       for(const width of accessControlWidths) {
         await page.setViewport({width,height:900});await page.focus('input[name="username"]');await page.press('input[name="username"]','Tab')
