@@ -155,7 +155,7 @@ function diagnosticsCollector(redact) {
         }
         const document = p.loaderId ? documentFor(p.frameId,p.loaderId,p.type === 'Document' ? p.request.url : p.documentURL) : frameDocuments.get(p.frameId) ?? current
         requests.set(p.requestId,{document:{...document},url:p.request.url,method:p.request.method,frameId:p.frameId,loaderId:p.loaderId})
-        add('request',document,{requestId:p.requestId,url:p.request.url,method:p.request.method,resourceType:p.type,frameId:p.frameId,loaderId:p.loaderId})
+        add('request',document,{requestId:p.requestId,url:p.request.url,method:p.request.method,resourceType:p.type,frameId:p.frameId,loaderId:p.loaderId,initiatorStack:stackFrames(p.initiator?.stack)})
         break
       }
       case 'Network.responseReceived': {

@@ -131,7 +131,7 @@ export async function main(argv=process.argv.slice(2),runtime={}) {
       assert.equal(realpathSync(roots.root),realpathSync(repository),'root commit must bind the repository containing the running entry point')
       if(mode==='run')assertApplicationProjectSources(report.sources,{allowDirtyRoot:options['--allow-dirty-root']===true})
       report.executionSources=Object.fromEntries(['application-group-artifact-contract.mjs','blackbox-application-projects.sh','blackbox-application-projects.mjs','application-project-fixture.mjs','application-project-integration-cases.mjs','application-project-ui-fixture.mjs','application-project-browser-ci.cjs','application-project-migration-cases.mjs','application-project-security-cases.mjs','application-project-oauth-cases.mjs','application-project-aggregate-cases.mjs','application-project-target-ui.mjs'].map(name=>[name,hash(readFileSync(join(repository,'scripts',name)))]))
-      for(const name of ['access-control-translation-coverage.mjs','check-access-control-prototype.py','access-control-v3-ui.mjs','access-control-v3-rest-cases.mjs','access-control-v3-maintenance.mjs','access-control-v3-frozen.mjs','access-control-v3-dependency.mjs','access-control-v3-gates.mjs','access-control-v3-transactions.mjs','access-control-v3-ui-controls.mjs','access-control-v3-browser-runtime.mjs','application-project-policy.mjs','application-project-browser-adapters.mjs','production-oauth-client.mjs'])report.executionSources[name]=hash(readFileSync(join(repository,'scripts',name)))
+      for(const name of ['access-control-browser-diagnostics.mjs','access-control-translation-coverage.mjs','check-access-control-prototype.py','access-control-v3-ui.mjs','access-control-v3-rest-cases.mjs','access-control-v3-maintenance.mjs','access-control-v3-frozen.mjs','access-control-v3-dependency.mjs','access-control-v3-gates.mjs','access-control-v3-transactions.mjs','access-control-v3-ui-controls.mjs','access-control-v3-browser-runtime.mjs','application-project-policy.mjs','application-project-browser-adapters.mjs','production-oauth-client.mjs'])report.executionSources[name]=hash(readFileSync(join(repository,'scripts',name)))
       return {actualPlatform:process.platform,node:process.version,commits:structuredClone(report.inputs)}
     })
     await stage('access-control-prototype',async()=>JSON.parse(command('python3',[join(repository,'scripts/check-access-control-prototype.py')])) )
@@ -375,7 +375,7 @@ export async function main(argv=process.argv.slice(2),runtime={}) {
       }
       const pluginUiPath=join(downloaded,'.evidence/ui/results.xml'),pluginUiXml=readFileSync(pluginUiPath,'utf8'),pluginUi=parseLifecycleJUnit(pluginUiXml)
       assert.equal(pluginUi.status,'passed','Downloaded plugin UI report contains failed or skipped tests')
-      assert(pluginUi.cases.length>=175,'Downloaded plugin UI matrix omitted original and required filter/subject/tab/native drawer/delete focus/closed lifecycle regressions')
+      assert(pluginUi.cases.length>=195,'Downloaded plugin UI matrix omitted original and required filter/subject/tab/native drawer/delete focus/closed lifecycle regressions')
       for(const name of [
         'users: native Add condition creates rows and serializes supported AND filters with history recovery',
         'permissions: native Add condition creates rows and serializes supported AND filters with history recovery',
@@ -419,6 +419,14 @@ export async function main(argv=process.argv.slice(2),runtime={}) {
         'canonical navigation failure after real deletion retains error focus rather than overriding it with fallback',
         'read-only and in-flight delete locks survive; revoked reload never restores unauthorized sidebar',
         'native focus lifecycle: closing retains the cycle kind marker and registration until native release, then public closed cleans up',
+        'App automatic canonical navigation releases read lock and observes public rejection',
+        ...applicationProjectUiSupportedLocales.map(locale=>'App public navigation rejection stays visible in '+locale),
+        'App automatic canonical navigation passes actual host read guard',
+        'App clear invalid query observes rejection and retains invalid URL without writes',
+        'App overlapping navigation late rejection cannot overwrite accepted host destination',
+        'App overlapping rejected attempts keep latest failure and ignore stale authorization rejection',
+        'App current public authorization rejection clears sensitive view and preserves host URL',
+        'App observes pending public navigation rejection after unmount',
         'native focus lifecycle: stale public closed cannot clean a quickly reopened cycle or retain native maximize',
         'native focus lifecycle: async-disabled subject trigger is restored after Enter-style close and native release',
       ])assert.equal(pluginUi.cases.filter(test=>test.name===name&&test.status==='passed').length,1,'Required final plugin UI regression missing or ambiguous: '+name)

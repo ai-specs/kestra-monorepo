@@ -7,6 +7,7 @@ import {applicationGroupPluginClasses,applicationGroupTables} from './applicatio
 import {derive as deriveAccessControlGates} from './access-control-v3-gates.mjs'
 import {accessControlLocales,accessControlSupportedLocales} from './access-control-v3-ui.mjs'
 import {checkPublishedTranslationSources} from './access-control-translation-coverage.mjs'
+import {classifyAccessControlDiagnostics} from './access-control-browser-diagnostics.mjs'
 
 const [file, image, jarSha256, rootCommit, overlayCommit, pluginCommit] = process.argv.slice(2)
 assert(file && /^ghcr\.io\/ai-specs\/kestra-overlay@sha256:[0-9a-f]{64}$/.test(image ?? ''), 'Explicit immutable image required')
@@ -58,7 +59,7 @@ assert.equal(geometryGate.checks,60,'Complete native geometry matrix required')
 assert(/^[a-f0-9]{64}$/.test(geometryGate.sha256),'Downloaded native geometry report hash missing')
 const pluginUi=report.sources?.plugin?.downloadedUiTests
 assert.equal(pluginUi?.commit,pluginCommit,'Downloaded plugin UI report does not match final commit')
-assert(Number.isSafeInteger(pluginUi.tests)&&pluginUi.tests>=175,'Complete downloaded plugin UI regressions required')
+assert(Number.isSafeInteger(pluginUi.tests)&&pluginUi.tests>=195,'Complete downloaded plugin UI regressions required')
 assert.equal(pluginUi.cases?.length,pluginUi.tests,'Plugin UI case count differs from downloaded JUnit')
 assert(pluginUi.cases.every(test=>test.status==='passed'),'Downloaded plugin UI cases contain failure or skip')
 for(const name of [
@@ -83,6 +84,14 @@ for(const name of [
   "canonical navigation failure after real deletion retains error focus rather than overriding it with fallback",
   "read-only and in-flight delete locks survive; revoked reload never restores unauthorized sidebar",
   'native focus lifecycle: closing retains the cycle kind marker and registration until native release, then public closed cleans up',
+  'App automatic canonical navigation releases read lock and observes public rejection',
+  ...accessControlSupportedLocales.map(locale=>'App public navigation rejection stays visible in '+locale),
+  'App automatic canonical navigation passes actual host read guard',
+  'App clear invalid query observes rejection and retains invalid URL without writes',
+  'App overlapping navigation late rejection cannot overwrite accepted host destination',
+  'App overlapping rejected attempts keep latest failure and ignore stale authorization rejection',
+  'App current public authorization rejection clears sensitive view and preserves host URL',
+  'App observes pending public navigation rejection after unmount',
   'native focus lifecycle: stale public closed cannot clean a quickly reopened cycle or retain native maximize',
   'native focus lifecycle: async-disabled subject trigger is restored after Enter-style close and native release',
 ])assert.equal(pluginUi.cases.filter(test=>test.name===name&&test.status==='passed').length,1,'Required final subject/tab regression missing or duplicated: '+name)
@@ -219,6 +228,11 @@ assert.equal(missingProvider.authorizationDenied.codeIssued,false)
 assert.equal(missingProvider.authorizationDenied.protocolStateUnchanged,true,'Missing provider authorization changed code/token storage')
 assert.equal(missingProvider.oldSessionRejected,true,'Previously allowed MCP session must fail closed without provider')
 const combinations = new Set()
+const browser=report.fragments?.ui?.shared
+assert(browser?.completed&&Array.isArray(browser.diagnostics)&&browser.diagnostics.length>0,'Complete source-attributed browser diagnostics missing')
+const diagnosticReview=classifyAccessControlDiagnostics({events:browser.diagnostics,base:report.resources.base,requests:browser.requests,expectedTransportFailures:browser.expectedTransportFailures,identityWindows:browser.identityWindows})
+assert.equal(diagnosticReview.errors.length,0,'Final browser report retains unknown errors')
+assert.deepEqual(browser.diagnosticClassifications,diagnosticReview.classifications,'Browser error classifications differ from underlying source evidence')
 const translations=report.stages.find(stage=>stage.id==='translation-key-coverage'&&stage.status==='passed')?.evidence
 assert(translations,'Final translation-key coverage missing')
 assert.deepEqual(translations,checkPublishedTranslationSources({pluginRoot:fileURLToPath(new URL('../kestra-plugin-rbac/',import.meta.url)),pluginCommit,jarSha256}),'Translation evidence differs from final committed plugin sources')

@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict'
-import {randomBytes} from 'node:crypto'
+import {randomBytes,createHash} from 'node:crypto'
 import {ProductionOAuthClient} from './production-oauth-client.mjs'
 import {ApplicationGroupManagement} from './application-project-fixture.mjs'
+import {classifyAccessControlDiagnostics} from './access-control-browser-diagnostics.mjs'
 
 // All published locales remain required for static translations and host SDK audit.
 export const accessControlSupportedLocales=Object.freeze(['en','de','es','fr','hi','it','ja','ko','pl','pt','pt_BR','ru','zh_CN'])
@@ -374,13 +375,18 @@ export async function runAccessControlFrozenUi(page,base,{admin,applicationGroup
   return sanitizeUiEvidence(report,[admin.password])
 }
 
-export async function completeFirstPasswordChange(page,account,contract) {
+export async function completeFirstPasswordChange(page,account,contract,onDenial=async()=>{}) {
   if(!account.passwordChangeRequired)return
   assert(contract&&typeof contract.path==='string'&&contract.path.startsWith('/'),'published first-password-change path and field selectors required from main agent')
   assert(contract.newPassword&&contract.confirmPassword&&contract.submit,'first-password-change field contract missing')
   await page.waitForFunction(path=>location.pathname===path,contract.path)
+  const previous=new Set((await page.diagnostics()).events.map(event=>event.id))
   const denied=await page.evaluate(async()=>{const response=await fetch('/api/v1/main/flows/search?size=1',{credentials:'same-origin',redirect:'manual'});await response.body?.cancel();return response.status})
   assert([401,403].includes(denied),'temporary credential obtained normal business access before password change')
+  const deniedUrl=new URL('/api/v1/main/flows/search?size=1',await page.evaluate(()=>location.origin)).href
+  const deniedResponses=(await page.diagnostics()).events.filter(event=>!previous.has(event.id)&&event.kind==='http-error'&&event.url===deniedUrl&&event.method==='GET'&&event.status===denied)
+  assert.equal(deniedResponses.length,1,'First-password refusal request identity must be unambiguous')
+  await onDenial(denied,deniedResponses[0].requestId)
   const replacement=randomBytes(32).toString('base64url')+'Aa1!'
   page.redactSecrets([account.password,replacement])
   await page.fill(contract.newPassword,replacement);await page.fill(contract.confirmPassword,replacement);await page.click(contract.submit)
@@ -580,11 +586,17 @@ export async function runAccessControlV3Ui(page,base,fixture,record) {
   }
   async function request(path,method='GET',body,revision,expected=[200]) {
     const before=await source()
+    const previous=new Set((await page.diagnostics()).events.map(event=>event.id))
     const response=await page.evaluate(async({path,method,body,revision})=>{const headers={Accept:'application/json'};if(body!==undefined)headers['Content-Type']='application/json';if(revision!==undefined)headers['If-Match']='"'+revision+'"';if(method!=='GET'){const csrf=document.querySelector('meta[name="csrf-token"]')?.content;if(!csrf)throw new Error('host CSRF token missing');headers['X-CSRF-TOKEN']=csrf}const result=await fetch(path,{method,headers,credentials:'same-origin',redirect:'error',...(body===undefined?{}:{body:JSON.stringify(body)})});return {status:result.status,body:await result.json().catch(()=>null),cacheControl:result.headers.get('cache-control')}},{path:api+path,method,body,revision})
     assert.equal((await source()).timeOrigin,before.timeOrigin,'request changed source document')
-    report.requests.push({case:currentCase,path:api+path,method,status:response.status,source:before,expectedStatuses:expected})
+    report.requests.push({case:currentCase,path:api+path,method,status:response.status,requestId:await browserResponseId(previous,before,api+path,method,response.status),source:before,expectedStatuses:expected})
     await persist();assert(expected.includes(response.status),method+' '+path+' returned '+response.status)
     return response
+  }
+  async function browserResponseId(previous,document,path,method,status) {
+    const responses=(await page.diagnostics()).events.filter(event=>!previous.has(event.id)&&['http-response','http-error'].includes(event.kind)&&event.documentId===document.documentId&&event.url===base+path&&event.method===method&&event.status===status)
+    assert.equal(responses.length,1,'Explicit browser request response identity must be unambiguous: '+method+' '+path)
+    return responses[0].requestId
   }
   const read=async path=>(await request(path)).body
   async function all(path) {
@@ -624,6 +636,7 @@ export async function runAccessControlV3Ui(page,base,fixture,record) {
     assert(observed.busy,'native write never exposed a loading state')
     if(observed.saving)assert(observed.closeDisabled&&observed.saveDisabled,'saving drawer allowed close or duplicate submit')
     await page.waitForFunction(()=>document.querySelector('[data-test="extension-container"]')?.shadowRoot?.querySelector('main')?.getAttribute('aria-busy')==='false'||location.pathname==='/ui/access-denied')
+    report.requests.at(-1).postWriteView=await page.evaluate(()=>{const root=document.querySelector('[data-test="extension-container"]')?.shadowRoot;return {path:location.pathname,reauthenticationRequired:Boolean(root?.querySelector('[data-test="sign-in-again"]')),businessContentHidden:!root?.querySelector('[data-test="group-detail"],[data-test="permission-row"],[data-test="user-row"],[data-test="subject-row"]')}})
     return {status:event.status,requestId:event.requestId,documentId:event.documentId,loading:observed}
   }
   async function nativeActionResponse(button,path,method,expectedStatuses) {
@@ -684,16 +697,25 @@ export async function runAccessControlV3Ui(page,base,fixture,record) {
     await waitForNativeStyleSettlement(page,{drawer:'[data-test="drawer-'+kind+'"]'})
   }
   async function login(account=fixture.admin) {
+    const startedAt=new Date().toISOString(),previous=new Set((await page.diagnostics()).events.map(event=>event.id))
+    const activeIdentity=report.identityWindows?.findLast(window=>window.kind==='authenticated-session'&&!window.finishedAt)
+    if(activeIdentity)activeIdentity.finishedAt=startedAt
     page.redactSecrets([account.password]);secrets.push(account.password)
     await page.goto(base+'/ui/access-denied')
     await page.waitForFunction(()=>Boolean(document.querySelector('input[name="username"]'))||Boolean(document.querySelector('[data-testid="return-to-login"]')))
     if(!await page.evaluate(()=>Boolean(document.querySelector('input[name="username"]'))))await page.click('[data-testid="return-to-login"]')
     await page.waitForFunction(()=>Boolean(document.querySelector('input[name="username"]'))&&Boolean(document.querySelector('input[name="password"]')))
     await page.fill('input[name="username"]',account.username);await page.fill('input[name="password"]',account.password);await page.click('button[type="submit"]')
-    await completeFirstPasswordChange(page,account,fixture.firstPasswordChange)
+    await completeFirstPasswordChange(page,account,fixture.firstPasswordChange,async(status,requestId)=>{report.requests.push({case:currentCase,path:'/api/v1/main/flows/search?size=1',method:'GET',status,requestId,source:await source(),expectedStatuses:[401,403]})})
     secrets.push(account.password)
     await page.waitForFunction(()=>!document.querySelector('input[name="password"]')&&['/ui/main/dashboards','/ui/access-denied'].includes(location.pathname))
     if(account.subject===fixture.admin.subject){const capabilities=await read('/capabilities');assert.equal(capabilities.subject,account.subject);assert.equal(capabilities.allowed,true);assert.equal(capabilities.runtimeApplicationClientId,fixture.currentApplicationClientId)}
+    const identity={subjectHash:createHash('sha256').update(account.subject).digest('hex'),businessAdmin:account.subject===fixture.admin.subject}
+    const loginEvents=(await page.diagnostics()).events.filter(event=>!previous.has(event.id))
+    const authenticatedAt=loginEvents.findLast(event=>event.kind==='http-response'&&event.method==='POST'&&event.url===base+'/oidc/login'&&event.status===303)?.observedAt
+    const logout=loginEvents.find(event=>event.kind==='http-response'&&event.url===base+'/oidc/logout'&&event.status===307)
+    report.identityWindows??=[];report.identityWindows.push({id:'login-'+report.identityWindows.length,kind:'production-login',startedAt,finishedAt:new Date().toISOString(),authenticatedAt,logoutEventId:logout?.id,...identity,documentIds:[...new Set(loginEvents.map(event=>event.documentId))]})
+    report.identityWindows.push({id:'session-'+report.identityWindows.length,kind:'authenticated-session',startedAt:new Date().toISOString(),initialDocumentId:(await source()).documentId,...identity})
     return source()
   }
   async function pickScopes(keys,kind='permission') {
@@ -1022,7 +1044,8 @@ export async function runAccessControlV3Ui(page,base,fixture,record) {
       assert(executionGrant&&/^scope\.acceptance\.[a-z0-9_.-]+$/.test(executionGrant.namespace),'actual observer policy must authorize an owned history-test namespace')
       const account=await preparedUser('ui-history-delete'),management=fixture.targetRuntime.management
       const namespace=executionGrant.namespace,flowId='ui-user-history-'+randomBytes(5).toString('hex');let executionId
-      const cleanup=async()=>{await management.login();if(executionId)await rawRequest(management.client,'/api/v1/main/executions/'+executionId,{method:'DELETE'},[200,204,404]);await rawRequest(management.client,'/api/v1/main/flows/'+namespace+'/'+flowId,{method:'DELETE'},[200,204,404]);await account.cleanup()}
+      let executionCleaned=false,flowCleaned=false
+      const cleanup=async()=>{await management.login();if(executionId&&!executionCleaned){await rawRequest(management.client,'/api/v1/main/executions/'+executionId,{method:'DELETE'},[200,204,404]);executionCleaned=true}if(!flowCleaned){await rawRequest(management.client,'/api/v1/main/flows/'+namespace+'/'+flowId,{method:'DELETE'},[200,204,404]);flowCleaned=true}await account.cleanup()}
       restores.push({id:'cleanup-'+flowId,run:cleanup})
       try {
         await management.login()
@@ -1296,8 +1319,9 @@ export async function runAccessControlV3Ui(page,base,fixture,record) {
       const controls=fixture.credentialControls??fixture.targetRuntime?.credentialControls;assert(controls?.clientId)
       await login();const path=groupApi+'/applications/'+encoded(controls.clientId)+'/credentials',beforeCredentials=await read(path),before=await effectsBefore(),document=await source()
       assert.equal(beforeCredentials.clientType,'confidential');assert.equal(beforeCredentials.rotationMode,'online')
+      const previous=new Set((await page.diagnostics()).events.map(event=>event.id))
       const rejected=await page.evaluate(async({path,revision})=>{const response=await fetch(path,{method:'POST',credentials:'same-origin',redirect:'error',headers:{Accept:'application/json','If-Match':'"'+revision+'"'}});if(response.status!==403){await response.body?.cancel();return {status:response.status}}const error=await response.json().catch(()=>null);return {status:response.status,code:error?.code}},{path:api+path+'/rotate',revision:beforeCredentials.credentialRevision})
-      report.requests.push({case:currentCase,path:api+path+'/rotate',method:'POST',status:rejected.status,source:document,expectedStatuses:[403]});await note({beforeCredentials,csrfRejection:rejected})
+      report.requests.push({case:currentCase,path:api+path+'/rotate',method:'POST',status:rejected.status,requestId:await browserResponseId(previous,document,api+path+'/rotate','POST',rejected.status),source:document,expectedStatuses:[403]});await note({beforeCredentials,csrfRejection:rejected})
       assert.equal(rejected.status,403);equal(await read(path),beforeCredentials,'CSRF rejection changed credential revision/hint');await effectsUnchanged(before)
       return {clientId:controls.clientId,missingCsrfRejected:true,credentialStateUnchanged:true}
     })
@@ -1467,8 +1491,9 @@ export async function runAccessControlV3Ui(page,base,fixture,record) {
       await page.reload();await page.waitForFunction(()=>Boolean(document.querySelector('#access-denied-title')));assert.equal(await page.evaluate(()=>document.querySelector('#access-denied-title').textContent.trim()),expected.deniedTitle)
       await page.click('[data-testid="return-to-login"]');await page.waitForFunction(()=>location.pathname==='/oidc/login'&&Boolean(document.querySelector('input[name="username"]')))
       await page.waitForFunction(({locale,login})=>document.documentElement.lang.replaceAll('_','-').toLowerCase()===locale.replaceAll('_','-').toLowerCase()&&document.querySelector('[data-i18n="setup.login"]')?.textContent.trim()===login,{locale,login:expected.login})
+      const anonymousSource=await source(),previous=new Set((await page.diagnostics()).events.map(event=>event.id))
       const anonymous=await page.evaluate(async()=>{const response=await fetch('/api/v1/main/flows/search?size=1',{credentials:'same-origin',redirect:'manual'});await response.body?.cancel();return response.status})
-      report.requests.push({case:currentCase,path:'/api/v1/main/flows/search?size=1',method:'GET',status:anonymous,source:await source(),expectedStatuses:[401,403]});assert([401,403].includes(anonymous))
+      report.requests.push({case:currentCase,path:'/api/v1/main/flows/search?size=1',method:'GET',status:anonymous,requestId:await browserResponseId(previous,anonymousSource,'/api/v1/main/flows/search?size=1','GET',anonymous),source:anonymousSource,expectedStatuses:[401,403]});assert([401,403].includes(anonymous))
       for(const width of accessControlWidths) {
         await page.setViewport({width,height:900});await page.focus('input[name="username"]');await page.press('input[name="username"]','Tab')
         const panel=await measurePanel('body',{shadow:false});assert(panel.focusVisible,'anonymous login focus is invisible')
@@ -2434,13 +2459,12 @@ export async function runAccessControlV3Ui(page,base,fixture,record) {
     try {
       const diagnostics=await page.diagnostics(),events=diagnostics.events.filter(event=>!baselineEvents.has(event.id))
       for(const event of events)assert(event.id&&event.documentId&&event.url&&event.kind,'diagnostic source identity missing')
-      const expected=event=>report.requests.some(request=>request.source.documentId===event.documentId&&base+request.path===event.url&&request.method===event.method&&request.status===event.status&&request.expectedStatuses.includes(event.status))
-      const expectedDrop=event=>event.kind==='request-failed'&&(report.expectedTransportFailures??[]).some(item=>item.case==='ui-secret-response-lost-once'&&item.requestId===event.requestId&&item.documentId===event.documentId&&item.url===event.url&&item.message===event.message)
-      const allowed=event=>expectedDrop(event)||event.kind==='http-error'&&expected(event)||event.kind==='console-error'&&event.requestId&&events.some(response=>((response.kind==='http-error'&&expected(response))||expectedDrop(response))&&response.requestId===event.requestId&&response.documentId===event.documentId&&response.url===event.url)||event.kind==='request-failed'&&event.message==='net::ERR_ABORTED'&&event.url.startsWith('https://api.kestra.io/v1/feeds?')&&events.some(request=>request.kind==='request'&&request.requestId===event.requestId&&request.documentId===event.documentId&&request.url===event.url)&&events.some(next=>next.kind==='document-navigation'&&next.documentId!==event.documentId&&Math.abs(Date.parse(next.observedAt)-Date.parse(event.observedAt))<1000)
+      for(const window of report.identityWindows??[])if(window.kind==='authenticated-session'){window.finishedAt??=new Date().toISOString();window.documentIds=[...new Set([window.initialDocumentId,...events.filter(event=>event.kind==='document-navigation'&&Date.parse(event.observedAt)>=Date.parse(window.startedAt)&&Date.parse(event.observedAt)<=Date.parse(window.finishedAt)).map(event=>event.documentId)])]}
+      const {classifications,errors}=classifyAccessControlDiagnostics({events,base,requests:report.requests,expectedTransportFailures:report.expectedTransportFailures,identityWindows:report.identityWindows})
       report.diagnostics=events
-      const errors=events.filter(event=>['console-error','page-error','request-failed','http-error','diagnostic-integrity-error'].includes(event.kind)&&!allowed(event))
+      report.diagnosticClassifications=classifications
       assert.equal(errors.length,0,'unclassified source-attributed browser errors: '+JSON.stringify(errors))
-      Object.assign(row,{passed:true,status:'passed',evidence:{events:events.length,expectedErrorIds:events.filter(allowed).map(event=>event.id)}})
+      Object.assign(row,{passed:true,status:'passed',evidence:{events:events.length,expectedErrorIds:classifications.map(item=>item.id),classifications}})
     }catch(error){Object.assign(row,{passed:false,status:'failed',error:String(error.message)});report.failure??={case:currentCase,message:String(error.message)}}
     report.completed=!report.failure&&report.rows.length===accessControlCaseIds.length&&report.rows.every(row=>row.passed&&row.status==='passed')&&report.cleanup.every(row=>row.passed)
     await persist()
