@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import {readFileSync} from 'node:fs'
+import {fileURLToPath} from 'node:url'
 import assert from 'node:assert/strict'
 import {projectScopeCases, requiredProjectChecks, legacyMigrationChecks, applicationProject} from './application-project-cases.mjs'
 import {applicationGroupPluginClasses,applicationGroupTables} from './application-group-artifact-contract.mjs'
@@ -220,7 +221,7 @@ assert.equal(missingProvider.oldSessionRejected,true,'Previously allowed MCP ses
 const combinations = new Set()
 const translations=report.stages.find(stage=>stage.id==='translation-key-coverage'&&stage.status==='passed')?.evidence
 assert(translations,'Final translation-key coverage missing')
-assert.deepEqual(translations,checkPublishedTranslationSources({pluginRoot:report.sources.plugin.path,pluginCommit,jarSha256}),'Translation evidence differs from final committed plugin sources')
+assert.deepEqual(translations,checkPublishedTranslationSources({pluginRoot:fileURLToPath(new URL('../kestra-plugin-rbac/',import.meta.url)),pluginCommit,jarSha256}),'Translation evidence differs from final committed plugin sources')
 assert.equal(translations.pluginCommit,pluginCommit)
 assert.equal(translations.jarSha256,jarSha256)
 assert.deepEqual(translations.browserLocales,[...accessControlLocales])

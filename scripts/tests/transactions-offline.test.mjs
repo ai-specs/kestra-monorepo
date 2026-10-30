@@ -101,6 +101,7 @@ test('early completed requests retain pre-cleanup timing and settled flags witho
   const {args}=scenario({early:true});let failure
   try{await observeSecurityLockCompetition(args)}catch(error){failure=error}
   assert(failure);assert.equal(failure.evidence.earlyRequestSettledBeforeTwoWaiters,true)
+  assert.equal(failure.evidence.failurePhase,'validate-two-waiters')
   assert(failure.evidence.settledAtFailure.some(Boolean));assert(Number.isFinite(failure.evidence.elapsedToFailureMs))
   assert.equal(failure.evidence.requestTimings.length,2)
   for(const row of failure.evidence.requestTimings){assert(Number.isFinite(row.startedAfterMs));assert(Number.isFinite(row.settledAfterMs));assert(row.settledAfterMs>=row.startedAfterMs)}

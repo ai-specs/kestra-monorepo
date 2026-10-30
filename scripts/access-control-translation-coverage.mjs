@@ -4,6 +4,10 @@ import {createHash} from 'node:crypto'
 import {accessControlLocales,accessControlSupportedLocales} from './access-control-v3-ui.mjs'
 
 const sha256=value=>createHash('sha256').update(value).digest('hex')
+// Reviewed dynamic calls in AccessList, ApplicationGroupCards, CredentialsPanel,
+// EditorDrawer, PermissionTable, AccountList, InlineDetails, DeleteConfirmation
+// and App. Keep these even when a key disappears from every catalogue.
+export const dynamicTranslationKeys=Object.freeze(['andFilterUnavailable','invalidQuery','noSecret','unavailable','secretHintUnavailable','conflict','error','id','displayName','active','inactive','scopes','clients','loading','save','kestraActualPermissions','externalDeclaration','create','edit','discardTitle','confirm','discard','delete','denied','notFound'])
 function flatten(value,path='',result={}) {
   if(typeof value==='string'){assert(value.trim(),'Empty translation: '+path);result[path]=value;return result}
   assert(value&&typeof value==='object'&&!Array.isArray(value),'Invalid translation: '+path)
@@ -15,6 +19,7 @@ function placeholders(message) {
   assert(!/\{\{/.test(text),'Nested interpolation braces')
   const names=[...text.matchAll(/\{([^{}]*)\}/g)].map(match=>match[1].trim())
   assert(names.every(name=>/^(?:[A-Za-z_$][\w$]*|\d+)$/.test(name)),'Invalid interpolation name')
+  assert(!/[{}]/.test(text.replace(/\{[^{}]*\}/g,'')),'Unmatched interpolation brace')
   return [...new Set(names)].sort()
 }
 export function checkTranslationCatalogues(catalogues,requiredKeys=[]) {
@@ -34,7 +39,7 @@ export function checkPublishedTranslationSources({pluginRoot,pluginCommit,jarSha
   assert(/^[a-f0-9]{40}$/.test(pluginCommit));assert(/^[a-f0-9]{64}$/.test(jarSha256))
   const git=(...args)=>execFileSync('git',['-C',pluginRoot,...args],{encoding:'utf8',maxBuffer:16*1024*1024})
   const files=git('ls-tree','-r','--name-only',pluginCommit,'ui/src').trim().split('\n')
-  const catalogues={},sourceHashes={},required=new Set()
+  const catalogues={},sourceHashes={},required=new Set(dynamicTranslationKeys)
   for(const locale of accessControlSupportedLocales){const path='ui/src/translations/'+locale+'.json',source=git('show',pluginCommit+':'+path);catalogues[locale]=JSON.parse(source);sourceHashes[path]=sha256(source)}
   for(const path of files.filter(path=>/\.(vue|js)$/.test(path))){const source=git('show',pluginCommit+':'+path);sourceHashes[path]=sha256(source);for(const match of source.matchAll(/\bt\(['"]([A-Za-z][A-Za-z0-9_]*)['"]/g))required.add(match[1])}
   const locales=checkTranslationCatalogues(catalogues,[...required])
