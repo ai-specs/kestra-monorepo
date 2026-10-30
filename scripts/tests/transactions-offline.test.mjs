@@ -103,6 +103,8 @@ test('early completed requests retain pre-cleanup timing and settled flags witho
   assert(failure);assert.equal(failure.evidence.earlyRequestSettledBeforeTwoWaiters,true)
   assert.equal(failure.evidence.failurePhase,'validate-two-waiters')
   assert(failure.evidence.settledAtFailure.some(Boolean));assert(Number.isFinite(failure.evidence.elapsedToFailureMs))
+  assert.deepEqual(failure.evidence.settledResponses.map(row=>({index:row.index,httpStatus:row.httpStatus,outcome:row.outcome})),[{index:0,httpStatus:403,outcome:'fulfilled'},{index:1,httpStatus:403,outcome:'fulfilled'}])
+  assert(failure.evidence.settledResponses.every(row=>row.actorHash&&row.targetHash))
   assert.equal(failure.evidence.requestTimings.length,2)
   for(const row of failure.evidence.requestTimings){assert(Number.isFinite(row.startedAfterMs));assert(Number.isFinite(row.settledAfterMs));assert(row.settledAfterMs>=row.startedAfterMs)}
   assert(!JSON.stringify(failure.evidence).includes('responseBody'))

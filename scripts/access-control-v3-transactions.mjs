@@ -225,6 +225,7 @@ export async function observeSecurityLockCompetition({owner,assertOwner,query,sp
       ...(observation?{observation}:{}),releaseVerified:!cleanupFailure,requestsStarted:started,
       failurePhase:phase,errorKind:error.name,waitTimeoutMs,samples,requestTimings,
       elapsedToFailureMs:failureElapsed??null,settledAtFailure:failureSettled??[...settled],
+      settledResponses:(Array.isArray(results)?results:[]).map((result,index)=>({index,actorHash:requests[index].actorHash,targetHash:requests[index].targetHash,outcome:result.status,...(result.status==='fulfilled'?{httpStatus:result.value?.status,...(typeof result.value?.value?.code==='string'&&/^[a-z][a-z0-9_]{0,79}$/.test(result.value.value.code)?{code:result.value.value.code}:{})}:{errorKind:result.reason?.name??'Error'})})),
       earlyRequestSettledBeforeTwoWaiters:!observation&&['observe-waiters','validate-two-waiters'].includes(phase)&&Boolean(failureSettled?.some(Boolean))}
     throw error
   }
@@ -280,7 +281,8 @@ export async function runAccessControlV3Transactions({base,planned,management,as
     // Keep only machine error classification, never raw response text or messages.
     const code=typeof value?.code==='string'&&/^[a-z][a-z0-9_]{0,79}$/.test(value.code)?value.code:undefined
     const problemType=typeof value?.type==='string'&&/^https:\/\/kestra\.io\/docs\/api-reference\/problems\/[a-z-]+$/.test(value.type)?value.type:undefined
-    fragment.evidence.requests.push({method,path:new URL(path,base).pathname,status:response.status,observedAt:new Date().toISOString(),...(code?{code}:{}),...(problemType?{problemType}:{})})
+    const forbiddenDetailHash=response.status===403&&typeof value?.detail==='string'?hash(value.detail):undefined
+    fragment.evidence.requests.push({method,path:new URL(path,base).pathname,status:response.status,observedAt:new Date().toISOString(),...(code?{code}:{}),...(problemType?{problemType}:{}),...(response.status===403?{failureShape:{forbiddenDetailHash,fields:Object.keys(value??{}).filter(key=>/^(?:message|code|type|title|status|detail|_links|_embedded)$/.test(key)),genericForbidden:value?.message==='Forbidden'||value?.title==='Forbidden'||value?.detail==='Forbidden',csrfNamed:typeof value?.message==='string'&&/csrf/i.test(value.message)},sessionTiming:client.sessionTimingEvidence()}: {})})
     await persist()
     return {status:response.status,value}
   }
@@ -599,6 +601,7 @@ export async function runAccessControlV3Transactions({base,planned,management,as
       const accountHashes=await Promise.all(pair.map(accountHash))
       const grantSnapshots=await Promise.all(pair.map(account=>success(manager,grantPath(applicationProject,account.subject))))
       const before=await snapshot();await step('before-concurrent-'+index,{snapshot:before,administratorHashes:pair.map(account=>hash(account.subject))})
+      await step('concurrent-'+index+'-mutation-session-timing',{clients:clients.map(client=>client.sessionTimingEvidence())})
       assert(transactionObserver,'owned primary-PG transactionObserver must be supplied; sequential fallback is forbidden')
       let competition
       try {competition=await observeSecurityLockCompetition({owner:transactionObserver.owner,spawnPsql:transactionObserver.spawnPsql,

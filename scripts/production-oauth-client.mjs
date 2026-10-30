@@ -14,6 +14,12 @@ export class ProductionOAuthClient {
   #discovery
   constructor(base) { this.#base = new URL(base).origin }
   get origin() { return this.#base }
+  sessionTimingEvidence() {
+    const jwt=this.#cookies.get('JWT');let claims={},jwtMetadataMalformed=false
+    try{claims=jwt?JSON.parse(Buffer.from(jwt.split('.')[1],'base64url').toString('utf8')):{}}catch{jwtMetadataMalformed=true}
+    const csrfCookies=[...this.#cookies].filter(([name])=>/csrf|xsrf/i.test(name))
+    return {observedAt:new Date().toISOString(),jwtPresent:Boolean(jwt),jwtMetadataMalformed,jwtIssuedAt:Number.isFinite(claims.iat)?claims.iat:null,jwtExpiresAt:Number.isFinite(claims.exp)?claims.exp:null,jwtSha256:jwt?createHash('sha256').update(jwt).digest('hex'):null,csrfPresent:Boolean(this.#csrf),csrfSha256:this.#csrf?createHash('sha256').update(this.#csrf).digest('hex'):null,csrfCookies:csrfCookies.map(([name,value])=>({name,sha256:createHash('sha256').update(value).digest('hex'),matchesHeader:value===this.#csrf}))}
+  }
   async request(path, options = {}, includeSession = true) {
     const url = new URL(path, this.#base)
     assert.equal(url.origin, this.#base, 'Test client cannot follow credentials off the instance origin')
