@@ -381,10 +381,14 @@ export async function completeFirstPasswordChange(page,account,contract,onDenial
   assert(contract.newPassword&&contract.confirmPassword&&contract.submit,'first-password-change field contract missing')
   await page.waitForFunction(path=>location.pathname===path,contract.path)
   const previous=new Set((await page.diagnostics()).events.map(event=>event.id))
-  const denied=await page.evaluate(async()=>{const response=await fetch('/api/v1/main/flows/search?size=1',{credentials:'same-origin',redirect:'manual'});await response.body?.cancel();return response.status})
+  const acceptanceRequestId='root-ui-'+randomBytes(12).toString('hex')
+  const denied=await page.evaluate(async acceptanceRequestId=>{const response=await fetch('/api/v1/main/flows/search?size=1',{credentials:'same-origin',redirect:'manual',headers:{'X-Acceptance-Request-Id':acceptanceRequestId}});await response.body?.cancel();return response.status},acceptanceRequestId)
   assert([401,403].includes(denied),'temporary credential obtained normal business access before password change')
   const deniedUrl=new URL('/api/v1/main/flows/search?size=1',await page.evaluate(()=>location.origin)).href
-  const deniedResponses=(await page.diagnostics()).events.filter(event=>!previous.has(event.id)&&event.kind==='http-error'&&event.url===deniedUrl&&event.method==='GET'&&event.status===denied)
+  const diagnostics=(await page.diagnostics()).events
+  const marked=diagnostics.filter(event=>event.kind==='request'&&event.acceptanceRequestId===acceptanceRequestId)
+  assert.equal(marked.length,1,'First-password refusal observation marker missing or duplicated')
+  const deniedResponses=diagnostics.filter(event=>!previous.has(event.id)&&event.requestId===marked[0].requestId&&event.kind==='http-error'&&event.url===deniedUrl&&event.method==='GET'&&event.status===denied)
   assert.equal(deniedResponses.length,1,'First-password refusal request identity must be unambiguous')
   await onDenial(denied,deniedResponses[0].requestId)
   const replacement=randomBytes(32).toString('base64url')+'Aa1!'
@@ -587,14 +591,18 @@ export async function runAccessControlV3Ui(page,base,fixture,record) {
   async function request(path,method='GET',body,revision,expected=[200]) {
     const before=await source()
     const previous=new Set((await page.diagnostics()).events.map(event=>event.id))
-    const response=await page.evaluate(async({path,method,body,revision})=>{const headers={Accept:'application/json'};if(body!==undefined)headers['Content-Type']='application/json';if(revision!==undefined)headers['If-Match']='"'+revision+'"';if(method!=='GET'){const csrf=document.querySelector('meta[name="csrf-token"]')?.content;if(!csrf)throw new Error('host CSRF token missing');headers['X-CSRF-TOKEN']=csrf}const result=await fetch(path,{method,headers,credentials:'same-origin',redirect:'error',...(body===undefined?{}:{body:JSON.stringify(body)})});return {status:result.status,body:await result.json().catch(()=>null),cacheControl:result.headers.get('cache-control')}},{path:api+path,method,body,revision})
+    const acceptanceRequestId='root-ui-'+randomBytes(12).toString('hex')
+    const response=await page.evaluate(async({path,method,body,revision,acceptanceRequestId})=>{const headers={Accept:'application/json','X-Acceptance-Request-Id':acceptanceRequestId};if(body!==undefined)headers['Content-Type']='application/json';if(revision!==undefined)headers['If-Match']='"'+revision+'"';if(method!=='GET'){const csrf=document.querySelector('meta[name="csrf-token"]')?.content;if(!csrf)throw new Error('host CSRF token missing');headers['X-CSRF-TOKEN']=csrf}const result=await fetch(path,{method,headers,credentials:'same-origin',redirect:'error',...(body===undefined?{}:{body:JSON.stringify(body)})});return {status:result.status,body:await result.json().catch(()=>null),cacheControl:result.headers.get('cache-control')}},{path:api+path,method,body,revision,acceptanceRequestId})
     assert.equal((await source()).timeOrigin,before.timeOrigin,'request changed source document')
-    report.requests.push({case:currentCase,path:api+path,method,status:response.status,requestId:await browserResponseId(previous,before,api+path,method,response.status),source:before,expectedStatuses:expected})
+    report.requests.push({case:currentCase,path:api+path,method,status:response.status,requestId:await browserResponseId(previous,before,api+path,method,response.status,acceptanceRequestId),source:before,expectedStatuses:expected})
     await persist();assert(expected.includes(response.status),method+' '+path+' returned '+response.status)
     return response
   }
-  async function browserResponseId(previous,document,path,method,status) {
-    const responses=(await page.diagnostics()).events.filter(event=>!previous.has(event.id)&&['http-response','http-error'].includes(event.kind)&&event.documentId===document.documentId&&event.url===base+path&&event.method===method&&event.status===status)
+  async function browserResponseId(previous,document,path,method,status,acceptanceRequestId) {
+    const events=(await page.diagnostics()).events
+    const marked=events.filter(event=>!previous.has(event.id)&&event.kind==='request'&&event.documentId===document.documentId&&event.url===base+path&&event.method===method&&event.acceptanceRequestId===acceptanceRequestId)
+    assert.equal(marked.length,1,'Explicit request observation marker missing or duplicated')
+    const responses=events.filter(event=>event.requestId===marked[0].requestId&&!previous.has(event.id)&&['http-response','http-error'].includes(event.kind)&&event.documentId===document.documentId&&event.url===base+path&&event.method===method&&event.status===status)
     assert.equal(responses.length,1,'Explicit browser request response identity must be unambiguous: '+method+' '+path)
     return responses[0].requestId
   }
@@ -1320,8 +1328,9 @@ export async function runAccessControlV3Ui(page,base,fixture,record) {
       await login();const path=groupApi+'/applications/'+encoded(controls.clientId)+'/credentials',beforeCredentials=await read(path),before=await effectsBefore(),document=await source()
       assert.equal(beforeCredentials.clientType,'confidential');assert.equal(beforeCredentials.rotationMode,'online')
       const previous=new Set((await page.diagnostics()).events.map(event=>event.id))
-      const rejected=await page.evaluate(async({path,revision})=>{const response=await fetch(path,{method:'POST',credentials:'same-origin',redirect:'error',headers:{Accept:'application/json','If-Match':'"'+revision+'"'}});if(response.status!==403){await response.body?.cancel();return {status:response.status}}const error=await response.json().catch(()=>null);return {status:response.status,code:error?.code}},{path:api+path+'/rotate',revision:beforeCredentials.credentialRevision})
-      report.requests.push({case:currentCase,path:api+path+'/rotate',method:'POST',status:rejected.status,requestId:await browserResponseId(previous,document,api+path+'/rotate','POST',rejected.status),source:document,expectedStatuses:[403]});await note({beforeCredentials,csrfRejection:rejected})
+      const acceptanceRequestId='root-ui-'+randomBytes(12).toString('hex')
+      const rejected=await page.evaluate(async({path,revision,acceptanceRequestId})=>{const response=await fetch(path,{method:'POST',credentials:'same-origin',redirect:'error',headers:{Accept:'application/json','X-Acceptance-Request-Id':acceptanceRequestId,'If-Match':'"'+revision+'"'}});if(response.status!==403){await response.body?.cancel();return {status:response.status}}const error=await response.json().catch(()=>null);return {status:response.status,code:error?.code}},{path:api+path+'/rotate',revision:beforeCredentials.credentialRevision,acceptanceRequestId})
+      report.requests.push({case:currentCase,path:api+path+'/rotate',method:'POST',status:rejected.status,requestId:await browserResponseId(previous,document,api+path+'/rotate','POST',rejected.status,acceptanceRequestId),source:document,expectedStatuses:[403]});await note({beforeCredentials,csrfRejection:rejected})
       assert.equal(rejected.status,403);equal(await read(path),beforeCredentials,'CSRF rejection changed credential revision/hint');await effectsUnchanged(before)
       return {clientId:controls.clientId,missingCsrfRejected:true,credentialStateUnchanged:true}
     })
@@ -1491,9 +1500,9 @@ export async function runAccessControlV3Ui(page,base,fixture,record) {
       await page.reload();await page.waitForFunction(()=>Boolean(document.querySelector('#access-denied-title')));assert.equal(await page.evaluate(()=>document.querySelector('#access-denied-title').textContent.trim()),expected.deniedTitle)
       await page.click('[data-testid="return-to-login"]');await page.waitForFunction(()=>location.pathname==='/oidc/login'&&Boolean(document.querySelector('input[name="username"]')))
       await page.waitForFunction(({locale,login})=>document.documentElement.lang.replaceAll('_','-').toLowerCase()===locale.replaceAll('_','-').toLowerCase()&&document.querySelector('[data-i18n="setup.login"]')?.textContent.trim()===login,{locale,login:expected.login})
-      const anonymousSource=await source(),previous=new Set((await page.diagnostics()).events.map(event=>event.id))
-      const anonymous=await page.evaluate(async()=>{const response=await fetch('/api/v1/main/flows/search?size=1',{credentials:'same-origin',redirect:'manual'});await response.body?.cancel();return response.status})
-      report.requests.push({case:currentCase,path:'/api/v1/main/flows/search?size=1',method:'GET',status:anonymous,requestId:await browserResponseId(previous,anonymousSource,'/api/v1/main/flows/search?size=1','GET',anonymous),source:anonymousSource,expectedStatuses:[401,403]});assert([401,403].includes(anonymous))
+      const anonymousSource=await source(),previous=new Set((await page.diagnostics()).events.map(event=>event.id)),acceptanceRequestId='root-ui-'+randomBytes(12).toString('hex')
+      const anonymous=await page.evaluate(async acceptanceRequestId=>{const response=await fetch('/api/v1/main/flows/search?size=1',{credentials:'same-origin',redirect:'manual',headers:{'X-Acceptance-Request-Id':acceptanceRequestId}});await response.body?.cancel();return response.status},acceptanceRequestId)
+      report.requests.push({case:currentCase,path:'/api/v1/main/flows/search?size=1',method:'GET',status:anonymous,requestId:await browserResponseId(previous,anonymousSource,'/api/v1/main/flows/search?size=1','GET',anonymous,acceptanceRequestId),source:anonymousSource,expectedStatuses:[401,403]});assert([401,403].includes(anonymous))
       for(const width of accessControlWidths) {
         await page.setViewport({width,height:900});await page.focus('input[name="username"]');await page.press('input[name="username"]','Tab')
         const panel=await measurePanel('body',{shadow:false});assert(panel.focusVisible,'anonymous login focus is invisible')

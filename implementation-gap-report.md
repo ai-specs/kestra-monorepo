@@ -1,5 +1,12 @@
 # 应用组目标模型实施差异报告
 
+2026-10-31 f323c91精确本地门再次通过REST56、安全26、MCP11、聚合2与T6真实并发4，
+但首次UI登录的测试主动capabilities GET与宿主并发GET同URL，旧测试助手无法唯一选择
+响应，按规则失败关闭。未计UI通过，原报告保存在resumed/root-final-navigation-local，
+自有资源已清理。现为测试主动fetch增加非凭据随机X-Acceptance-Request-Id观察头，
+采集器只保留符合固定格式的标记，精确关联Network请求ID；不改变生产鉴权与业务API。
+UI原生点击不加此头，仍按实际点击响应ID核对。共享离线133项通过，新干净提交须重跑。
+
 2026-10-30 最新导航与诊断修正：根 d1de15a 精确本地 new-install 的 REST56、安全26、
 MCP11、聚合2、T6真实并发4及 UI133 通过，但最终浏览器诊断1失败、后续3项未运行，
 不得计完整通过。真实 page-error 为未处理的 Extension navigation rejected；自动规范路径

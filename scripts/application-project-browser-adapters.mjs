@@ -154,8 +154,9 @@ function diagnosticsCollector(redact) {
           add('http-response',prior?.document ?? current,{requestId:p.requestId,url:p.redirectResponse.url,status:p.redirectResponse.status,method:prior?.method,message:'HTTP redirect',redirect:true})
         }
         const document = p.loaderId ? documentFor(p.frameId,p.loaderId,p.type === 'Document' ? p.request.url : p.documentURL) : frameDocuments.get(p.frameId) ?? current
+        const acceptanceRequestId=Object.entries(p.request.headers??{}).find(([name])=>name.toLowerCase()==='x-acceptance-request-id')?.[1]
         requests.set(p.requestId,{document:{...document},url:p.request.url,method:p.request.method,frameId:p.frameId,loaderId:p.loaderId})
-        add('request',document,{requestId:p.requestId,url:p.request.url,method:p.request.method,resourceType:p.type,frameId:p.frameId,loaderId:p.loaderId,initiatorStack:stackFrames(p.initiator?.stack)})
+        add('request',document,{requestId:p.requestId,url:p.request.url,method:p.request.method,resourceType:p.type,frameId:p.frameId,loaderId:p.loaderId,initiatorStack:stackFrames(p.initiator?.stack),...(/^root-ui-[a-f0-9]{24}$/.test(acceptanceRequestId??'')?{acceptanceRequestId}:{})})
         break
       }
       case 'Network.responseReceived': {
