@@ -12,13 +12,13 @@ UI137，失败/跳过/未运行均0；最终检查器重新执行通过，owner�
 
 | 当前需求映射 | 所属与正式输入 | 已验证门与状态 |
 | --- | --- | --- |
-| N1–N6 / T1 | plugin目录/API/UI；正式宿主SDK | 卡片、只读详情、显式编辑、统计链接、内置拒删、退役key及真实保存；本地组合通过 |
+| N1–N3/N6 / T1 | plugin目录/API/UI；正式宿主SDK | 卡片、只读详情、显式编辑、统计链接、内置拒删、退役key及真实保存；本地组合通过 |
 | N7–N9 / T2 | plugin scope key/name/description | key不可变、重名、应用/用户/typed引用删除保护及拒绝无副作用；本地组合通过 |
 | N10–N14 / T3 | plugin统一permissions，公开ProjectionV2 | 主动登记、支持并集、机器key/人类名称、Kestra typed/external边界；REST/UI/MCP本地组合通过 |
-| N15–N18 / T4 | plugin用户scope授予与交集 | subject筛选、scope交集、授权投影、旧会话撤权和refresh；本地组合通过 |
-| N4/N5/N19 / T5/T6 | overlay目录V2/借用事务；plugin参与者 | 首改密、账号删除/停用、全组清理、历史保留、双等待者互删/互停及回滚；本地组合通过 |
+| N15/N16 / T4 | plugin用户scope授予与交集 | subject筛选、scope交集、授权投影、旧会话撤权和refresh；本地组合通过 |
+| N4/N5/N15/N16/N19 / T5/T6 | overlay目录V2/借用事务；plugin参与者 | 首改密、账号删除/停用、全组清理、历史保留、双等待者互删/互停及回滚；本地组合通过 |
 | N11/N19 / T7/T8 | overlay凭据V1/维护CLI；plugin管理API/UI | 掩码提示、一次性明文、CSRF、复制重试、响应丢失、维护取消/激活/回退；本地组合通过 |
-| N19 / T9–T11 | plugin管理域；正式宿主原生组件 | READ/MANAGE分离、零授权换号、原生筛选/抽屉、计数间隔、中英文四主题三宽度；本地组合通过 |
+| N17/N18/N19、N1–N19主题子集 / T9–T11 | plugin管理域；正式宿主原生组件 | READ/MANAGE分离、零授权换号、原生筛选/抽屉、计数间隔、中英文四主题三宽度；本地组合通过 |
 | N20 / T12 | plugin schema2 PostgreSQL升级；root发布组合 | declaration-upgrade8必需门及全部正式来源检查通过；schema1历史迁移14项明确范围外，不计通过 |
 
 其余11语言的重复业务浏览器操作按维护者裁决范围外；13语言各110 key、非空值与插值参数
