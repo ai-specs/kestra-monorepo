@@ -132,8 +132,9 @@ export async function observeSecurityLockCompetition({owner,assertOwner,query,sp
   const identity=JSON.parse(await sql(identitySql));assert.equal(identity.database,owned.database)
   assert(/^[1-9][0-9]*$/.test(identity.databaseOid)&&typeof identity.postmasterEpoch==='string'&&identity.postmasterEpoch.length)
   const binding=databaseBinding(identity)
-  let session,holder,observation,results,started=false,failure,cleanupFailure,phase='preflight'
+  let session,holder,observation,results,started=false,failure,cleanupFailure,phase='preflight',began,failureElapsed,failureSettled
   const samples=[]
+  const requestTimings=[]
   const pending=[],settled=[false,false]
   const lockRowsSql="SELECT coalesce(json_agg(json_build_object('pid',a.pid,'applicationName',a.application_name,'backendStart',a.backend_start::text,'transactionStart',a.xact_start::text,'queryStart',a.query_start::text,'backendXid',a.backend_xid::text,'virtualTransaction',l.virtualtransaction,'granted',l.granted,'waitEventType',a.wait_event_type,'blockers',pg_blocking_pids(a.pid),'securityLockQuery',a.query ~* 'pg_advisory_xact_lock[[:space:]]*[(][[:space:]]*1380073797[[:space:]]*[)]') ORDER BY a.pid),'[]'::json)::text FROM pg_locks l JOIN pg_stat_activity a ON a.pid=l.pid WHERE l.locktype='advisory' AND l.database=(SELECT oid FROM pg_database WHERE datname=current_database()) AND l.classid=0 AND l.objid="+securityLock+" AND l.objsubid=1;"
   const present=()=>sql("SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE pid="+holder.pid+" AND datname="+literal(owned.database)+" AND application_name="+literal(applicationName)+" AND backend_start::text="+literal(holder.backendStart)+")::text;")
@@ -156,9 +157,9 @@ export async function observeSecurityLockCompetition({owner,assertOwner,query,sp
     phase='acquire-holder';await session.query("BEGIN ISOLATION LEVEL READ COMMITTED; SET LOCAL statement_timeout='1500ms'; SET LOCAL idle_in_transaction_session_timeout='4s'; SELECT pg_advisory_xact_lock("+securityLock+");")
     const acquired=JSON.parse(await sql(lockRowsSql))
     assert.equal(acquired.length,1);assert.equal(acquired[0].pid,holder.pid);assert.equal(acquired[0].granted,true)
-    const began=performance.now(),deadline=began+waitTimeoutMs
+    began=performance.now();const deadline=began+waitTimeoutMs
     started=true
-    for(const [index,item]of requests.entries())pending.push(Promise.resolve().then(item.run).finally(()=>{settled[index]=true}))
+    for(const [index,item]of requests.entries())pending.push(Promise.resolve().then(()=>{requestTimings[index]={index,startedAfterMs:Math.ceil(performance.now()-began)};return item.run()}).finally(()=>{settled[index]=true;requestTimings[index].settledAfterMs=Math.ceil(performance.now()-began)}))
     // Attach rejection handlers immediately, also on failed observation paths.
     results=Promise.allSettled(pending)
     do {
@@ -199,7 +200,7 @@ export async function observeSecurityLockCompetition({owner,assertOwner,query,sp
       await delay(pollIntervalMs)
     }while(performance.now()<deadline)
     phase='require-simultaneous-wait';assert(observation,'both production management requests did not reach the actual security lock within deadline')
-  }catch(error){failure=error}
+  }catch(error){failure=error;failureElapsed=began===undefined?null:Math.ceil(performance.now()-began);failureSettled=[...settled]}
   finally {
     // Release before awaiting either HTTP request, including assertion failures.
     if(session) {
@@ -222,7 +223,9 @@ export async function observeSecurityLockCompetition({owner,assertOwner,query,sp
     const error=cleanupFailure??failure
     error.evidence={source:'owned-primary-pg-security-lock-observer',lockKey:securityLock,simultaneousWaitObserved:Boolean(observation),
       ...(observation?{observation}:{}),releaseVerified:!cleanupFailure,requestsStarted:started,
-      failurePhase:phase,errorKind:error.name,waitTimeoutMs,samples}
+      failurePhase:phase,errorKind:error.name,waitTimeoutMs,samples,requestTimings,
+      elapsedToFailureMs:failureElapsed??null,settledAtFailure:failureSettled??[...settled],
+      earlyRequestSettledBeforeTwoWaiters:phase==='observe-waiters'&&Boolean(failureSettled?.some(Boolean))}
     throw error
   }
   return {results,evidence:observation}
@@ -272,10 +275,13 @@ export async function runAccessControlV3Transactions({base,planned,management,as
       ...(body===undefined?{}:{'Content-Type':'application/json'}),...(revision===undefined?{}:{'If-Match':'"'+revision+'"'})},
     ...(body===undefined?{}:{body:JSON.stringify(body)})})
     const text=await response.text()
-    fragment.evidence.requests.push({method,path:new URL(path,base).pathname,status:response.status,observedAt:new Date().toISOString()})
-    await persist()
     let value
     try{value=text?JSON.parse(text):undefined}catch{assert.fail('management response is not JSON; HTTP '+response.status)}
+    // Keep only machine error classification, never raw response text or messages.
+    const code=typeof value?.code==='string'&&/^[a-z][a-z0-9_]{0,79}$/.test(value.code)?value.code:undefined
+    const problemType=typeof value?.type==='string'&&/^https:\/\/kestra\.io\/docs\/api-reference\/problems\/[a-z-]+$/.test(value.type)?value.type:undefined
+    fragment.evidence.requests.push({method,path:new URL(path,base).pathname,status:response.status,observedAt:new Date().toISOString(),...(code?{code}:{}),...(problemType?{problemType}:{})})
+    await persist()
     return {status:response.status,value}
   }
   const success=async(...args)=>{const result=await request(...args);assert(result.status>=200&&result.status<300,'production management HTTP '+result.status);return result.value}

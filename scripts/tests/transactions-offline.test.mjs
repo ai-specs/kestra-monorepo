@@ -97,6 +97,15 @@ test('observer query timeout releases holder and drains pending requests',async(
   await assert.rejects(observeSecurityLockCompetition(args),/timeout: query/)
   assert(state.closed);assert.equal(state.rollbacks,1);assert.equal(state.holder,false)
 })
+test('early completed requests retain pre-cleanup timing and settled flags without exposing raw response text',async()=>{
+  const {args}=scenario({early:true});let failure
+  try{await observeSecurityLockCompetition(args)}catch(error){failure=error}
+  assert(failure);assert.equal(failure.evidence.earlyRequestSettledBeforeTwoWaiters,true)
+  assert(failure.evidence.settledAtFailure.some(Boolean));assert(Number.isFinite(failure.evidence.elapsedToFailureMs))
+  assert.equal(failure.evidence.requestTimings.length,2)
+  for(const row of failure.evidence.requestTimings){assert(Number.isFinite(row.startedAfterMs));assert(Number.isFinite(row.settledAfterMs));assert(row.settledAfterMs>=row.startedAfterMs)}
+  assert(!JSON.stringify(failure.evidence).includes('responseBody'))
+})
 test('missing driver wiring is rejected before any SQL or production request',async()=>{
   const {runAccessControlV3Transactions}=await import('../access-control-v3-transactions.mjs')
   await assert.rejects(runAccessControlV3Transactions({}),/transactionObserver/)
