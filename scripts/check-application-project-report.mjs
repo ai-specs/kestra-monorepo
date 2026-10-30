@@ -55,7 +55,7 @@ assert.equal(geometryGate.checks,60,'Complete native geometry matrix required')
 assert(/^[a-f0-9]{64}$/.test(geometryGate.sha256),'Downloaded native geometry report hash missing')
 const pluginUi=report.sources?.plugin?.downloadedUiTests
 assert.equal(pluginUi?.commit,pluginCommit,'Downloaded plugin UI report does not match final commit')
-assert(Number.isSafeInteger(pluginUi.tests)&&pluginUi.tests>=156,'Complete downloaded plugin UI regressions required')
+assert(Number.isSafeInteger(pluginUi.tests)&&pluginUi.tests>=175,'Complete downloaded plugin UI regressions required')
 assert.equal(pluginUi.cases?.length,pluginUi.tests,'Plugin UI case count differs from downloaded JUnit')
 assert(pluginUi.cases.every(test=>test.status==='passed'),'Downloaded plugin UI cases contain failure or skip')
 for(const name of [
@@ -63,6 +63,25 @@ for(const name of [
   ...['group','scope','application'].map(kind=>'App native box tab cancel and same-target retry preserves '+kind+' draft and controlled active'),
   'App native box tabs retain active and host URL during real editor save and one-time credential',
   'App slow subject query retains real credential-write and oneTime navigation locks',
+  'native drawer owns title/header SVGs, footer/form association, body padding and reopen reset',
+  'native drawer CSS leaves padding/header/width to published component and counts own explicit token gap',
+  'actual native card buttons retain spaced accessible text, counts, destinations and unavailable/busy locks',
+  'published shadow adapter keeps native header and footer in focus ring; Escape closes then restores trigger/fallback',
+  'published native drawer dirty nested Escape keeps draft, saving rejects Escape/mask/close and submit',
+  'public native forms translate real labels in all published locales and retain immutable permission key/account identity',
+  'native clean mask closes; readonly and pending App save stay locked while native maximize remains presentation-only',
+  'original public KsButton stays globally unwrapped and preserves public props/events including bare disabled',
+  "successful real App scope deletion selected restores only the replacement fallback after slow reload and canonical navigation",
+  "successful real App scope deletion nonselected restores only the replacement fallback after slow reload and canonical navigation",
+  "cancel preserves the connected original trigger and does not delete, reload or jump to fallback",
+  "412 keeps the original trigger/sidebar, rejects duplicate mutation, and cancel restores that trigger",
+  "successful delete does not steal focus from an original trigger that remains connected",
+  "successful DELETE followed by failed authorized reload does not target a missing or stale fallback",
+  "canonical navigation failure after real deletion retains error focus rather than overriding it with fallback",
+  "read-only and in-flight delete locks survive; revoked reload never restores unauthorized sidebar",
+  'native focus lifecycle: closing retains the cycle kind marker and registration until native release, then public closed cleans up',
+  'native focus lifecycle: stale public closed cannot clean a quickly reopened cycle or retain native maximize',
+  'native focus lifecycle: async-disabled subject trigger is restored after Enter-style close and native release',
 ])assert.equal(pluginUi.cases.filter(test=>test.name===name&&test.status==='passed').length,1,'Required final subject/tab regression missing or duplicated: '+name)
 for(const field of ['failures','errors','skipped'])assert.equal(pluginUi[field],0)
 assert(/^[a-f0-9]{64}$/.test(pluginUi.sha256),'Downloaded plugin UI report hash missing')
@@ -83,6 +102,7 @@ for (const [name, commit] of [['overlay', overlayCommit], ['plugin', pluginCommi
 }
 assert.deepEqual(report.inputs, {image, jarSha256, rootCommit, overlayCommit, pluginCommit}, 'Report inputs differ from the final composition')
 assert.equal(report.failures, 0)
+assert.deepEqual(report.resources.queueEvidenceRetention,{configuration:'kestra.jdbc.queue.cleaner.retention',value:'24h',scope:'isolated acceptance test data only',cleanerScheduleUnchanged:true,queueHashEqualityUnchanged:true,actualContainerEnvironmentVerified:true},'Long-running queue evidence retention and unchanged cleaner schedule must be verified in the actual container')
 assert(report.sources.plugin.downloadedReportGates?.unit?.includes('zero failure/skip'),'Downloaded plugin unit suite gate missing')
 assert(/ApplicationGroupDirectoryServiceTest [1-9][0-9]* PostgreSQL cases executed/.test(report.sources.plugin.downloadedReportGates?.postgres??''),'Downloaded plugin PostgreSQL business service gate missing')
 assert.equal(report.skipped, 0)

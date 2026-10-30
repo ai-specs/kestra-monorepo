@@ -195,7 +195,7 @@ export function uiBrowserFixture({base,admin,zeroAccount,clientId,subject,record
     preferences:{path:'/ui/main/preferences',themes:{'dark-2':[click('.theme-picker button:nth-child(1)')],dark:[click('.theme-picker button:nth-child(2)')],light:[click('.theme-picker button:nth-child(3)')],system:[click('.theme-picker button:nth-child(4)')]},
       locales:Object.fromEntries(applicationProjectUiLocales.map(locale=>[locale,[click('.settings-block:last-child .setting-row:first-child .kel-select__wrapper'),option(uiLanguageNames[locale])]]))},
     localeText:copy(uiLocaleText),translationEvidence:{kind:'target-wording-expectations',status:'runtime-validation-required',artifactBinding:'parent acceptance image and jar hashes'},
-    references:{mcpPath:'/ui/main/admin/mcp-servers/edit/default/edit',namespacesPath:'/ui/main/namespaces',flowsPath:'/ui/main/flows',tab:'#tab-edit',button:'button.kel-button--primary',search:'.ks-search input',tableHeader:'.kel-table th',tableCell:'.kel-table tbody td'},
+    references:{mcpPath:'/ui/main/admin/mcp-servers/edit/default/edit',namespacesPath:'/ui/main/namespaces',flowsPath:'/ui/main/flows',kvPath:'/ui/main/kv',tab:'#tab-edit',button:'button.kel-button--primary',search:'.ks-search input',tableHeader:'.kel-table th',tableCell:'.kel-table tbody td'},
     records:copy(records),referenceEvidence,pagination,filters:uiFilterPlans(records),filterEvidence:{status:'candidate-public-component-structure; runtime DOM not yet verified',components:['CustomizeFilters','AdvancedFilterBuilder','ConditionRow'],package:'@kestra-io/design-system',version:'0.5.0'},
     expectedRequestErrors:[],
     base,expectedBrowserErrors:[]}

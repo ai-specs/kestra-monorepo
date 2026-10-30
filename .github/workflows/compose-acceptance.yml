@@ -17,7 +17,9 @@ concurrency:
 jobs:
   compose:
     runs-on: ubuntu-24.04
-    timeout-minutes: 120
+    # Full 4-theme/13-locale/3-width native drawer and authentication matrix,
+    # plus REST/MCP and timed no-side-effect checks, must finish without truncation.
+    timeout-minutes: 360
     env:
       ADMIN_UI_REPORT_DIR: ${{ github.workspace }}/.work/admin-ui
       BB_BROWSER_DRIVER: ci
@@ -72,6 +74,11 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '24'
+      - name: Verify root acceptance observer and browser-adapter regressions
+        run: |
+          set -euo pipefail
+          mkdir -p .work/ci
+          node --test scripts/tests/*.test.mjs > .work/ci/root-observer-adapter-tests.log 2>&1
       - uses: gradle/actions/setup-gradle@v4
       - name: Authenticate private published images
         env:

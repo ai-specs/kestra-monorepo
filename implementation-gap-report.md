@@ -4,6 +4,282 @@
 
 ### 维护者补充：原生筛选弹层对照矩阵（2026-10-29）
 
+2026-10-30 18:42最终来源收敛：宿主最后文档/manifest提交`851e9ea`的CI41027744615
+五job成功，7原ZIP下载SHA/提交均核，99XML407/UI95/MCP4/20认证JSON/SDK949精确
+顺序/geometry60及8诊断均核。正式digest`0238b214fdd284dab3017c8cd2049e5f599f2f2e71afe3dbf1d94c0d26ba4784`，
+正常arm64pull及created未启动提取exeSHA`6c4bd609bd6a5e19b521b543cf3811da6e20ea20f454524c66f75d512522f7f7`，
+66076个运行class等489已验证版，SDK10等实际CI tar；双架构after/run/BASE匹配，
+BuildKit completenessfalse限制保留。插件仅pin/README更新为正式宿主，独立prepare-host
+及clean check Java286/UI175通过，jar与2b正式件同SHA。精确2文件提交`2d01437`，
+CI41041932608已success，最终artifact下载审计进行中，不将候选装载。
+
+前一完整本地组合已达到UI168通过，失败2项：法语390 user无副作用只queue源hash
+变化；实际宿主09:30:51 JdbcQueueCleaner清理flow_interface71/follow_execution23等
+日志与失败窗口吻合，源码公开默认retention1h。原队列/数据库/存储hash与日志保留，
+不改为通过。另一Hindi390原生KV创建等待超时，截图停在KV页；Ego语言菜单操作因
+工具选项定位失败未复现到目标，明确未验证。根新KV步骤等待实际可见/可用/样式稳定
+按钮再点击并记录阶段，不自动重试、不用脚本点击绕过。Ego提示更新后本任务已finish，
+未升级浏览器。为避免长时证据被自身过期，隔离验收新增24h队列保留，清理器仍原调度，
+实际容器环境必须核验；不丢queue记录、不放宽hash/副作用断言，不改生产Compose。
+原运行精确owner runner经TERM未退出后KILL结束，保存168pass/2fail/98not_run/1running
+及原报告；容器/网络/卷按owner清理，未计最终通过。
+
+根将以精确干净提交执行下一次完整本地new-install资格门，本地通过后才推送自动最终
+根CI；报告必须对应最终提交，360分钟job预算仅容纳全矩阵，不减少269UI或安全门。
+根最终CI成功及下载证据尚未取得，不宣称交付。前述16:12等记录均为当时阶段状态。
+
+2026-10-30 16:12正式修正插件门通过：`2b56348`/CI`41023207575` success，实际下载
+artifact`12962612480`，ZIP SHA`458e85dac54bb93c090689134e22edbc46d5d8cb2d3a46122b2b878ce4ea4222`。
+主控重解析unit286/PG108/lifecycle24全0fail/error/skip，UI175精确等本地顺序、原172
+全部保留，upgrade8/newinstall3、薄jar23bean349资源逐hash、新host provenance均核。
+正式jar SHA`2d24dc1e092712676bdbf62766bac4f6cb176c04ffc0db7ec985348329c8acfe`已从下载件
+选择至deployment/libs，前正式bd71 jar保留。审计`resumed/plugin-native-focus-repaired-ci-main/`。
+原完整269UI、REST56、安全26、MCP11、schema2等矩阵从新空库运行于
+`resumed/root-native-focus-ci-browser/`，并未选择跳过失败项。当前T6实际4/4、互删
+204/403、互停403/200及两轮双waiter、原会话撤权、cleanup空已独立审计；REST56/56
+通过，安全/MCP/UI继续执行。仅一个主Compose/PG，辅助宿主只按用例共享隔离数据库。
+本地显式nonFinal只用于运行前未提交根源码的完整资格验证，T12最终来源门不计通过；
+根最终提交成功CI及实际下载门仍未取得，不能宣称全部交付。
+
+2026-10-30 15:57插件CI失败已归因并修复测试：`85b277f`/run`41021754049`实际失败
+artifact`12961448854`已下载并核ZIP与head；Java286/存储PG108/UI175通过，lifecycle24
+仅`AuthorizationDependencyPostgresTest.signedContextAuthorizeExplicitFailuresAre503SecurityAndUnknownRemain403`
+失败，XML为Mockito UnfinishedStubbingException，指向同context在异步close期间重设authorize。
+不把此CI计通过，不部署其jar，不盲重跑。测试改为每个分类独立context/runtime并显式verify
+恰好一次close；所有403/503、effects0、前后持久状态相等断言保留，未改产品/宿主/UI。
+唯一自有PG实际完整lifecycle24/24及原失败方法3次具名定向全0fail/error/skip已复测，
+owner容器/卷清零。精确一个测试文件working/index SHA相同、cachedcheck0后提交推送
+`2b5634838efe38b6590114c7b9467bc61724fbd4`，远端main回读一致/工作树干净。
+自动新CI`41023207575`运行中；等待本提交成功及实际下载，不复用失败85产物作正式输入。
+证据`resumed/plugin-native-focus-ci-main/failed-*`及plugin `.work/async-context-test-fix/`。
+
+2026-10-30 15:43修复与发布进度：根Ego原操作修正后，四类maximize逐项对照实际KV
+99%几何、dark/zh_CN三宽度等定向9/9通过；上一light/en及四脏稿确认流程通过。
+原定向首轮因错误调用pressFocused(Enter)失败已保留，改回已有元素原生press后重测。
+根derive要求实际nativeMaximized参照/还原，新增反例后离线84/84通过，不将选例诊断
+或离线计为完整UI通过。
+插件最小修复确认为延后公开closed才卸载（SDK注册必须保留到原生focus-after-released），
+每次打开独立周期闭包与key；不调用私有setup，不加焦点修复timer，不改SDK。
+主控已审两源码、旧18真实浏览器13pass/5fail→新20/20、production349资源逐hash、
+3项可提交实际组件生命周期旧0/3→新3/3，175UI保全部旧172。canonical clean check
+及Java286通过，Java class逐字节等前正式bd71，host/Java/SQL未变，本地不重复PG；
+最终插件CI仍执行完整PG/lifecycle门，不以UI回归替代。
+精确4文件（2源码/测试+README/接口文档）working/index等SHA、cachedcheck0、
+parent/remote一致后已提交推送`85b277f9232b1df546158abad8fee886dd9ffbff`，
+自动CI`41021754049`运行中。主控证据plugin `.work/native-focus-release/`；子agent
+独立检出 `.work/native-focus-after-unmount/.work/native-focus/`全部保留，本次pane已清理。
+原失败根owner容器/网络/卷已按label清零，Ego18调查任务finish，未改原报告；
+等待85正式artifact实际下载审计后，从新空库执行原完整new-install矩阵，范围不减少。
+
+2026-10-30 15:26真实新组合结果与Ego归因：正式48946/bd71的T6实际4/4通过，互删
+204/403、互停403/200，两轮双waiter、原会话撤权及cleanup均通过；REST56、安全26、
+MCP11、聚合和新装/登录维护/冻结真实UI通过。完整UI出现焦点、最大化及主题关闭失败。
+已按用户补充使用Ego生产登录调查，不改权限/不保存数据，也不启动另一套部署。
+实际命中证明390宽scope多选wrapper中心落在已选tag的删除SVG：打开/Tab后scope存在，
+wrapper点击后变空，随后关闭要求丢弃是正确产品行为。改点combobox真实输入，搜索
+前后scope不变且clean close通过。Ego原共享theme诊断3轮保留，全部是选例诊断，
+不计完整矩阵通过。最大化公开原生CSS为99%，旧根要求100%错误，截图证明已最大化。
+根改为实际打开KV原生抽屉最大化取得几何参照，并保键盘Enter真实操作；主题搜索改真实
+input并新增选集不变断言；header pointer保hit-test，新增等待确认层实际退出而非立即点击。
+
+继续余主题只会重复错误测试操作，主控核对精确本次runner PID40373/命令后结束该有误
+非最终运行（SIGTERM未退出后SIGKILL，仅本次owner进程）。保留当时UI102passed/
+39failed/127not_run/1running、原始报告、截图、请求、源hash及operator说明；不计完整
+UI通过，不清空失败，不将后续诊断回填原报告。下一轮必须原完整矩阵从头执行。
+Ego另外精确复现subject抽屉expand Enter→close Enter后焦点落BODY；Escape可回原trigger，
+事件trace显示trigger曾恢复后又被覆盖。现由本次Herdr子agent`plugin-native-focus`/
+`wW:p1X`在插件独立检出目录研究公开close-auto-focus释放，无canonical修改权限、
+无PG/服务权限、不得提交发布。主控继续根修复与Ego定向复测；产品焦点尚未裁定修复通过。
+证据入口`resumed/native-drawer-ego-failure-investigation/`与`native-drawer-ego-shared-diagnostic*`。
+根新增等待反例离线80项执行中；独立检出修复不得冒称正式发布或根组合通过。
+
+2026-10-30 14:18新正式插件下载审计通过：`bd71c02`/CI`41012282222` success，artifact
+`12957594983`原ZIP SHA`71b1a6dc62edfedf2858e12982eb1260df5f63de41573f307a9d25940c24222e`。
+主控实解析Java286/PG108/lifecycle24/UI172（精确顺序等本地）全0fail/error/skip，
+upgrade8/newinstall3、23bean349资源逐hash、薄jar及新正式host provenance均核。
+正式jar SHA`fa5c6f38837a159f9ec0c9a789a0b3315ab7e869189a28f68ba61031561db68a`，
+已从下载件选择到deployment/libs，旧73fa正式jar保留；根正式组合输入为
+`resumed/formal-release-evidence-native-layout.json`。完整new-install本地CI浏览器矩阵
+`resumed/root-native-layout-ci-browser/`已从空库启动，全部源hash冻结；不包含选例改写。
+主控下载审计`resumed/plugin-native-layout-ci-main/main-audit.json`。
+尚未有本轮根组合完成结论，根改动未推送、未触最终CI。
+
+2026-10-30 14:09插件独立门通过后已提交推送`bd71c02beaeb2481e0a86f9ca0464bd6fd3466c4`，
+精确8文件working/index/commit SHA等冻结表、cachedcheck0、parent/remote73fa一致，
+推送回读远端一致且工作树干净。正式新host registry独立提取后，主树与独立clone
+README clean check通过且jar同SHA`fa5c6f38837a159f9ec0c9a789a0b3315ab7e869189a28f68ba61031561db68a`；
+Java286/PG108/lifecycle24/UI172全0fail/error/skip，upgrade8/newinstall3、23bean349资源
+逐hash/薄jar已亲核，owner容器/卷清零。证据plugin `.work/native-save-icon-spacing/final/`。
+自动CI`41012282222`运行中，未dispatch。根部署jar仍是旧正式8fdc，不消费候选fa5c。
+宿主agent完成实际双架构pull/未启动提取，正式exe两架构逐字节相同，主控已亲核，
+其本次pane`wW:p1V`已清理。下一步下载新插件成功CI产物后，使用正式组合全量复验。
+
+2026-10-30 14:04正式宿主发布门通过：`48946d6`/CI`41007119467`五job均success，
+7原始ZIP实际下载摘要/最终head一致；主控重解析99XML407(405过、2专项由实际MCP4
+另核)、UI95、双模式20JSON、SDK949精确顺序及geometry60/8诊断零错误。推广实际
+日志/rawindex/三tag一致，正式digest`d0d770076f026dd6c94d1c46ee7b6bbaa0dc5d3858645245cd0d74766549bfbe`。
+双架构provenance事件after/run/BASE均匹配，completeness request/resolvedDependencies
+false保留。arm64正常pull、RepoDigests、created未启动提取、owner与卷清理已亲核，
+正式exe SHA`2e91a34a3bd0751eff756bdd9ea38b85831d342600ba1c1ea62a102d7445721a`，
+10SDK等实际下载CI tar。主控审计`resumed/host-authorization-io-ci-main/main-audit.json`。
+插件现在只从registry此正式digest独立提取，已更新host pin；8文件（7UI/文档+pin）
+冻结并同步独立clone，主树及独立README构建执行中；唯一PG交插件，尚未发布新jar。
+`.env.example`同步正式host，但deployment/libs仍保旧正式73fa jar，不将未发布新jar部署。
+
+2026-10-30 13:28独立只读复核收敛：`root-native-assert-review`/本次pane`wW:p1W`
+按指定命令启动，初始与后续通信标记、实际进程和焦点已核；只写自有work报告，未启动
+浏览器/容器。确认1项报告门遗漏：localized行缺新增卡片布局仍可通过，主控已亲跑
+同一合成反例（保留前后输出与修复说明），现在失败关闭。根derive要求3种宽度实际
+计数/标题测量，保留混合overflow记录结构和所有提交/产物/source绑定；新增8项离线
+回归，全部根79/79通过。20px间距无明确上限的候选缺陷撤回，不凭空提高要求。
+报告`resumed/root-native-assert-review/review.md`已亲读，完成后只清理本次pane，
+主控pane仍聚焦。它没有确认实际浏览器最终通过，不能替代下一正式组合矩阵。
+
+2026-10-30 13:15发布状态：宿主精确8文件已提交推送`48946d63e4a806ac52b79d44e815240601a66a2b`，
+主控回读远端main一致，工作树干净，原实现patch与精确测试门等本地主控审计hash。
+自动CI`41007119467`的patch-verify已成功，build-push运行中；没有重复dispatch。
+正式镜像未发布，插件host pin仍1b2b旧正式值，7文件UI增量及独立检出目录保留，
+只准备公开产物提取与完整本地门脚本，未从候选镜像取得编译输入。
+
+2026-10-30 13:10宿主本地门审查通过：SDK949最终全部通过/0fail/0notRun，ID顺序逐项
+等e0e正式父报告；同源几何60精确主题/宽度/行为组合全部通过，8诊断源零error，
+同build`b4271b56c3cb6b2c3b95c7f88d12499730376bcdedff9e3d2188cff97b3fc0cb`。
+主控此前读到几何执行中第37行passed:false为检查入场预置值，误判失败；亲读实现及最终
+报告后已纠正并通知agent无需重跑，没有因此修改断言/输入或制造修复。
+主控独立审计已补最终949/60/诊断/source/owner全门，明确授权所属精确8文件提交推送，
+要求working/index/commit逐hash和cachedcheck0、parent/remote一致，只跟踪自动CI。
+此刻尚未正式发布，不允许插件消费本地候选；插件7文件待正式host pin和完整独立门。
+
+2026-10-30 13:03主控独立重解析宿主候选门：归档99XML407/0fail/0error/2镜像专项skip，
+实际MCP4份各1项0skip另核；20份双模式JSON全部completed，目录22/扩展7/主题26/
+语言52/密码215/失效身份24/资料26/明确依赖503故障7均实核。UI实际报告为95/95，
+此前agent及主控转述87是检查器最低数量，与实际报告不符，现纠正并要求文档同步。
+335触达文件最终重放SHA一致、公开ABI无差异、3个实际class等executable及镜像内
+exe SHA`c18a0ab95c40dea505881211ef9ff66115c10f96ed5610499eac509068866476`已核。
+独立审计入口`resumed/host-authorization-io-main-review/audit-local.py`。
+SDK949仍运行零失败，几何门尚待完成；未批准提交推送，未发布此候选。
+根共享审计新增原生Save icon wrapper/SVG/实际间距与卡片标题纵向实测门，禁止旧
+计数/抽屉报告替代。根离线70/70、原型完整脚本与共享入口静态门通过；静态396项
+not_run不是生产通过。插件7文件补充修复和文档已显式冻结本地SHA，等正式宿主输入。
+
+2026-10-30 12:44阶段核对：旧正式组合独立呈现调查实际比较31/48个唯一主题/宽度/抽屉
+组合，其中4个1280主题组合完整；其余在窄屏主题或权限抽屉关闭的Ego原生CSS pointer
+操作失败，保留17个未完成观察，不计为48通过。header/body/footer、SVG与贴底等已比较
+行均匹配原生KV；不能据此推断全部交互通过。失败报告及主控精确数量在
+`production-native-drawer-final/separate-viewport/audit.json`。
+发现部分失败发生在已记录权限抽屉呈现之后的关闭，不是permission-add缺失；原始
+阶段active字段不能单独用于归因。根共享关闭操作现改为每次从真实DOM、可见性、
+enabled/inert、视口与两层hit-test确定原生按钮中心，再由两个浏览器适配器的原生
+pointer点击；不触发DOM.click、不改样式或跳过按钮。离线反例新增11项，根共63/63通过；
+新关闭路径仍待正式新组合真实复验，未以离线结果计UI通过。
+主控已按owner清理第二套（顺序运行的）根Compose及PG，当前唯一PG容量已明确交宿主
+agent做完整本地/镜像门。Ego16已about:blank，不与其安全测试并发业务请求。
+关闭工厂的两项新独立红测也确认eventloop阻塞，主控亲核2fail/0error/0skip后明确接收
+最小closeOnce调度隔离：同步唯一权、空上下文、有界池、保原released与异常/超时。
+宿主还未完成发布，不触发根CI。
+
+2026-10-30 12:30新增归因与实施：第二次完整根运行复现单waiter，实际线程栈确认
+`default-eventLoopGroup-1-2`同步阻塞于`OidcSecurityTransactions.lock`，调用链为
+`OidcProtocolState.lockSecurityState → OidcTrustedIdentity.currentForAuthorization →
+AuthorizationEvaluations.boundary`。这属于宿主既有0330边界调度缺陷，已按入口C在
+overlay所属能力文档、差异表和机制文档接收最小修复，不用扩大线程数/超时规避。
+本次Herdr新子agent`authorization-io-host`/`wW:p1V`按指定no-daemon命令实际启动，
+probe和同agent后续标记、真实进程及未抢焦点已核。独占overlay实现/本地门，主控独占
+插件4文件补充UI修复和根验收；禁止子agent在未获主控释放前启动容器。
+宿主旧实现新增2项实际红测为2失败/0错误/0跳过；新实现定向32项通过，尚未完整本地
+检查、提交、CI或发布。仅传播必要授权来源，保持安全锁、403/503及取消恰好一次释放。
+
+主控真实Ego已对照正式`e0e952b/73fa96e`：1280宽组抽屉header/body/footer计算样式、
+原生SVG、展开/关闭按钮尺寸与KV原生一致，footer贴底；3个卡片计数Range均实测4px。
+另真实发现Save图标与文字gap0（直接slot图标不是原生icon属性），卡片key/name/badge
+被按钮slot内部inline-flex挤为一行。插件使用公开icon属性及自有纵向wrapper修复，
+旧实现新增断言实际失败，新实现完整UI仍172/172通过且UI构建成功。尚未发布或生产复验，
+待新正式宿主后与host pin一起独立重编译发布，不消费候选jar。
+额外呈现矩阵保留全部失败：首轮不合法opaque identifier缺~为主控路径错误；后续
+原生PWA安装提示遮挡按钮；Ego部分click报错后实际目标drawer已打开。按实际DOM核对、
+保留action receipt错误及真实后置条件，不重复点击已打开控件，不跳过原业务断言。
+这些是独立呈现调查，不是根完整UI/角色/写入验收通过。
+
+2026-10-30 12:08根运行失败与诊断：`root-native-drawer-ci-browser`在T6进入UI前失败，
+前两项真实事务回滚通过，但互删在原1.5秒内只观察到一个JDBC waiter与本次holder；
+没有达到两个同时等待的原门，故保持失败。测试已恢复管理员授权且cleanup.remaining为空。
+原报告、全部样本和持久状态hash保留；本次未执行的269项UI不得计通过。
+随后同一独占环境两次定向原T6完整操作均4/4通过，第二次先实际运行原冻结CI浏览器，
+两次均实际双waiter/原会话撤权/持久及清理通过。没有修改共享源码/断言/超时，
+也未触发备用SIGQUIT诊断，故目前原因仍未核实，不能把独立诊断替换原失败报告。
+已按owner核对并清理原Compose，启动新的完整`root-native-drawer-ci-browser-round2`，
+若同一个waiter形态复现则采集真实JVM线程栈；不调整断言或放宽1.5秒门。不并启第二PG。
+
+2026-10-30 11:54正式插件审计：`73fa96e6`自动CI`40999171025`成功，主控实际下载
+artifact`12952369487`并核ZIP SHA-256`08fd992515666a2be4c20bd22ba91e9767164db07e5de3df020d93b3b2a5e410`。
+Java286/PG108/lifecycle24及UI172均零失败/错误/跳过；UI逐名顺序与本地报告一致，
+schema2升级8/新装3、薄jar23bean/349资源逐hash和正式宿主provenance已核。
+正式jar SHA为`8fdcf25649e300c11dcfd83e0ceca71c5667f3dff6ac300b0722d5166fc67fea`，
+已从下载件选择到deployment/libs，旧f456正式jar保留。主控证据为
+`resumed/plugin-native-drawer-ci-main/main-audit.json`；完整根CI浏览器新空库矩阵
+`resumed/root-native-drawer-ci-browser/`已启动，源码已冻结。尚无本轮根组合通过结论，
+尚未推送根改动或触发最终根CI。
+
+2026-10-30 11:49发布进度：主控已独立复核精确13文件和独立clone源码SHA、两jar相同
+`8fdcf25649e300c11dcfd83e0ceca71c5667f3dff6ac300b0722d5166fc67fea`、Java286/
+PG108/lifecycle24、UI172保全部164旧名及8新名、upgrade8/newinstall3、23bean/349资源
+逐hash、薄jar、锁图不变和owner清理。授权后插件已提交推送`73fa96e6`，远端main回读一致，
+工作树干净。自动CI`40999171025`运行中，未重复dispatch。尚未取得此提交成功CI及下载
+审计，不消费候选jar，不宣称根Compose或最终CI通过。下述11:30/11:43为当时状态记录。
+
+2026-10-30 11:43续查：主控直接执行`docker ps`成功，只有插件本地门拥有的一个
+PostgreSQL；磁盘实际空闲121GiB，空间阻塞已解除，不需要清理缓存或证据。
+删除焦点新候选实际UI172/172通过，原164项全部保留，新增8项覆盖延迟授权reload、
+canonical导航、原trigger存活、取消、412、reload失败、导航失败与失权。
+主控已亲审App实现和测试，根最终下载审计现在要求至少172项及全部8个新增具名回归。
+完整后端、独立构建、13文件冻结表及owner清理仍在核对；尚未批准本候选提交或发布。
+根可提交离线回归已重新实际运行52/52通过，不将此计为生产UI通过。
+
+2026-10-30 11:30新增UI审查状态：维护者清理磁盘后主控实测13GiB，旧空间阻塞解除。
+原生抽屉候选已收窄为直接默认KsDrawer/header/SVG/body/footer和KsForm，不派生setup，
+不替换全局按钮；saving仅保留纯呈现最大化，关闭/字段/保存/取消/重复提交保护不变。
+主控已审12file SHA、完整UI164保156旧名和8新名、Java286/PG108/lifecycle24、upgrade8/
+newinstall3、独立clone正式registry输入/同jar、薄jar23bean349UI及锁图不变。提交前发现
+真实删除焦点竞态仍阻塞：App先deletion=null再load替换sidebar，旧fallback随即断开。
+现已撤销旧12file提交授权，扩大仅一个定向测试文件并在已有App写集修复授权reload及
+canonical导航完成后当前fallback恢复；未提交、未推送、未触CI，须按新文件表重审。
+
+根聚焦诊断`root-ui-round3-driver-recheck`实际8/9通过，清全部/subject空交集刷新/末页
+删除规范URL均已通过同原断言，旧卡片/抽屉不作为新候选通过。另一次复制/删除聚焦
+5/7通过：Clipboard已证当前Ego Task.cdp不实现Browser.setPermission（Browser.getVersion
+也明确method not found），这不是产品复制通过。Page.targetId为lazy句柄，初始化前
+undefined/后为真实ID，根现按初始化后实际ID限定origin/context，未作用其他用户页面。
+不修改其他客户端权限，不用全局reset绕过。工具不支持的本地复制用例明确not_run且
+整轮不通过；最终完整CI-browser仍必须实际拒绝/重试/剪贴板核对。独立本地Playwright
+实际Browser.setPermission denied→prompt已验证可用，仅为工具能力证据，不算生产复制门。
+敏感凭据截图继续禁止；预期抑制单独留artifact-suppressed记录，不污染后续诊断，真正
+协议/文件系统错误仍失败关闭。6项适配器离线回归已过，全部根离线当前44项通过。
+根共享矩阵现逐主题/语言/宽度对照真实KV原生抽屉样式/SVG/footer，并用Range测卡片
+数量单位正gap；未实际跑新版本前不能声称其呈现通过。最终下载插件门至少164及8个
+新具名用例，旧156报告不能满足本轮要求。唯一PG资源交插件本地最终门，主控不并启环境。
+
+维护者2026-10-30新增原生抽屉与卡片分隔复核：主控按指定KV Create生产实测，1280
+原生header右padding16、body/footer20，原生ArrowExpand/ElDrawer Close均SVG且无方框，
+footer贴底；正式plugin f456自造⤢/×方框32，header右padding20，清零native body后
+另设form padding20，footer在内容流bottom326。宽屏输入有效右距实际均20，不伪称
+宽屏输入右距不同；窄屏plugin还覆盖为16/12，仍须按原生复验。图片/数值在
+`resumed/production-drawer-native-review/`，主控已实际查看原生与插件图片。卡片DOM
+textContent虽含`54 scope`等空白，Range实测三类数量右端到单位起点均0px，原因是
+native按钮内部flex将`<b>`与匿名文本间空白折叠；不能用增加模板空白应付。
+已将插件前端独占写集交新Herdr native-drawer-plugin（wW:p1T），同agent探测/后续
+标记和实际启动进程已亲核，最初startup admission blocked的真实错误及恢复过程保留。
+任务只复用正式1b2b宿主的公开原生组件，不改Java/API/SDK，不启动PG/浏览器；UI/H2
+候选和原生计数gap由其实施，主控独占根驱动与现有Compose，未授权提交/推送/CI。
+
+根候选a4d224f已本地提交但未推送。完整Ego round3尝试269个UI行，失败环境保留，
+并非完整通过；REST56、安全26（包含v3子矩阵）、MCP11、聚合和强化T6已过。原生
+筛选四位置/四主题48观察、80打开及四个底锚点Clear/Close由主控重解析通过，其他UI
+仍失败。已确认根驱动两类问题：手造CDP Escape在Mac/Ego不产生DOM keydown，而公开
+page.keyboard.press确实关闭同一个空抽屉；敏感凭据截图拒绝被错误写成协议完整性错误，
+继而使后续主题等用例连锁失败。当前修复保留原始失败与显式截图抑制，不捕获凭据；
+真正协议损坏仍失败关闭。4项离线保护已过，真实聚焦与新完整门尚待。清筛选、撤销
+subject范围和末页删除的URL断言已改为等待同一原定最终规范状态，不手动跳正确URL。
+
 2026-10-30 08:59根并发测试前置修正后的Ego定向round7四项实际全过，清理通过，
 互删与互停用各有精确双waiter、holder已释放、一成功一安全拒绝、持久结果与原会话
 撤销证据。后台准备实际观察并排空，未关闭清理任务。准备等待后重新取得mutation

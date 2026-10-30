@@ -163,6 +163,21 @@ export function derive(report) {
   })
   const ui=id=>row(report?.ui,id,'report.ui',current=>{
     if(!Boolean(current.source&&Object.keys(current.source).length||current.evidence&&Object.keys(current.evidence).length)||current.error)return false
+    if(/^ui-drawer-(group|user|permission|subject)-maximize$/.test(id)) {
+      const e=current.evidence
+      if(e?.source!=='actual-native-drawer-geometry')return false
+      for(const name of ['initial','maximized','restored','nativeMaximized'])if(!e[name]||!['width','left','right','viewport'].every(k=>Number.isFinite(e[name][k]))||e[name].width<=0||e[name].viewport<=0)return false
+      if(e.maximized.viewport!==e.nativeMaximized.viewport||Math.abs(e.maximized.width-e.nativeMaximized.width)>2||Math.abs(e.maximized.left-e.nativeMaximized.left)>2||Math.abs(e.maximized.right-e.nativeMaximized.right)>2||Math.abs(e.restored.width-e.initial.width)>2)return false
+    }
+    if(id.startsWith('ui-theme-language-')) {
+      const cards=current.evidence?.layouts?.filter(item=>item.path==='application-groups'&&Object.hasOwn(item,'width'))
+      if(!Array.isArray(cards)||cards.length!==3||new Set(cards.map(item=>item.width)).size!==3)return false
+      for(const item of cards) {
+        if(![1280,768,390].includes(item.width))return false
+        if(!Array.isArray(item.countSpacing)||item.countSpacing.length<3||item.countSpacing.some(value=>!Number.isFinite(value.token)||value.token<=0||!Number.isFinite(value.gap)||value.gap<value.token-1||!value.text?.startsWith(value.count+' ')))return false
+        if(!Array.isArray(item.headingLayout)||!item.headingLayout.length||item.headingLayout.some(value=>value.vertical!==true||!Number.isFinite(value.nameGap)||value.nameGap<=0||value.badgeGap!==null&&(!Number.isFinite(value.badgeGap)||value.badgeGap<=0)))return false
+      }
+    }
     if(id==='ui-frozen-baseline-key-equality') {
       const actual=current.evidence
       if(actual?.source!=='real-browser-before-boundary-data'||actual.bootstrapMapping?.roleOnly!==true||actual.bootstrapMapping.prototypeSubject!=='admin'||actual.bootstrapMapping.runtimeSubject==='admin')return false
@@ -185,6 +200,28 @@ export function derive(report) {
         const a=proof.anchor,b=proof.panel
         if(![a?.top,a?.bottom,b?.top,b?.bottom,b?.height,b?.width].every(Number.isFinite))return false
         if(!a||!b||b.height<=0||b.width<=0||b.top<6||b.bottom>894||Math.abs(a.bottom-880)>3||b.bottom>a.top-3)return false
+      }
+    }
+    if(id==='ui-four-tabs-cards-counts') {
+      const spacing=current.evidence?.countSpacing
+      if(!Array.isArray(spacing)||spacing.length<3||spacing.some(value=>!Number.isFinite(value.token)||value.token<=0||!Number.isFinite(value.gap)||value.gap<value.token-1||!value.text?.startsWith(value.count+' ')))return false
+      const headings=current.evidence?.headingLayout
+      if(!Array.isArray(headings)||!headings.length||headings.some(value=>value.vertical!==true||!Number.isFinite(value.nameGap)||value.nameGap<=0||value.badgeGap!==null&&(!Number.isFinite(value.badgeGap)||value.badgeGap<=0)))return false
+    }
+    if(id.startsWith('ui-four-drawers-theme-language-')) {
+      const drawers=current.evidence?.drawers
+      if(!Array.isArray(drawers)||drawers.length!==12||new Set(drawers.map(item=>item.width+'|'+item.kind)).size!==12)return false
+      for(const item of drawers) {
+        if(![1280,768,390].includes(item.width)||!['group','user','permission','subject'].includes(item.kind))return false
+        const actual=item.nativeParity,reference=item.nativeReference
+        if(!actual?.nativeForm||!reference?.nativeForm||actual.viewport?.width!==item.width||reference.viewport?.width!==item.width)return false
+        for(const part of ['header','body','footer']) {
+          const style=actual[part]?.style,baseline=reference[part]?.style
+          if(!style||!baseline||!['paddingTop','paddingRight','paddingBottom','paddingLeft','fontFamily','fontSize','fontWeight','color','backgroundColor'].every(key=>typeof style[key]==='string'&&style[key].length&&style[key]===baseline[key]))return false
+        }
+        if(!actual.icons?.expand?.length||!actual.icons?.close?.length||JSON.stringify(actual.icons)!==JSON.stringify(reference.icons))return false
+        if(!actual.save?.nativeIcon||!reference.save?.nativeIcon||!Number.isFinite(actual.save.gap)||actual.save.gap<=0||!Number.isFinite(reference.save.gap)||Math.abs(actual.save.gap-reference.save.gap)>1||!actual.save.paths?.length||JSON.stringify(actual.save.paths)!==JSON.stringify(reference.save.paths))return false
+        if(!Number.isFinite(actual.footer?.rect?.bottom)||!Number.isFinite(actual.drawer?.bottom)||Math.abs(actual.footer.rect.bottom-actual.drawer.bottom)>2)return false
       }
     }
     return true

@@ -286,7 +286,7 @@ async function makeAdapter(raw,tools,options) {
     },maskId)
     const path = join(options.artifactDirectory,artifactRun + '-' + String(artifactSequence).padStart(4,'0') + '-' + label.replace(/[^a-zA-Z0-9_-]/g,'-').slice(0,60) + '.png')
     try {
-      assert(!credentialVisible,'Credential-bearing screenshot blocked; retain sanitized diagnostics instead')
+      if(credentialVisible)throw Object.assign(new Error('Credential-bearing screenshot blocked; retain sanitized diagnostics instead'),{code:'credential_screenshot_blocked'})
       await tools.screenshot(path)
     } finally {
       await raw.evaluate(maskId=>{
@@ -308,6 +308,12 @@ async function makeAdapter(raw,tools,options) {
     if (failureCapture) return
     failureCapture = true
     try {return await screenshot(label)} catch (captureError) {
+      if(captureError.code==='credential_screenshot_blocked') {
+        const suppressed={kind:'screenshot-suppressed',captured:false,reason:'credential-visible',label,document:collector.source(),createdAt:new Date().toISOString()}
+        collector.add('artifact-suppressed',suppressed.document,{message:'Screenshot intentionally not captured because a one-time credential is visible',artifactLabel:label})
+        if(error&&typeof error==='object')error.artifactCaptureError=redact.text(captureError.message)
+        return suppressed
+      }
       collector.issue('failure screenshot unavailable: ' + redact.text(captureError.message))
       if (error && typeof error === 'object') error.artifactCaptureError = redact.text(captureError.message)
     } finally {failureCapture = false}
@@ -369,9 +375,10 @@ async function makeAdapter(raw,tools,options) {
     }),
     pressFocused:key=>action('pressFocused',async()=>{
       assert(['Tab','Shift+Tab','Escape'].includes(key),'supported native focus key required')
-      const actual=key==='Escape'?'Escape':'Tab',modifiers=key==='Shift+Tab'?8:0,code=actual==='Tab'?9:27
-      await tools.send('Input.dispatchKeyEvent',{type:'keyDown',key:actual,code:actual,windowsVirtualKeyCode:code,nativeVirtualKeyCode:code,modifiers})
-      await tools.send('Input.dispatchKeyEvent',{type:'keyUp',key:actual,code:actual,windowsVirtualKeyCode:code,nativeVirtualKeyCode:code,modifiers})
+      assert(typeof raw.keyboard?.press==='function','documented native keyboard API required')
+      // Do not fabricate Windows native keycodes on macOS. Both existing
+      // browser adapters expose a native keyboard API without refocusing body.
+      return raw.keyboard.press(key)
     }),
     click:selector => action('click',() => tools.click(commonSelector(selector),timeout)),
     clickAt:point=>action('clickAt',async()=>{
@@ -386,22 +393,39 @@ async function makeAdapter(raw,tools,options) {
       assert(typeof tools.browserSend==='function','browser-scoped CDP callback required for clipboard permission')
       const origin=await raw.evaluate(()=>location.origin)
       assert(/^https?:\/\//.test(origin)&&new URL(origin).origin===origin,'clipboard permission requires an HTTP origin')
-      const result=await tools.browserSend('Target.getTargetInfo',tools.targetId?{targetId:tools.targetId}:{})
+      // Ego Page handles resolve lazily. Resolve the current owned Page after
+      // initialization instead of freezing undefined at adapter construction.
+      const targetId=tools.getTargetId?tools.getTargetId():tools.targetId
+      if(tools.getTargetId)assert(typeof targetId==='string'&&targetId.length,'current owned Page target identity unavailable')
+      const result=await tools.browserSend('Target.getTargetInfo',targetId?{targetId}:{})
       const target=result?.targetInfo
       assert(target?.type==='page'&&new URL(target.url).origin===origin,'clipboard permission target does not match this page')
-      if(tools.targetId)assert(target.targetId===tools.targetId,'clipboard permission resolved another browser target')
+      if(targetId)assert(target.targetId===targetId,'clipboard permission resolved another browser target')
       const context=target.browserContextId?{browserContextId:target.browserContextId}:{}
       const previous=await raw.evaluate(async()=>Promise.all(['clipboard-read','clipboard-write'].map(async name=>({name,state:(await navigator.permissions.query({name})).state}))))
       assert(Array.isArray(previous)&&previous.length===2&&previous.every((permission,index)=>permission.name===['clipboard-read','clipboard-write'][index]&&['granted','denied','prompt'].includes(permission.state)),'clipboard permission baseline unavailable')
       const baselineKey=JSON.stringify([target.browserContextId??null,origin])
-      if(!clipboardBaselines.has(baselineKey))clipboardBaselines.set(baselineKey,{origin,context,permissions:previous.map(permission=>({...permission,restored:false}))})
+      const applied=[]
       try {
-        for(const name of ['clipboard-read','clipboard-write'])await tools.browserSend('Browser.setPermission',{permission:{name},setting:state,origin,...context})
+        for(const name of ['clipboard-read','clipboard-write']) {
+          await tools.browserSend('Browser.setPermission',{permission:{name},setting:state,origin,...context})
+          applied.push(name)
+          if(!clipboardBaselines.has(baselineKey))clipboardBaselines.set(baselineKey,{origin,context,permissions:previous.map(permission=>({...permission,restored:permission.name!==name}))})
+          clipboardBaselines.get(baselineKey).permissions.find(permission=>permission.name===name).restored=false
+        }
         const actual=await raw.evaluate(async()=>Promise.all(['clipboard-read','clipboard-write'].map(async name=>(await navigator.permissions.query({name})).state)))
         assert(actual.every(permission=>permission===state),'clipboard permission did not take effect')
       }catch(error) {
-        const restored=await Promise.allSettled(previous.map(permission=>tools.browserSend('Browser.setPermission',{permission:{name:permission.name},setting:permission.state,origin,...context})))
+        const restored=await Promise.allSettled(previous.filter(permission=>applied.includes(permission.name)).map(async permission=>{
+          await tools.browserSend('Browser.setPermission',{permission:{name:permission.name},setting:permission.state,origin,...context})
+          const original=clipboardBaselines.get(baselineKey).permissions.find(item=>item.name===permission.name)
+          original.restored=permission.state===original.state
+        }))
         if(restored.some(result=>result.status==='rejected'))collector.issue('clipboard permission rollback failed for this origin')
+        if(!applied.length&&/^'Browser\.setPermission' wasn't found$/.test(error.message)) {
+          collector.add('tool-capability-unavailable',collector.source(),{message:'Current browser transport does not implement Browser.setPermission',method:'Browser.setPermission',origin})
+          throw Object.assign(new Error('Current browser transport lacks Browser.setPermission; the real copy-failure/retry assertion remains mandatory in the complete CI-browser matrix'),{code:'acceptance_contract_missing'})
+        }
         throw error
       }
     }),
@@ -583,7 +607,7 @@ export async function createEgoApplicationProjectAdapter(page,options) {
   return makeAdapter(page,{
     send:(method,params) => page.cdp(method,params,{timeout:options?.timeoutMs ?? 30000}),
     browserSend:options?.browserCdp,
-    targetId:page.targetId,
+    getTargetId:() => page.targetId,
     attach:async () => {}, // Ego buffers CDP events; it is NOT an EventEmitter.
     async drain() {
       const result = await page.events()

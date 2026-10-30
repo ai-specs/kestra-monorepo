@@ -190,12 +190,18 @@ export async function main(argv=process.argv.slice(2),runtime={}) {
       host.environment.KESTRA_CONFIGURATION=applicationProjectFeature(host.environment.KESTRA_CONFIGURATION,false)
       assert(host.environment.KESTRA_CONFIGURATION.includes('kestra:\n'),'isolated host configuration root missing')
       host.environment.KESTRA_CONFIGURATION=host.environment.KESTRA_CONFIGURATION.replace('kestra:\n','kestra:\n  anonymous-usage-report:\n    enabled: false\n  ui-anonymous-usage-report:\n    enabled: false\n')
+      // Keep queue evidence throughout the multi-hour browser matrix. The ordinary
+      // cleaner still runs; extending test-data retention prevents an unrelated
+      // scheduled deletion from invalidating a rejected-write before/after hash.
+      // Never filter queue rows or relax equality to hide an enqueue side effect.
+      Object.assign(host.environment,{KESTRA_JDBC_QUEUE_CLEANER_RETENTION:'24h'})
       Object.assign(host.environment,{KESTRA_OIDC_REGISTRATION_PENDING_TTL_MINUTES:'120',RBAC_POLICY_JDBC_URL:'jdbc:postgresql://postgres:5432/kestra',RBAC_POLICY_JDBC_USER:'kestra',RBAC_POLICY_JDBC_PASSWORD:env.POSTGRES_PASSWORD,RBAC_POLICY_OPERATOR_SUBJECT:planned.admin.subject})
       Object.assign(host.environment,{OIDC_MAINTENANCE_RECEIPT_PATH:'/app/storage/.oidc-installation',OIDC_MAINTENANCE_ISSUER:base,OIDC_MAINTENANCE_LOGIN_CLIENT_ID:'kestra-ui',OIDC_MAINTENANCE_JDBC_URL:'jdbc:postgresql://postgres:5432/kestra',OIDC_MAINTENANCE_JDBC_USER:'kestra',OIDC_MAINTENANCE_JDBC_PASSWORD:env.POSTGRES_PASSWORD})
       composeConfig=config;composeEnvironment=env
       const compose=join(output,'compose.json');saveCompose()
       command('docker',['compose','--env-file','/dev/null','-p',project,'-f',compose,'config','--quiet'],{env})
       report.resources.composeFile=compose;report.resources.base=base
+      report.resources.queueEvidenceRetention={configuration:'kestra.jdbc.queue.cleaner.retention',value:'24h',scope:'isolated acceptance test data only',cleanerScheduleUnchanged:true,queueHashEqualityUnchanged:true}
       return {validated:true,project,loopbackPort:port,isolatedNamedVolumes:true,bindMounts:[{target:'/app/libs/kestra-rbac-authorizer.jar',readOnly:true}]}
     })
     if(mode==='config-check')return {exitCode:0,reportPath}
@@ -367,7 +373,7 @@ export async function main(argv=process.argv.slice(2),runtime={}) {
       }
       const pluginUiPath=join(downloaded,'.evidence/ui/results.xml'),pluginUiXml=readFileSync(pluginUiPath,'utf8'),pluginUi=parseLifecycleJUnit(pluginUiXml)
       assert.equal(pluginUi.status,'passed','Downloaded plugin UI report contains failed or skipped tests')
-      assert(pluginUi.cases.length>=156,'Downloaded plugin UI matrix omitted original and required filter/subject/tab regressions')
+      assert(pluginUi.cases.length>=175,'Downloaded plugin UI matrix omitted original and required filter/subject/tab/native drawer/delete focus/closed lifecycle regressions')
       for(const name of [
         'users: native Add condition creates rows and serializes supported AND filters with history recovery',
         'permissions: native Add condition creates rows and serializes supported AND filters with history recovery',
@@ -395,6 +401,24 @@ export async function main(argv=process.argv.slice(2),runtime={}) {
         ...['group','scope','application'].map(kind=>'App native box tab cancel and same-target retry preserves '+kind+' draft and controlled active'),
         'App native box tabs retain active and host URL during real editor save and one-time credential',
         'App slow subject query retains real credential-write and oneTime navigation locks',
+        'native drawer owns title/header SVGs, footer/form association, body padding and reopen reset',
+        'native drawer CSS leaves padding/header/width to published component and counts own explicit token gap',
+        'actual native card buttons retain spaced accessible text, counts, destinations and unavailable/busy locks',
+        'published shadow adapter keeps native header and footer in focus ring; Escape closes then restores trigger/fallback',
+        'published native drawer dirty nested Escape keeps draft, saving rejects Escape/mask/close and submit',
+        'public native forms translate real labels in all published locales and retain immutable permission key/account identity',
+        'native clean mask closes; readonly and pending App save stay locked while native maximize remains presentation-only',
+        'original public KsButton stays globally unwrapped and preserves public props/events including bare disabled',
+        ...['selected','nonselected'].map(kind=>'successful real App scope deletion '+kind+' restores only the replacement fallback after slow reload and canonical navigation'),
+        'cancel preserves the connected original trigger and does not delete, reload or jump to fallback',
+        '412 keeps the original trigger/sidebar, rejects duplicate mutation, and cancel restores that trigger',
+        'successful delete does not steal focus from an original trigger that remains connected',
+        'successful DELETE followed by failed authorized reload does not target a missing or stale fallback',
+        'canonical navigation failure after real deletion retains error focus rather than overriding it with fallback',
+        'read-only and in-flight delete locks survive; revoked reload never restores unauthorized sidebar',
+        'native focus lifecycle: closing retains the cycle kind marker and registration until native release, then public closed cleans up',
+        'native focus lifecycle: stale public closed cannot clean a quickly reopened cycle or retain native maximize',
+        'native focus lifecycle: async-disabled subject trigger is restored after Enter-style close and native release',
       ])assert.equal(pluginUi.cases.filter(test=>test.name===name&&test.status==='passed').length,1,'Required final plugin UI regression missing or ambiguous: '+name)
       report.sources.plugin.downloadedUiTests={runId:evidence.pluginRunId,artifactId:evidence.pluginArtifactId,commit:report.inputs.pluginCommit,path:pluginUiPath,sha256:hash(pluginUiXml),tests:pluginUi.cases.length,failures:0,errors:0,skipped:0,cases:pluginUi.cases}
 
@@ -428,6 +452,10 @@ export async function main(argv=process.argv.slice(2),runtime={}) {
       const hostSha=command('docker',['exec',ids.kestra,'sha256sum','/app/kestra']).split(/\s+/)[0]
       assert.equal(hostSha,report.stages.find(row=>row.id==='publication-gate').evidence.hostExecutableSha256,'running host executable differs from downloaded plugin provenance')
       report.resources.runningImageId=imageId;report.resources.hostExecutableSha256=hostSha
+      const runningEnvironment=JSON.parse(command('docker',['inspect','-f','{{json .Config.Env}}',ids.kestra]))
+      assert(runningEnvironment.includes('KESTRA_JDBC_QUEUE_CLEANER_RETENTION=24h'),'long-running acceptance must preserve queue evidence for24h')
+      assert(!runningEnvironment.some(value=>/^KESTRA_JDBC_QUEUE_CLEANER_(?:INITIAL_DELAY|FIXED_DELAY)=/.test(value)),'queue cleaner schedule must remain enabled and unchanged')
+      report.resources.queueEvidenceRetention.actualContainerEnvironmentVerified=true
       report.gateEvidence??={}
       report.gateEvidence.runtimeSource={sourceRef:'stages.feature-off-production-install',...structuredClone(report.inputs)}
       // Bootstrap environment creates only this isolated account. Production

@@ -18,6 +18,7 @@ export function planFixture(base) {
       {scope:'NAMESPACE',tenant:'main',namespace,descendants:true,resource:'FLOW',actions:['READ','LIST','CREATE','UPDATE','DELETE','EXECUTE'],ids:[],allIds:true},
       {scope:'NAMESPACE',tenant:'main',namespace,descendants:true,resource:'EXECUTION',actions:['READ','LIST','CREATE','DELETE','ACCESS_OUTPUTS'],ids:[],allIds:true},
       {scope:'NAMESPACE',tenant:'main',namespace,descendants:true,resource:'TRIGGER',actions:['READ','LIST'],ids:[],allIds:true},
+      {scope:'NAMESPACE',tenant:'main',namespace,descendants:true,resource:'KVSTORE',actions:['READ','LIST'],ids:[],allIds:true},
       {scope:'NAMESPACE',tenant:'main',namespace,descendants:true,resource:'NAMESPACE',actions:['READ','LIST'],ids:[],allIds:true},
     ]).concat([{scope:'TENANT',tenant:'main',namespace:null,descendants:false,resource:'METADATA',actions:['READ','LIST'],ids:[],allIds:true},
       {scope:'TENANT',tenant:'main',namespace:null,descendants:false,resource:'MCP_SERVER',actions:['READ','LIST'],ids:['default'],allIds:false}]),managementGrants:[]}

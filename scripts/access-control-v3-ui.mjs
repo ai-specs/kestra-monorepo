@@ -103,6 +103,56 @@ export async function waitForNativeStyleSettlement(page,selectors,{shadow=true}=
 }
 const host='[data-test="extension-container"]'
 const api='/api/v1/main/extensions/rbac'
+export function discardConfirmationVisible() {
+  const root=document.querySelector('[data-test="extension-container"]')?.shadowRoot
+  return [...root?.querySelectorAll('[data-test="discard-confirm"]')??[]].filter(node=>node.getClientRects().length&&getComputedStyle(node).visibility!=='hidden'&&!node.closest('[inert],[aria-hidden="true"]')).length===1
+}
+export function nativeDrawerHeaderPoint({shadow=true,action='close',readyOnly=false}={}) {
+  try {
+  if(!['close','expand'].includes(action))throw new Error('Unknown native drawer header action')
+  const host=document.querySelector('[data-test="extension-container"]'),root=shadow?host?.shadowRoot:document
+  const selector=action==='close'?'.kel-drawer__close-btn':'.kel-drawer__header button.is-link'
+  const buttons=[...root?.querySelectorAll(selector)??[]].filter(n=>n.getClientRects().length&&getComputedStyle(n).visibility!=='hidden'&&n.getBoundingClientRect().width>0)
+  if(buttons.length!==1)throw new Error('Exactly one visible native drawer header action is required')
+  const button=buttons[0],r=button.getBoundingClientRect(),x=r.left+r.width/2,y=r.top+r.height/2
+  if(button.disabled||button.getAttribute('aria-disabled')==='true'||button.closest('[inert]')||r.height<=0||x<0||x>=innerWidth||y<0||y>=innerHeight)throw new Error('Native drawer header action is disabled, inert or outside the viewport')
+  if(shadow&&document.elementFromPoint(x,y)!==host)throw new Error('Native drawer header action is covered outside its owner')
+  const hit=root.elementFromPoint(x,y)
+  if(!hit||hit!==button&&!button.contains(hit))throw new Error('Native drawer header action is not the actual hit-test target')
+  return {x,y,action,shadow,rect:{left:r.left,top:r.top,width:r.width,height:r.height}}
+  }catch(error){if(readyOnly)return false;throw error}
+}
+export function nativeDrawerMeasurements({shadow=false,kind}={}) {
+  const root=shadow?document.querySelector('[data-test="extension-container"]')?.shadowRoot:document
+  const drawers=[...root?.querySelectorAll(kind?'[data-test="drawer-'+kind+'"]':'.kel-drawer')??[]].filter(n=>n.getClientRects().length&&n.getBoundingClientRect().width>0)
+  if(drawers.length!==1)throw new Error('Exactly one visible native form drawer is required')
+  const drawer=drawers[0],rect=node=>{const b=node.getBoundingClientRect();return {left:b.left,right:b.right,top:b.top,bottom:b.bottom,width:b.width,height:b.height}}
+  const style=node=>{const s=getComputedStyle(node);return Object.fromEntries(['paddingTop','paddingRight','paddingBottom','paddingLeft','fontFamily','fontSize','fontWeight','color','backgroundColor'].map(k=>[k,s[k]]))}
+  const header=drawer.querySelector('.kel-drawer__header'),body=drawer.querySelector('.kel-drawer__body'),footer=drawer.querySelector('.kel-drawer__footer'),expand=header?.querySelector('button.is-link'),close=header?.querySelector('.kel-drawer__close-btn')
+  if(!header||!body||!footer||!expand||!close)throw new Error('Native header/body/footer/SVG action controls missing')
+  const saveButton=footer.querySelector('button.kel-button--primary'),saveIcon=saveButton?.querySelector(':scope > .kel-icon'),saveLabel=saveButton?.querySelector(':scope > span')
+  const save={nativeIcon:Boolean(saveIcon?.querySelector('svg path')),gap:saveIcon&&saveLabel?saveLabel.getBoundingClientRect().left-saveIcon.getBoundingClientRect().right:null,paths:[...saveIcon?.querySelectorAll('svg path')??[]].map(n=>n.getAttribute('d'))}
+  return {viewport:{width:innerWidth,height:innerHeight},drawer:rect(drawer),header:{style:style(header),rect:rect(header)},body:{style:style(body),rect:rect(body)},footer:{style:style(footer),rect:rect(footer)},save,icons:{expand:[...expand.querySelectorAll('svg path')].map(n=>n.getAttribute('d')),close:[...close.querySelectorAll('svg path')].map(n=>n.getAttribute('d'))},buttons:{expand:rect(expand),close:rect(close)},nativeForm:Boolean(body.querySelector('.kel-form.ks-horizontal')),fields:[...body.querySelectorAll('input,textarea')].filter(n=>n.getClientRects().length).map(n=>({tag:n.tagName,rightGap:drawer.getBoundingClientRect().right-n.getBoundingClientRect().right}))}
+}
+export function cardHeadingMeasurements() {
+  const root=document.querySelector('[data-test="extension-container"]')?.shadowRoot
+  return [...root?.querySelectorAll('[data-test="group-card"]')??[]].filter(n=>n.getClientRects().length).map(card=>{
+    const heading=card.querySelector('.rbac-card-heading'),title=heading?.querySelector('.application-group-card-title'),name=heading?.querySelector('.application-group-card-id'),badge=heading?.querySelector('.builtin-indicator')
+    if(!heading||!title||!name)throw new Error('Owned vertical card heading is missing')
+    const a=title.getBoundingClientRect(),b=name.getBoundingClientRect(),c=badge?.getBoundingClientRect()
+    return {id:card.getAttribute('data-group-id'),title:title.textContent.trim(),name:name.textContent.trim(),nameGap:b.top-a.bottom,badgeGap:c?c.top-b.bottom:null,vertical:getComputedStyle(heading).flexDirection==='column'}
+  })
+}
+export function cardCountSpacingMeasurements() {
+  const root=document.querySelector('[data-test="extension-container"]')?.shadowRoot
+  return [...root?.querySelectorAll('[data-test="group-card"] .rbac-card-counts button')??[]].filter(n=>n.getClientRects().length).map(button=>{
+    const count=button.querySelector('b'),label=button.querySelector('.rbac-card-count-label')
+    if(!count||!label)throw new Error('Owned count/label semantic wrapper missing')
+    const text=[...label.childNodes].find(n=>n.nodeType===Node.TEXT_NODE&&n.textContent.trim());if(!text)throw new Error('Accessible count unit text missing')
+    const range=document.createRange();range.setStart(text,text.textContent.search(/\S/));range.setEnd(text,text.textContent.length)
+    return {text:button.textContent.trim(),count:count.textContent.trim(),gap:range.getBoundingClientRect().left-count.getBoundingClientRect().right,token:parseFloat(getComputedStyle(label).columnGap),control:button.getAttribute('data-test')}
+  })
+}
 export function mobileFilterViewportReady() {
   const root=document.querySelector('[data-test="extension-container"]')?.shadowRoot
   const bar=root?.querySelector('.mobile-bar'),sheet=root?.querySelector('.mobile-sheet')
@@ -404,7 +454,7 @@ export async function runAccessControlV3Ui(page,base,fixture,record) {
     if(current.deletion){await cancelConfirmation();current=await visible()}
     if(current.discard){await confirmDiscard();current=await visible()}
     if(current.drawer||current.inline) {
-      await page.click(current.drawer?'[data-test="drawer-close"]':'.rbac-inline-form .buttons button:last-child')
+      if(current.drawer)await clickDrawerHeader();else await page.click('.rbac-inline-form .buttons button:last-child')
       await page.waitForFunction(()=>{const root=document.querySelector('[data-test="extension-container"]')?.shadowRoot,shown=selector=>[...root?.querySelectorAll(selector)??[]].some(node=>node.getClientRects().length&&getComputedStyle(node).visibility!=='hidden'&&!node.closest('[inert],[aria-hidden="true"]'));return shown('[data-test="discard-confirm"]')||!shown('[data-test="drawer-group"],[data-test="drawer-user"],[data-test="drawer-permission"],[data-test="drawer-subject"],.rbac-inline-form')})
       if((await visible()).discard)await confirmDiscard()
     }
@@ -451,7 +501,7 @@ export async function runAccessControlV3Ui(page,base,fixture,record) {
     return response.status===204?null:response.json().catch(()=>null)
   }
   const drawerPlans=()=>[
-    {kind:'group',path:'application-groups',trigger:'.management-toolbar button',input:'[data-test="drawer-group"] label:first-of-type input'},
+    {kind:'group',path:'application-groups',trigger:'.management-toolbar button',input:'[data-test="drawer-group"] .kel-form-item:first-of-type input'},
     {kind:'user',path:'users',trigger:'[data-test="user-create"]',input:'[data-test="drawer-user"] input[name="username"]'},
     {kind:'permission',path:app,trigger:'[data-test="permission-add"]',input:'[name="permission-name"]'},
     {kind:'subject',path:group+'/scope-grants',trigger:'[data-test="subject-add"]'},
@@ -459,7 +509,7 @@ export async function runAccessControlV3Ui(page,base,fixture,record) {
   async function dirtyDrawer(plan,value,{navigate=true}={}) {
     if(navigate)await open(plan.path);await drawer(plan.kind,plan.trigger)
     if(plan.input)await page.fill(plan.input,value)
-    else {await page.click('[data-test="drawer-subject"] label.rbac-kv-field .kel-select__wrapper');await page.click('[role="option"]:text-is('+JSON.stringify(fixture.zeroAccount.subject)+')')}
+    else {await page.click('[data-test="drawer-subject"] .kel-form-item:first-of-type .kel-select__wrapper');await page.click('[role="option"]:text-is('+JSON.stringify(fixture.zeroAccount.subject)+')')}
   }
   async function drawerDraft(plan) {return page.evaluate(({kind,input,subject})=>{const root=document.querySelector('[data-test="extension-container"]').shadowRoot;return input?root.querySelector(input)?.value:root.querySelector('[data-test="drawer-'+kind+'"]')?.textContent.includes(subject)},{kind:plan.kind,input:plan.input,subject:fixture.zeroAccount.subject})}
   async function backdropPoint(kind) {
@@ -470,6 +520,13 @@ export async function runAccessControlV3Ui(page,base,fixture,record) {
     requireMethods(page,['clickAt'],'shared adapter')
     const point=await backdropPoint(kind)
     await page.clickAt(point);return point
+  }
+  async function clickDrawerHeader({shadow=true,action='close'}={}) {
+    requireMethods(page,['clickAt'],'shared adapter')
+    await page.waitForFunction(nativeDrawerHeaderPoint,{shadow,action,readyOnly:true})
+    const point=await page.evaluate(nativeDrawerHeaderPoint,{shadow,action})
+    await note({nativeDrawerHeaderPointer:point})
+    await page.clickAt({x:point.x,y:point.y})
   }
   async function state() {return page.evaluate(()=>{const root=document.querySelector('[data-test="extension-container"]')?.shadowRoot;return {path:location.pathname,query:location.search,lang:root?.querySelector('[lang]')?.getAttribute('lang'),text:root?.textContent??'',busy:root?.querySelector('main')?.getAttribute('aria-busy')}})}
   async function dismissNativeInstallPrompt() {
@@ -543,7 +600,7 @@ export async function runAccessControlV3Ui(page,base,fixture,record) {
   async function clickSave(button,path,method='PUT',expected=[200]) {
     const previous=new Set((await page.diagnostics()).events.map(event=>event.id)),document=await source()
     const observation='ui-save-'+randomBytes(6).toString('hex')
-    await page.evaluate(observation=>{const root=document.querySelector('[data-test="extension-container"]').shadowRoot,state={busy:false,saving:false,closeDisabled:true,saveDisabled:true};const sample=()=>{const main=root.querySelector('main'),drawer=root.querySelector('[data-test^="drawer-"][aria-busy]');if(main?.getAttribute('aria-busy')==='true')state.busy=true;if(drawer?.getAttribute('aria-busy')==='true'){state.saving=true;state.closeDisabled&&=root.querySelector('[data-test="drawer-close"]')?.disabled===true;state.saveDisabled&&=root.querySelector('[data-test="drawer-save"]')?.disabled===true}};state.observer=new MutationObserver(records=>{if(records.some(record=>record.attributeName==='aria-busy'&&record.oldValue==='true'))state.busy=true;sample()});state.observer.observe(root,{subtree:true,attributes:true,attributeOldValue:true,childList:true});window[observation]=state},observation)
+    await page.evaluate(observation=>{const root=document.querySelector('[data-test="extension-container"]').shadowRoot,state={busy:false,saving:false,closeDisabled:true,saveDisabled:true};const sample=()=>{const main=root.querySelector('main'),drawer=root.querySelector('[data-test^="drawer-"][aria-busy]');if(main?.getAttribute('aria-busy')==='true')state.busy=true;if(drawer?.getAttribute('aria-busy')==='true'){const close=drawer.querySelector('.kel-drawer__close-btn');state.saving=true;state.closeDisabled&&=!close||close.disabled===true;state.saveDisabled&&=root.querySelector('[data-test="drawer-save"]')?.disabled===true}};state.observer=new MutationObserver(records=>{if(records.some(record=>record.attributeName==='aria-busy'&&record.oldValue==='true'))state.busy=true;sample()});state.observer.observe(root,{subtree:true,attributes:true,attributeOldValue:true,childList:true});window[observation]=state},observation)
     if(await page.evaluate(()=>{const root=document.querySelector('[data-test="extension-container"]')?.shadowRoot;const modal=[...root?.querySelectorAll('[aria-modal="true"]')??[]].some(node=>node.getClientRects().length&&getComputedStyle(node).visibility!=='hidden');return !modal&&Boolean(document.querySelector('.pwa-install-prompt')?.getClientRects().length)})) {
       await page.click('.pwa-install-actions button:last-child')
       await page.waitForFunction(()=>!document.querySelector('.pwa-install-prompt'))
@@ -672,11 +729,11 @@ export async function runAccessControlV3Ui(page,base,fixture,record) {
     assert(value.length>=16,'host-generated credential unexpectedly short')
     return value
   }
-  async function closeDrawer(kind) {await page.focus('[data-test="drawer-'+kind+'"] [data-test="drawer-close"]');await page.press('[data-test="drawer-'+kind+'"] [data-test="drawer-close"]','Enter');await page.waitForFunction(kind=>!document.querySelector('[data-test="extension-container"]').shadowRoot.querySelector('[data-test="drawer-'+kind+'"]'),kind)}
-  async function toggleDrawerMaximize() {await page.focus('[data-test="drawer-maximize"]');await page.press('[data-test="drawer-maximize"]','Enter')}
+  async function closeDrawer(kind) {await page.focus('[data-test="drawer-'+kind+'"] .kel-drawer__close-btn');await page.press('[data-test="drawer-'+kind+'"] .kel-drawer__close-btn','Enter');await page.waitForFunction(kind=>!document.querySelector('[data-test="extension-container"]').shadowRoot.querySelector('[data-test="drawer-'+kind+'"]'),kind)}
+  async function toggleDrawerMaximize() {await page.focus('.rbac-editor-drawer .kel-drawer__header button.is-link');await page.press('.rbac-editor-drawer .kel-drawer__header button.is-link','Enter')}
   async function checkFocus(kind) {
     const drawerSelector=selector('drawer-'+kind)
-    const focusable=drawerSelector+' [data-test="drawer-close"]'
+    const focusable=drawerSelector+' .kel-drawer__close-btn'
     const focusableCount=await page.evaluate(selector=>[...document.querySelector('[data-test="extension-container"]').shadowRoot.querySelector(selector).querySelectorAll('button,input,textarea,select,a[href],[tabindex]')].filter(node=>node.getClientRects().length&&node.tabIndex>=0&&!node.matches(':disabled')&&!node.closest('[inert],[aria-hidden="true"]')).length,drawerSelector)
     assert(focusableCount>1)
     await page.focus(focusable)
@@ -684,7 +741,7 @@ export async function runAccessControlV3Ui(page,base,fixture,record) {
     for(let count=0;count<focusableCount+3;count++) {
       await page.pressFocused('Tab')
       assert(await page.evaluate(selector=>{const root=document.querySelector('[data-test="extension-container"]').shadowRoot;const active=root.activeElement;if(!root.querySelector(selector)?.contains(active))return false;const style=getComputedStyle(active),wrapper=active.closest('.kel-input__wrapper.is-focus,.kel-select__wrapper.is-focused'),focusStyle=wrapper&&getComputedStyle(wrapper);return style.outlineStyle!=='none'&&parseFloat(style.outlineWidth)>0||active.matches(':focus-visible')&&style.boxShadow!=='none'||Boolean(focusStyle&&focusStyle.boxShadow!=='none')},drawerSelector),'drawer keyboard focus escaped or is invisible')
-      wrapped||=await page.evaluate(()=>{const root=document.querySelector('[data-test="extension-container"]').shadowRoot;return root.activeElement===root.querySelector('[data-test="drawer-close"]')})
+      wrapped||=await page.evaluate(()=>{const root=document.querySelector('[data-test="extension-container"]').shadowRoot;return root.activeElement===root.querySelector('.rbac-editor-drawer .kel-drawer__close-btn')})
     }
     assert(wrapped,'native drawer Tab cycle never returned to its starting control')
     await page.focus(focusable);await page.pressFocused('Shift+Tab')
@@ -796,7 +853,7 @@ export async function runAccessControlV3Ui(page,base,fixture,record) {
       const permission=(await all(permissionApi))[0],query=new URLSearchParams({permissionKey:permission.key,filter:JSON.stringify({field:'name',value:permission.name}),size:'100'})
       await open(app+'?'+query);assert.equal(await page.evaluate(()=>document.querySelector('[data-test="extension-container"]').shadowRoot.querySelectorAll('[data-test="filter-chip"]').length),2)
       await page.click('[data-test="application-permissions"] > .rbac-tags > button')
-      await page.waitForFunction(()=>!document.querySelector('[data-test="extension-container"]').shadowRoot.querySelector('[data-test="filter-chip"]'))
+      await page.waitForFunction(()=>{const root=document.querySelector('[data-test="extension-container"]').shadowRoot,p=new URL(location.href).searchParams;return root.querySelector('main')?.getAttribute('aria-busy')==='false'&&!root.querySelector('[data-test="filter-chip"]')&&['filter','scopeKeys','permissionKey','filterSubject','page'].every(key=>!p.has(key))})
       const final=await source(),search=new URLSearchParams(final.query);for(const key of ['filter','scopeKeys','permissionKey','filterSubject','page'])assert.equal(search.has(key),false)
       equal(await visibleRows('permission-row','data-permission-key'),(await all(permissionApi)).map(item=>item.key));return {final}
     })
@@ -835,7 +892,7 @@ export async function runAccessControlV3Ui(page,base,fixture,record) {
       try {
         await setGrant(groupApi,{subject:fixture.subject},[]);await login()
         const path='/ui/main/extensions/rbac/'+app;await page.goto(base+path+'?'+new URLSearchParams({filterSubject:fixture.subject,scopeKeys:fixture.scope}))
-        await page.waitForFunction(path=>location.pathname===path&&document.querySelector('[data-test="extension-container"]')?.shadowRoot?.querySelector('main')?.getAttribute('aria-busy')==='false',path)
+        await page.waitForFunction(({path,subject})=>location.pathname===path&&new URL(location.href).searchParams.get('filterSubject')===subject&&!new URL(location.href).searchParams.has('scopeKeys')&&document.querySelector('[data-test="extension-container"]')?.shadowRoot?.querySelector('main')?.getAttribute('aria-busy')==='false',{path,subject:fixture.subject})
         const actual=await source();await note({originalGrant:original,revokedGrant:await privateRequest(groupApi+'/scope-grants/detail?subject='+encodeURIComponent(fixture.subject)),actual})
         equal(await visibleRows('permission-row','data-permission-key'),[])
         equal(new URLSearchParams(actual.query).getAll('scopeKeys'),[],'expired scope must not remain an adopted active range')
@@ -858,7 +915,7 @@ export async function runAccessControlV3Ui(page,base,fixture,record) {
       await login();await open(route+'/applications/'+encoded(registered.client_id)+'?page=2&size=25')
       equal(await visibleRows('permission-row','data-permission-key'),[keys.at(-1)])
       await page.click('[data-test="permission-delete"]');await clickSave('[data-test="delete-confirm"] .kel-button--danger',collection+'/'+keys.at(-1),'DELETE',[200])
-      await page.waitForFunction(()=>document.querySelector('[data-test="extension-container"]')?.shadowRoot?.querySelector('main')?.getAttribute('aria-busy')==='false')
+      await page.waitForFunction(()=>{const root=document.querySelector('[data-test="extension-container"]')?.shadowRoot;return root?.querySelector('main')?.getAttribute('aria-busy')==='false'&&(new URL(location.href).searchParams.get('page')??'1')==='1'&&root.querySelectorAll('[data-test="permission-row"]').length===25})
       const actual=await source();await note({remaining:await all(collection),actual})
       assert.equal(new URLSearchParams(actual.query).get('page')??'1','1','deleting the last row must canonicalize the effective last page')
       equal(await visibleRows('permission-row','data-permission-key'),keys.slice(0,-1));return {deleted:keys.at(-1),remaining:25,final:actual}
@@ -929,14 +986,14 @@ export async function runAccessControlV3Ui(page,base,fixture,record) {
         const users=await privateList('/users'),grants=await privateList(groupApi+'/scope-grants'),expected=users.filter(item=>item.active&&!grants.some(grant=>grant.subject===item.subject)).map(item=>item.subject)
         assert(expected.length>25);await note({expectedCandidates:expected,excludedAssigned:fixture.subject,excludedInactive:inactive.subject})
         await login();await open(group+'/scope-grants');await drawer('subject','[data-test="subject-add"]')
-        await page.click('[data-test="drawer-subject"] label.rbac-kv-field .kel-select__wrapper')
+        await page.click('[data-test="drawer-subject"] .kel-form-item:first-of-type .kel-select__wrapper')
         const actual=await page.evaluate(()=>[...document.querySelector('[data-test="extension-container"]').shadowRoot.querySelectorAll('[role="option"]')].filter(node=>node.getClientRects().length&&node.getAttribute('aria-disabled')!=='true').map(node=>node.textContent.trim()))
         equal(actual,expected,'subject candidate enumeration omitted active users or leaked assigned/inactive accounts')
         const target=created.at(-1)
-        await page.fill('[data-test="drawer-subject"] label.rbac-kv-field input',target)
+        await page.fill('[data-test="drawer-subject"] .kel-form-item:first-of-type input',target)
         await page.click('[role="option"]:text-is('+JSON.stringify(target)+')')
         assert((await page.evaluate(()=>document.querySelector('[data-test="extension-container"]').shadowRoot.querySelector('[data-test="drawer-subject"]').textContent)).includes(target))
-        await page.click('[data-test="drawer-close"]');await confirmDiscard()
+        await clickDrawerHeader();await confirmDiscard()
         return {selectedAfterSearch:target,candidates:actual,excludedInactive:inactive.subject,excludedAlreadyAssigned:fixture.subject}
       }finally{await cleanup()}
     })
@@ -1054,20 +1111,28 @@ export async function runAccessControlV3Ui(page,base,fixture,record) {
         requireMethods(page,['clickAt'],'shared adapter')
         await page.setViewport({width:1280,height:900});const before=await effectsBefore(),draft='backdrop-'+randomBytes(5).toString('hex')
         await dirtyDrawer(plan,draft);const entered=await drawerDraft(plan),point=await clickBackdrop(plan.kind)
-        await page.waitForFunction(()=>Boolean(document.querySelector('[data-test="extension-container"]').shadowRoot.querySelector('[data-test="discard-confirm"]')))
+        await page.waitForFunction(discardConfirmationVisible)
         await cancelConfirmation('discard-confirm');assert.equal(await drawerDraft(plan),entered,'backdrop cancellation lost draft')
         await clickBackdrop(plan.kind);await confirmDiscard()
         await page.waitForFunction(kind=>!document.querySelector('[data-test="extension-container"]').shadowRoot.querySelector('[data-test="drawer-'+kind+'"]'),plan.kind)
         await effectsUnchanged(before);return {kind:plan.kind,point,cancelRetainedDraft:true,confirmedDiscard:true}
       })
       await run('ui-drawer-'+plan.kind+'-maximize',async()=>{
-        await page.setViewport({width:1280,height:900});await open(plan.path);await drawer(plan.kind,plan.trigger)
+        await page.setViewport({width:1280,height:900})
+        await page.goto(base+fixture.references.kvPath);await page.waitForFunction(()=>Boolean(document.querySelector('[data-test="kv-add"]')?.getClientRects().length))
+        await page.click('[data-test="kv-add"]');await waitForNativeStyleSettlement(page,{drawer:'.kel-drawer.open'},{shadow:false})
+        await page.focus('.kel-drawer.open .kel-drawer__header button.is-link');await page.press('.kel-drawer.open .kel-drawer__header button.is-link','Enter')
+        await page.waitForFunction(()=>document.querySelector('.kel-drawer.open')?.classList.contains('full-screen'))
+        await waitForNativeStyleSettlement(page,{drawer:'.kel-drawer.open'},{shadow:false})
+        const nativeMaximized=await page.evaluate(()=>{const n=document.querySelector('.kel-drawer.open'),b=n.getBoundingClientRect();return {width:b.width,left:b.left,right:b.right,viewport:innerWidth}})
+        await clickDrawerHeader({shadow:false});await page.waitForFunction(()=>!document.querySelector('.kel-drawer.open'))
+        await open(plan.path);await drawer(plan.kind,plan.trigger)
         const geometry=()=>page.evaluate(kind=>{const box=document.querySelector('[data-test="extension-container"]').shadowRoot.querySelector('[data-test="drawer-'+kind+'"]').getBoundingClientRect();return {width:box.width,left:box.left,right:box.right,viewport:innerWidth}},plan.kind)
         const initial=await geometry();assert(initial.width>0&&initial.width<=initial.viewport)
-        await toggleDrawerMaximize();await page.waitForFunction(kind=>{const box=document.querySelector('[data-test="extension-container"]').shadowRoot.querySelector('[data-test="drawer-'+kind+'"]').getBoundingClientRect();return Math.abs(box.width-innerWidth)<=2},plan.kind)
+        await toggleDrawerMaximize();await page.waitForFunction(({kind,width})=>{const n=document.querySelector('[data-test="extension-container"]').shadowRoot.querySelector('[data-test="drawer-'+kind+'"]');return n.classList.contains('full-screen')&&Math.abs(n.getBoundingClientRect().width-width)<=2},{kind:plan.kind,width:nativeMaximized.width})
         const maximized=await geometry();await toggleDrawerMaximize()
         await page.waitForFunction(({kind,width})=>Math.abs(document.querySelector('[data-test="extension-container"]').shadowRoot.querySelector('[data-test="drawer-'+kind+'"]').getBoundingClientRect().width-width)<=2,{kind:plan.kind,width:initial.width})
-        const restored=await geometry();await closeDrawer(plan.kind);return {kind:plan.kind,initial,maximized,restored,source:'actual-native-drawer-geometry'}
+        const restored=await geometry();await closeDrawer(plan.kind);return {kind:plan.kind,initial,maximized,restored,nativeMaximized,source:'actual-native-drawer-geometry'}
       })
       await run('ui-drawer-'+plan.kind+'-history-discard',async()=>{
         await login()
@@ -1104,7 +1169,7 @@ export async function runAccessControlV3Ui(page,base,fixture,record) {
       const tabs=await page.evaluate(()=>[...document.querySelector('[data-test="extension-container"]').shadowRoot.querySelectorAll('[role="tab"]')].map(node=>({text:node.textContent.trim(),selected:node.getAttribute('aria-selected')==='true'})))
       const target=tabs.find(tab=>!tab.selected);assert(target)
       await page.click('[role="tab"]:text-is('+JSON.stringify(target.text)+')')
-      await page.waitForFunction(()=>Boolean(document.querySelector('[data-test="extension-container"]').shadowRoot.querySelector('[data-test="discard-confirm"]')))
+      await page.waitForFunction(discardConfirmationVisible)
       await cancelConfirmation('discard-confirm');assert.equal(await page.evaluate(input=>document.querySelector('[data-test="extension-container"]').shadowRoot.querySelector(input)?.value,input),value)
       assert.equal((await source()).path,'/ui/main/extensions/rbac/'+path,'cancel changed the host route')
       const selected=await page.evaluate(()=>document.querySelector('[data-test="extension-container"]').shadowRoot.querySelector('[role="tab"][aria-selected="true"]')?.textContent.trim())
@@ -1119,7 +1184,7 @@ export async function runAccessControlV3Ui(page,base,fixture,record) {
       await open(group+'/scopes/'+current.key);await page.click('[data-test="scope-detail"] > button')
       const value='sidebar-'+randomBytes(5).toString('hex'),before=await effectsBefore();await page.fill('[data-test="scope-detail"] textarea',value)
       await page.fill('[data-test="scope-sidebar"] input',other.key);await page.click(selector('scope-item','data-scope-key',other.key))
-      await page.waitForFunction(()=>Boolean(document.querySelector('[data-test="extension-container"]').shadowRoot.querySelector('[data-test="discard-confirm"]')))
+      await page.waitForFunction(discardConfirmationVisible)
       await cancelConfirmation('discard-confirm');assert.equal(await page.evaluate(()=>document.querySelector('[data-test="extension-container"]').shadowRoot.querySelector('[data-test="scope-detail"] textarea')?.value),value)
       await page.click(selector('scope-item','data-scope-key',other.key));await confirmDiscard()
       await page.waitForFunction(key=>location.pathname.endsWith('/scopes/'+key),other.key)
@@ -1141,8 +1206,8 @@ export async function runAccessControlV3Ui(page,base,fixture,record) {
         try {
           await page.click('[data-test="drawer-save"]')
           blocked=await barrier.waitForBlocked({operationId:lease.operationId})
-          await page.press('body','Escape');await page.clickAt(point)
-          locked=await page.evaluate(()=>{const root=document.querySelector('[data-test="extension-container"]').shadowRoot;return {path:location.pathname,timeOrigin:performance.timeOrigin,busy:root.querySelector('[data-test="drawer-permission"]')?.getAttribute('aria-busy'),closeDisabled:root.querySelector('[data-test="drawer-close"]')?.disabled,saveDisabled:root.querySelector('[data-test="drawer-save"]')?.disabled,fieldsetDisabled:root.querySelector('[data-test="drawer-permission"] fieldset')?.disabled,discardOpen:Boolean(root.querySelector('[data-test="discard-confirm"]'))}})
+          await page.pressFocused('Escape');await page.clickAt(point)
+          locked=await page.evaluate(()=>{const root=document.querySelector('[data-test="extension-container"]').shadowRoot,close=root.querySelector('.rbac-editor-drawer .kel-drawer__close-btn');return {path:location.pathname,timeOrigin:performance.timeOrigin,busy:root.querySelector('[data-test="drawer-permission"]')?.getAttribute('aria-busy'),closeDisabled:!close||close.disabled===true,saveDisabled:root.querySelector('[data-test="drawer-save"]')?.disabled,fieldsetDisabled:root.querySelector('[data-test="drawer-permission"] fieldset')?.disabled,discardOpen:[...root.querySelectorAll('[data-test="discard-confirm"]')].some(n=>n.getClientRects().length&&getComputedStyle(n).visibility!=='hidden')}})
         }catch(error){interactionFailure=error}
         finally{released=await barrier.release({operationId:lease.operationId})}
         await note({barrier:lease,blocked,locked,released,backdropPoint:point})
@@ -1319,30 +1384,53 @@ export async function runAccessControlV3Ui(page,base,fixture,record) {
   async function fourDrawerThemeCase(theme,locale) {
     await login();await page.setColorScheme('light');await preference(fixture.preferences.themes[theme]);await preference(fixture.preferences.locales[locale])
     const expected=accessControlUiText[locale],observed=[]
-    for(const width of accessControlWidths)for(const plan of drawerPlans()) {
+    for(const width of accessControlWidths) {
+    await page.setViewport({width,height:900})
+    assert.equal(fixture.references.kvPath,'/ui/main/kv','Published KV native drawer reference required')
+    await note({activeNativeReference:{theme,locale,width,phase:'navigate-kv'}})
+    await page.goto(base+fixture.references.kvPath)
+    await page.waitForFunction(path=>location.pathname===path&&document.querySelector('[data-test="kv-add"]')?.getClientRects().length&&!document.querySelector('[data-test="kv-add"]').disabled,fixture.references.kvPath)
+    await waitForNativeStyleSettlement(page,{trigger:'[data-test="kv-add"]'},{shadow:false})
+    await note({activeNativeReference:{theme,locale,width,phase:'click-create'}})
+    await page.click('[data-test="kv-add"]')
+    await page.waitForFunction(()=>[...document.querySelectorAll('.kel-drawer.open')].filter(n=>n.getClientRects().length&&getComputedStyle(n).visibility!=='hidden'&&n.getBoundingClientRect().width>0).length===1)
+    await waitForNativeStyleSettlement(page,{drawer:'.kel-drawer.open'},{shadow:false})
+    const nativeReference=await page.evaluate(nativeDrawerMeasurements,{shadow:false})
+    assert(nativeReference.icons.expand.length&&nativeReference.icons.close.length&&nativeReference.nativeForm,'Published reference must actually use native SVG/form')
+    await clickDrawerHeader({shadow:false});await page.waitForFunction(()=>![...document.querySelectorAll('.kel-drawer')].some(n=>n.getBoundingClientRect().width>0))
+    for(const plan of drawerPlans()) {
       await note({activeDrawer:{theme,locale,width,kind:plan.kind}})
       await page.setViewport({width,height:900});await open(plan.path);await drawer(plan.kind,plan.trigger)
       const before=await effectsBefore()
       try {
+        const nativeParity=await page.evaluate(nativeDrawerMeasurements,{shadow:true,kind:plan.kind})
+        for(const section of ['header','body','footer'])assert.deepEqual(nativeParity[section].style,nativeReference[section].style,'Native KV drawer '+section+' style differs')
+        assert.deepEqual(nativeParity.icons,nativeReference.icons,'Native drawer SVG actions differ from published KV reference')
+        assert(nativeParity.save.nativeIcon&&nativeReference.save.nativeIcon&&nativeParity.save.gap>0&&Math.abs(nativeParity.save.gap-nativeReference.save.gap)<=1,'Save must use the native icon prop and actual icon/label spacing')
+        assert.deepEqual(nativeParity.save.paths,nativeReference.save.paths,'Save SVG differs from native KV')
+        assert(nativeParity.nativeForm,'Editor did not reuse native horizontal form')
+        assert(Math.abs(nativeParity.footer.rect.bottom-nativeParity.drawer.bottom)<=2,'Native drawer footer does not stay at its bottom')
+        for(const action of ['expand','close'])for(const dimension of ['width','height'])assert(Math.abs(nativeParity.buttons[action][dimension]-nativeReference.buttons[action][dimension])<=2,'Native drawer action button dimensions differ')
+        await note({nativeDrawerReference:nativeReference,lastNativeDrawerParity:{kind:plan.kind,width,...nativeParity}})
         const saveText=await page.evaluate(()=>document.querySelector('[data-test="extension-container"]').shadowRoot.querySelector('[data-test="drawer-save"]').textContent.trim());assert.equal(saveText,fixture.localeText[locale].save)
-        await page.focus('[data-test="drawer-close"]');await page.pressFocused('Tab')
+        await page.focus('.rbac-editor-drawer .kel-drawer__close-btn');await page.pressFocused('Tab')
         const native=await measurePanel(selector('drawer-'+plan.kind));assert(native.focusInside&&native.focusVisible,'native drawer keyboard focus is not visible/trapped')
         if(plan.input) {
           const requestStart=new Set((await page.diagnostics()).events.map(event=>event.id));await page.click('[data-test="drawer-save"]')
           assert(await page.evaluate(kind=>Boolean(document.querySelector('[data-test="extension-container"]').shadowRoot.querySelector('[data-test="drawer-'+kind+'"] input:invalid')),plan.kind),'empty required fields did not expose native validation')
           assert(!(await page.diagnostics()).events.some(event=>!requestStart.has(event.id)&&event.kind==='request'&&event.method==='POST'&&event.url.startsWith(base+api)),'native invalid form unexpectedly submitted')
           await page.fill(plan.input,'localized-draft-'+randomBytes(3).toString('hex'))
-        }else {await page.click('[data-test="drawer-subject"] label.rbac-kv-field .kel-select__wrapper');await page.click('[role="option"]:text-is('+JSON.stringify(fixture.zeroAccount.subject)+')')}
+        }else {await page.click('[data-test="drawer-subject"] .kel-form-item:first-of-type .kel-select__wrapper');await page.click('[role="option"]:text-is('+JSON.stringify(fixture.zeroAccount.subject)+')')}
         const draft=await drawerDraft(plan)
-        await page.click('[data-test="drawer-close"]');await page.waitForFunction(()=>Boolean(document.querySelector('[data-test="extension-container"]').shadowRoot.querySelector('[data-test="discard-confirm"]')))
+        await clickDrawerHeader();await page.waitForFunction(discardConfirmationVisible)
         const actualTitle=await page.evaluate(()=>{const node=document.querySelector('[data-test="extension-container"]').shadowRoot.querySelector('[data-test="discard-confirm"]');return node.querySelector('[role="heading"],h1,h2,.kel-dialog__title')?.textContent.trim()??node.textContent.trim()})
         assert(actualTitle.includes(expected.discardTitle),'discard confirmation translation differs')
         const confirmation=await measurePanel('[data-test="discard-confirm"]');await cancelConfirmation('discard-confirm');assert.equal(await drawerDraft(plan),draft)
-        await page.click('[data-test="drawer-close"]');await confirmDiscard()
+        await clickDrawerHeader();await confirmDiscard()
         const collection=plan.kind==='group'?'/application-groups':plan.kind==='user'?'/users':plan.kind==='permission'?permissionApi:groupApi+'/scope-grants'
         const beforeContent=await all(collection)
         await drawer(plan.kind,plan.trigger)
-        if(plan.kind==='group'){await page.fill('[data-test="drawer-group"] label:first-of-type input',fixture.applicationGroupId);await page.fill('[data-test="drawer-group"] label:nth-of-type(2) input','Rejected duplicate group')}
+        if(plan.kind==='group'){await page.fill('[data-test="drawer-group"] .kel-form-item:first-of-type input',fixture.applicationGroupId);await page.fill('[data-test="drawer-group"] .kel-form-item:nth-of-type(2) input','Rejected duplicate group')}
         else if(plan.kind==='user'){await page.fill('[data-test="drawer-user"] input[name="username"]',fixture.admin.username);await page.fill('[data-test="drawer-user"] input[name="name"]','Rejected duplicate user')}
         else if(plan.kind==='permission'){await page.fill('[name="permission-key"]',beforeContent[0].key);await page.fill('[name="permission-name"]','Rejected duplicate permission')}
         await clickSave('[data-test="drawer-save"]',collection,'POST',[plan.kind==='subject'?400:409])
@@ -1351,9 +1439,10 @@ export async function runAccessControlV3Ui(page,base,fixture,record) {
         equal(await all(collection),beforeContent,'rejected form changed persisted collection')
         const errorPanel=await measurePanel(selector('drawer-'+plan.kind)+' [data-test="request-error"]')
         await clearTransientUi();await effectsUnchanged(before)
-        observed.push({kind:plan.kind,width,native,confirmation,saveText,discardTitle:actualTitle,errorText,errorPanel,failedSaveUnchanged:true})
+        observed.push({kind:plan.kind,width,native,nativeParity,nativeReference,confirmation,saveText,discardTitle:actualTitle,errorText,errorPanel,failedSaveUnchanged:true})
         await note({theme,locale,drawers:observed})
       }finally{await clearTransientUi()}
+    }
     }
     await page.reload();await page.waitForFunction(()=>document.querySelector('[data-test="extension-container"]')?.shadowRoot?.querySelector('main')?.getAttribute('aria-busy')==='false')
     assert.equal((await state()).lang,locale.replaceAll('_','-'))
@@ -1474,6 +1563,10 @@ export async function runAccessControlV3Ui(page,base,fixture,record) {
     await run('ui-four-tabs-cards-counts',async()=>{
       const groups=await all('/application-groups'),expected=await read(groupApi)
       await open('application-groups','[data-test="group-card"]')
+      const countSpacing=await page.evaluate(cardCountSpacingMeasurements)
+      assert(countSpacing.length>=3&&countSpacing.every(row=>Number.isFinite(row.token)&&row.token>0&&row.gap>=row.token-1&&row.text.startsWith(row.count+' ')),'card counts and units require actual visible spacing and accessible text separation')
+      const headingLayout=await page.evaluate(cardHeadingMeasurements)
+      assert(headingLayout.length&&headingLayout.every(row=>row.vertical&&row.nameGap>0&&(row.badgeGap===null||row.badgeGap>0)),'card key/name/badge must be visibly separated vertically')
       const card=selector('group-card','data-group-id',fixture.applicationGroupId)
       assert((await visibleRows('group-card','data-group-id')).every(id=>groups.some(group=>group.id===id)))
       await page.click(card+' .application-group-card-link');await page.waitForFunction(path=>location.pathname===path,'/ui/main/extensions/rbac/'+group)
@@ -1490,13 +1583,13 @@ export async function runAccessControlV3Ui(page,base,fixture,record) {
         await page.click('.rbac-statistics button:nth-child('+(index+1)+')')
         await page.waitForFunction(path=>location.pathname===path,target.pathname)
       }
-      return {counts:expected.counts,tabs:observed.tabs}
+      return {counts:expected.counts,tabs:observed.tabs,countSpacing,headingLayout}
     })
     await run('ui-group-create-edit-delete',async()=>{
       const id='ui-browser-group-'+randomBytes(5).toString('hex'),path='/application-groups/'+id
       await open('application-groups');await drawer('group','.management-toolbar button')
-      await page.fill('[data-test="drawer-group"] label:nth-of-type(1) input',id)
-      await page.fill('[data-test="drawer-group"] label:nth-of-type(2) input','Browser group display')
+      await page.fill('[data-test="drawer-group"] .kel-form-item:nth-of-type(1) input',id)
+      await page.fill('[data-test="drawer-group"] .kel-form-item:nth-of-type(2) input','Browser group display')
       await page.fill('[data-test="drawer-group"] textarea','Browser group initial description')
       const created=await clickSave('[data-test="drawer-save"]','/application-groups','POST',[200])
       let saved=await read(path);assert.equal(saved.description,'Browser group initial description');assert.equal(saved.displayName,'Browser group display');equal(saved.counts,{scopes:0,applications:0,subjects:0})
@@ -1995,19 +2088,19 @@ export async function runAccessControlV3Ui(page,base,fixture,record) {
     })
     await run('ui-four-drawers-draft-discard',async()=>{
       const evidence=[]
-      for(const [kind,path,trigger,input]of [['group','application-groups','.management-toolbar button','[data-test="drawer-group"] label:first-of-type input'],['user','users','[data-test="user-create"]','[data-test="drawer-user"] label:first-of-type input'],['permission',app,'[data-test="permission-add"]','[name="permission-name"]'],['subject',group+'/scope-grants','[data-test="subject-add"]',null]]) {
+      for(const [kind,path,trigger,input]of [['group','application-groups','.management-toolbar button','[data-test="drawer-group"] .kel-form-item:first-of-type input'],['user','users','[data-test="user-create"]','[data-test="drawer-user"] input[name="username"]'],['permission',app,'[data-test="permission-add"]','[name="permission-name"]'],['subject',group+'/scope-grants','[data-test="subject-add"]',null]]) {
         await open(path);await drawer(kind,trigger)
         const draft='unsaved-browser-'+randomBytes(3).toString('hex')
         if(input)await page.fill(input,draft)
-        else {await page.click('[data-test="drawer-subject"] label.rbac-kv-field .kel-select__wrapper');await page.click('[role="option"]:text-is('+JSON.stringify(fixture.zeroAccount.subject)+')')}
+        else {await page.click('[data-test="drawer-subject"] .kel-form-item:first-of-type .kel-select__wrapper');await page.click('[role="option"]:text-is('+JSON.stringify(fixture.zeroAccount.subject)+')')}
         const before=await page.evaluate(kind=>document.querySelector('[data-test="extension-container"]').shadowRoot.querySelector('[data-test="drawer-'+kind+'"]').textContent,kind)
-        await page.press(input??'[data-test="drawer-close"]','Escape')
-        await page.waitForFunction(()=>Boolean(document.querySelector('[data-test="extension-container"]').shadowRoot.querySelector('[data-test="discard-confirm"]')))
+        await page.focus(input??'.rbac-editor-drawer .kel-drawer__close-btn');await page.pressFocused('Escape')
+        await page.waitForFunction(discardConfirmationVisible)
         await page.click('[data-test="discard-confirm"] .kel-button:not(.kel-button--danger)')
         assert(await page.evaluate(kind=>Boolean(document.querySelector('[data-test="extension-container"]').shadowRoot.querySelector('[data-test="drawer-'+kind+'"]')),kind),'cancel discard closed editor')
         if(input)assert.equal(await page.evaluate(input=>document.querySelector('[data-test="extension-container"]').shadowRoot.querySelector(input).value,input),draft,'cancel discard lost entered draft')
         else assert((await page.evaluate(kind=>document.querySelector('[data-test="extension-container"]').shadowRoot.querySelector('[data-test="drawer-'+kind+'"]').textContent,kind)).includes(fixture.zeroAccount.subject),'cancel discard lost selected subject')
-        await page.click('[data-test="drawer-close"]');await page.waitForFunction(()=>Boolean(document.querySelector('[data-test="extension-container"]').shadowRoot.querySelector('[data-test="discard-confirm"]')))
+        await clickDrawerHeader();await page.waitForFunction(discardConfirmationVisible)
         await page.click('[data-test="discard-confirm"] .kel-button--danger')
         await page.waitForFunction(kind=>!document.querySelector('[data-test="extension-container"]').shadowRoot.querySelector('[data-test="drawer-'+kind+'"]'),kind)
         assert(await page.evaluate(trigger=>document.querySelector('[data-test="extension-container"]').shadowRoot.activeElement?.matches(trigger),trigger),'confirmed discard did not restore focus')
@@ -2032,7 +2125,7 @@ export async function runAccessControlV3Ui(page,base,fixture,record) {
       assert.equal(await page.evaluate(()=>document.querySelector('[data-test="extension-container"]').shadowRoot.querySelector('[name="permission-name"]').value),draftName,'412 discarded browser draft')
       equal(await read(path),accepted,'412 overwrote concurrent data');assert.equal((await fixture.targetRuntime.effects.snapshot()).hash,beforeEffects.hash)
       assert(await page.evaluate(()=>Boolean(document.querySelector('[data-test="extension-container"]').shadowRoot.querySelector('[data-test="conflict-refresh"]'))),'conflict has no explicit refresh')
-      await page.click('[data-test="drawer-permission"] [data-test="conflict-refresh"]');await page.waitForFunction(()=>Boolean(document.querySelector('[data-test="extension-container"]').shadowRoot.querySelector('[data-test="discard-confirm"]')))
+      await page.click('[data-test="drawer-permission"] [data-test="conflict-refresh"]');await page.waitForFunction(discardConfirmationVisible)
       await page.click('[data-test="discard-confirm"] .kel-button--danger')
       await page.waitForFunction(()=>!document.querySelector('[data-test="extension-container"]').shadowRoot.querySelector('[data-test="drawer-permission"]'))
       await open(app);await drawer('permission','[data-test="permission-add"]')
@@ -2053,9 +2146,9 @@ export async function runAccessControlV3Ui(page,base,fixture,record) {
     await run('ui-account-temporary-password-lifecycle',async()=>{
       const username='ui-created-'+randomBytes(5).toString('hex')
       await open('users');await drawer('user','[data-test="user-create"]')
-      await page.fill('[data-test="drawer-user"] label:nth-of-type(1) input',username)
-      await page.fill('[data-test="drawer-user"] label:nth-of-type(2) input','Browser created account')
-      await page.fill('[data-test="drawer-user"] label:nth-of-type(3) input',username+'@acceptance.invalid')
+      await page.fill('[data-test="drawer-user"] input[name="username"]',username)
+      await page.fill('[data-test="drawer-user"] input[name="name"]','Browser created account')
+      await page.fill('[data-test="drawer-user"] input[name="email"]',username+'@acceptance.invalid')
       await clickSave('[data-test="drawer-save"]','/users','POST',[201])
       const password=await oneTimeValue('password')
       const user=await read('/users/detail?subject='+encodeURIComponent(username))
@@ -2279,17 +2372,29 @@ export async function runAccessControlV3Ui(page,base,fixture,record) {
         await page.focus('[name="permission-name"]');await page.press('[name="permission-name"]','Tab')
         const layout=await page.evaluate(()=>{const root=document.querySelector('[data-test="extension-container"]').shadowRoot,active=root.activeElement,style=active&&getComputedStyle(active),wrapper=active?.closest('.kel-input__wrapper.is-focus,.kel-select__wrapper.is-focused'),focusStyle=wrapper&&getComputedStyle(wrapper),box=root.querySelector('[data-test="drawer-permission"]').getBoundingClientRect();return {width:innerWidth,documentWidth:document.documentElement.scrollWidth,left:box.left,right:box.right,focusVisible:Boolean(active&&!active.disabled&&(style.outlineStyle!=='none'&&parseFloat(style.outlineWidth)>0||focusStyle&&focusStyle.boxShadow!=='none'))}})
         assert(layout.focusVisible,'keyboard focus invisible');assert(layout.documentWidth<=width+2&&layout.left>=-2&&layout.right<=width+2,'horizontal overflow')
-        await page.click('[data-test="drawer-permission"] [data-test="scope-picker"] .kel-select__wrapper')
         const scopeInput='[data-test="drawer-permission"] [data-test="scope-picker"] input[role="combobox"]'
+        const selectedBeforeSearch=await page.evaluate(()=>[...document.querySelector('[data-test="extension-container"]').shadowRoot.querySelectorAll('[data-test="drawer-permission"] [data-test="scope-picker"] .rbac-tags code')].map(n=>n.textContent))
+        assert(selectedBeforeSearch.includes(fixture.scope),'the actual edited permission must retain its authorized scope before native search')
+        await page.click(scopeInput)
         await page.fill(scopeInput,'no-matching-scope-'+randomBytes(8).toString('hex'))
         await page.waitForFunction(expected=>{const root=document.querySelector('[data-test="extension-container"]').shadowRoot,visible=[...root.querySelectorAll('.kel-select-dropdown__empty')].filter(node=>node.getClientRects().length);return visible.length===1&&visible[0].textContent.trim()===expected},accessControlNativeSelectNoMatch[locale])
         layout.nativeSelectNoMatch=await page.evaluate(()=>[...document.querySelector('[data-test="extension-container"]').shadowRoot.querySelectorAll('.kel-select-dropdown__empty')].find(node=>node.getClientRects().length).textContent.trim())
         assert.equal(layout.nativeSelectNoMatch,accessControlNativeSelectNoMatch[locale],'native select did not follow the actual host language preference')
         await page.press(scopeInput,'Escape')
+        const selectedAfterSearch=await page.evaluate(()=>[...document.querySelector('[data-test="extension-container"]').shadowRoot.querySelectorAll('[data-test="drawer-permission"] [data-test="scope-picker"] .rbac-tags code')].map(n=>n.textContent))
+        assert.deepEqual(selectedAfterSearch,selectedBeforeSearch,'search must not remove or change selected scope grants')
+        layout.scopeSearchPreservedSelection={before:selectedBeforeSearch,after:selectedAfterSearch}
         assert(await page.evaluate(()=>Boolean(document.querySelector('[data-test="extension-container"]').shadowRoot.querySelector('[data-test="drawer-permission"]'))),'native select ESC incorrectly closed its parent drawer')
         layouts.push(layout);await closeDrawer('permission')
-        for(const [path,element]of [[group,'[data-test="group-detail"]'],[group+'/scopes/'+fixture.scope,'[data-test="scope-detail"]'],[group+'/scope-grants','[data-test="subject-list"]'],['users','[data-test="user-list"]']]) {
+        for(const [path,element]of [['application-groups','[data-test="application-group-cards"]'],[group,'[data-test="group-detail"]'],[group+'/scopes/'+fixture.scope,'[data-test="scope-detail"]'],[group+'/scope-grants','[data-test="subject-list"]'],['users','[data-test="user-list"]']]) {
           await open(path,element)
+          if(path==='application-groups') {
+            const countSpacing=await page.evaluate(cardCountSpacingMeasurements)
+            assert(countSpacing.length>=3&&countSpacing.every(row=>Number.isFinite(row.token)&&row.token>0&&row.gap>=row.token-1&&row.text.startsWith(row.count+' ')),'localized/narrow card count units visually joined')
+            const headingLayout=await page.evaluate(cardHeadingMeasurements)
+            assert(headingLayout.length&&headingLayout.every(row=>row.vertical&&row.nameGap>0&&(row.badgeGap===null||row.badgeGap>0)),'localized/narrow card heading labels joined')
+            layouts.push({path,width,countSpacing,headingLayout})
+          }
           const overflow=await page.evaluate(element=>{const root=document.querySelector('[data-test="extension-container"]').shadowRoot,box=root.querySelector(element).getBoundingClientRect();return {viewport:innerWidth,documentWidth:document.documentElement.scrollWidth,left:box.left,right:box.right,text:root.querySelector(element).textContent.trim()}},element)
           assert(overflow.text&&overflow.documentWidth<=width+2&&overflow.left>=-2&&overflow.right<=width+2,'localized page overflow or missing stable content: '+path)
           layouts.push({path,...overflow})
