@@ -4,7 +4,8 @@ import {fileURLToPath} from 'node:url'
 import assert from 'node:assert/strict'
 import {projectScopeCases, requiredProjectChecks, legacyMigrationChecks, applicationProject} from './application-project-cases.mjs'
 import {applicationGroupPluginClasses,applicationGroupTables} from './application-group-artifact-contract.mjs'
-import {derive as deriveAccessControlGates} from './access-control-v3-gates.mjs'
+import {derive as deriveAccessControlGates,assertHostHttpOriginReport} from './access-control-v3-gates.mjs'
+import {createHash} from 'node:crypto'
 import {accessControlLocales,accessControlSupportedLocales} from './access-control-v3-ui.mjs'
 import {checkPublishedTranslationSources} from './access-control-translation-coverage.mjs'
 import {classifyAccessControlDiagnostics} from './access-control-browser-diagnostics.mjs'
@@ -44,6 +45,11 @@ for(const derived of deriveAccessControlGates(report)) {
 for(const resource of ['containers','networks','volumes'])assert.equal(report.resources.cleanupInventory[resource],0,'Owned acceptance '+resource+' remain')
 assert(report.stages?.some(stage => stage.id === 'publication-gate' && stage.status === 'passed'), 'Formal artifact publication gate missing')
 const sdkGate=report.sources?.overlay?.downloadedSdkBrowserGate
+const originGate=report.sources?.overlay?.downloadedHttpOriginGate
+assert.equal(originGate?.commit,overlayCommit,'Published HTTP origin regression commit differs')
+assert.equal(originGate.runId,sdkGate.runId)
+assert.equal(originGate.sha256,createHash('sha256').update(originGate.xml).digest('hex'))
+assert.deepEqual({tests:originGate.tests,cases:originGate.cases,failures:originGate.failures,skipped:originGate.skipped},assertHostHttpOriginReport(originGate.xml))
 assert.equal(sdkGate?.commit,overlayCommit,'Downloaded host SDK report does not match final commit')
 assert.equal(sdkGate.image,image,'Downloaded host SDK report does not match selected image')
 assert.equal(sdkGate.passed,949);assert.equal(sdkGate.failures,0);assert.equal(sdkGate.notRun,0)

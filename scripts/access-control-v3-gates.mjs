@@ -71,6 +71,16 @@ export const rootMcpCheckIds=Object.freeze([
 
 export function initialGateRows() {return derive({})}
 
+export const hostHttpOriginCases=Object.freeze(['actualHttpRequestWithoutAmbientOriginSurvivesAsyncInitialization','concurrentRequestsOverrideStaleOriginsAndTrimTransactions','missingOriginOutsideHttpFilterStillFailsClosed','requestWithoutAuthenticationStillReturns401BeforeIdentityOrBusiness','explicitUnavailableAndUnknownFailureKeep503And403'])
+export function assertHostHttpOriginReport(xml) {
+  const report=parseLifecycleJUnit(xml)
+  assert.equal(report.status,'passed','Published HTTP origin tests failed or skipped')
+  assert.equal(report.cases.length,hostHttpOriginCases.length)
+  assert(report.cases.every(test=>test.classname==='io.kestra.webserver.rbac.AuthorizationHttpOriginBoundaryTest'&&test.status==='passed'))
+  assert.deepEqual(report.cases.map(test=>test.name.replace(/\(\)$/,'')).sort(),[...hostHttpOriginCases].sort(),'Published HTTP origin named cases differ')
+  return {tests:report.cases.length,cases:report.cases,failures:0,skipped:0}
+}
+
 function decodeXml(value) {
   return value.replace(/&([^;]+);/g,(_,entity)=>{
     const known={amp:'&',lt:'<',gt:'>',quot:'"',apos:"'"}

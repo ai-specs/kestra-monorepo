@@ -1,5 +1,17 @@
 # 应用组目标模型实施差异报告
 
+2026-10-31 正式发布顺序已重新执行：overlay ff707dd/CI41129076310五job成功且推广，
+7件artifact实际下载、412后端（2镜像前置由实际4份镜像XML另核）、UI95、20认证JSON、
+SDK949、几何60全核，新增5具名来源门全过。正式digest15c7cace895531459fa1ef03446ec3945cd9ec1440c36a165c62b52e21472bac，
+arm64正常pull/created未启动提取exe7142f7d86b29a611bd08a471616dc28d57f47c43b81081cef7cdb2462d218f22，
+双架构after/run/BASE和三推广tag逐核；BuildKit completeness两项false限制保留。
+plugin 0d97555只消费该registry正式输入，独立CI41135257271成功，artifact13017281224
+实际下载并亲核Java286/PG108/生命周期24/UI195、schema2升级8/新装3、23bean/349资源。
+正式jar402a13886bedd87c55b30fe62d55509bb8224f15381e01904cf919eea39cbadf与最终远端
+独立克隆README构建件一致。根选择新正式组合、精确下载新增5具名来源门，不用旧结果替代。
+证据入口resumed/request-origin-ci-main与plugin-origin-host-ci-main；完整根新装与最终根CI
+尚待新干净提交执行，未宣称交付。历史失败同源仍未证明，新组合真实T6必须重新验证。
+
 2026-10-31 当前首要阻塞为T6锁前拒绝：0563560完整本地两次分别在互停、互删观察到
 请求index0约103ms提前403、双等待者未成立，均按失败保存和清理；第二次是有界本地复测，
 未重复触CI。另一次有界hash诊断同类失败，证据见resumed/t6-early-refusal-credential-diagnostic。

@@ -31,7 +31,7 @@ import {applicationPermissionRecords} from './application-project-policy.mjs'
 import {runLoginClientMaintenance} from './access-control-v3-maintenance.mjs'
 import {prepareFrozenBaseline,runPreparedFrozenBaselineUi} from './access-control-v3-frozen.mjs'
 import {ownedPermissionDependencyControls} from './access-control-v3-dependency.mjs'
-import {derive as deriveAccessControlGates,lifecycleXmlInputs,parseLifecycleJUnit} from './access-control-v3-gates.mjs'
+import {derive as deriveAccessControlGates,lifecycleXmlInputs,parseLifecycleJUnit,assertHostHttpOriginReport} from './access-control-v3-gates.mjs'
 import {runAccessControlV3Transactions} from './access-control-v3-transactions.mjs'
 import {createOwnedAccessControlUiControls} from './access-control-v3-ui-controls.mjs'
 import {assertApplicationGroupPluginEntries,assertApplicationGroupSchemaTables} from './application-group-artifact-contract.mjs'
@@ -328,6 +328,8 @@ export async function main(argv=process.argv.slice(2),runtime={}) {
       const hostCached=previouslyDownloadedHostArtifact('host-scoped-tests',hostArtifact)
       const hostDirectory=hostCached??join(output,'downloaded-host-lifecycle')
       if(!hostCached){mkdirSync(hostDirectory,{mode:0o700});command('gh',['run','download',String(evidence.overlayRunId),'-R','ai-specs/kestra-overlay','--name','host-scoped-tests','--dir',hostDirectory],{timeout:180000})}
+      const originXml=readFileSync(join(hostDirectory,'test-results/test/TEST-io.kestra.webserver.rbac.AuthorizationHttpOriginBoundaryTest.xml'),'utf8')
+      report.sources.overlay.downloadedHttpOriginGate={commit:report.inputs.overlayCommit,runId:evidence.overlayRunId,artifactId:hostArtifact.id,sha256:hash(originXml),xml:originXml,...assertHostHttpOriginReport(originXml)}
       for(const [repository,directory,artifactId,runId,workflow]of [
         ['overlay',join(hostDirectory,'test-results/test'),hostArtifact.id,evidence.overlayRunId,runs.overlay],
         ['plugin',join(downloaded,'.evidence/postgres/results'),evidence.pluginArtifactId,evidence.pluginRunId,runs.plugin],
