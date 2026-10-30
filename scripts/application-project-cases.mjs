@@ -99,21 +99,30 @@ export const legacyMigrationChecks = Object.freeze([
   'migration-old-api-writes-removed', 'migration-backup-rollback',
 ])
 
+export const accessControlV3Checks = Object.freeze([
+  'access-control-v3-T1', 'access-control-v3-T2', 'access-control-v3-T3',
+  'access-control-v3-T4', 'access-control-v3-T5', 'access-control-v3-T6',
+  'access-control-v3-T7', 'access-control-v3-T8', 'access-control-v3-T9',
+  'access-control-v3-T10', 'access-control-v3-T11', 'access-control-v3-T12',
+  'declaration-upgrade',
+])
+
 export const requiredProjectChecks = Object.freeze([
-  'production-ui-login-canonical-path', 'ui-role-grant-edit-refresh',
-  'ui-client-membership-approval', 'ui-subject-grant-revoke', 'ui-zero-grant-logout-switch',
+  ...accessControlV3Checks,
+  'production-ui-login-canonical-path', 'ui-permission-typed-save-refresh',
+  'ui-application-register-remove', 'ui-subject-grant-revoke', 'ui-zero-grant-logout-switch',
   'ui-light', 'ui-dark', 'ui-dark-2', 'ui-system', 'ui-narrow', 'ui-languages',
   'ui-filter-search-pagination', 'ui-keyboard-focus', 'ui-empty-loading-error-conflict',
   'mcp-capability-without-application-scope', 'mcp-application-scope-without-capability',
   'mcp-known-plus-unbound-list', 'mcp-known-plus-unbound-call',
   'mcp-same-session-application-policy-revoke', 'mcp-same-session-supported-scope-revoke',
-  'ui-subject-revoke', 'rest-subject-revoke', 'mcp-user-scope-revoke', 'refresh-cannot-restore-revoked-scope',
+  'ui-subject-runtime-revoke', 'rest-subject-revoke', 'mcp-user-scope-revoke', 'refresh-cannot-restore-revoked-scope',
   'wrong-issuer', 'wrong-audience', 'wrong-application-group', 'wrong-tenant',
   'directory-unavailable', 'policy-unavailable', 'missing-extension', 'feature-disabled-regression',
   'list-total-pagination-aggregate', 'denied-write-no-delayed-side-effects',
   'legacy-write-api-removed',
   'last-application-group-administrator', 'last-application-policy-administrator',
-  'ui-application-declaration-crud', 'application-policy-unregistered-group-denied',
+  'ui-permission-external-crud', 'ui-permission-runtime-projection', 'application-policy-unregistered-group-denied',
   'management-target-action-cross-scope-denied', 'scope-metadata-independent-of-application-policy',
   'oauth-error-callback-preserves-session', 'oauth-error-callback-state-rejection',
 ])

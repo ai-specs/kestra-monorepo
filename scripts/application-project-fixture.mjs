@@ -4,20 +4,23 @@ import {execFileSync} from 'node:child_process'
 import {randomBytes} from 'node:crypto'
 import {ProductionOAuthClient} from './production-oauth-client.mjs'
 import {applicationProject,projectScopeCases,namespaceDomains,scopeNames} from './application-project-cases.mjs'
-import {localApplicationPolicy,directoryScopeInputs,applicationPermission} from './application-project-policy.mjs'
+import {localApplicationPolicy,directoryScopeInputs,applicationPermission,applicationPermissionRecords} from './application-project-policy.mjs'
 
 export function planFixture(base) {
   assert.equal(new URL(base).origin,base)
   const password=()=>randomBytes(24).toString('base64url')+'aA1!'
   const admin={username:'project-acceptance-manager',subject:'project-acceptance-manager',password:password()}
   const accounts=Object.fromEntries(projectScopeCases.map((item,index)=>[item.id,{username:'project-acceptance-'+index,subject:'project-acceptance-'+index,password:password()}]))
-  const policy=localApplicationPolicy({issuer:base,audiences:['kestra-ui']})
+  const policy=localApplicationPolicy({issuer:base,audiences:[base+'/api/v1/main/mcp/default']})
   const observerScope='acceptance-observer-complete'
   policy.applicationGroups[applicationProject].scopes[observerScope]={description:'Isolated test data observer',enabled:true,
     grants:[namespaceDomains.a,namespaceDomains.b,namespaceDomains.outside,namespaceDomains.a+'2'].flatMap(namespace=>[
       {scope:'NAMESPACE',tenant:'main',namespace,descendants:true,resource:'FLOW',actions:['READ','LIST','CREATE','UPDATE','DELETE','EXECUTE'],ids:[],allIds:true},
       {scope:'NAMESPACE',tenant:'main',namespace,descendants:true,resource:'EXECUTION',actions:['READ','LIST','CREATE','DELETE','ACCESS_OUTPUTS'],ids:[],allIds:true},
-    ]).concat([{scope:'TENANT',tenant:'main',namespace:null,descendants:false,resource:'METADATA',actions:['READ','LIST'],ids:[],allIds:true}]),managementGrants:[]}
+      {scope:'NAMESPACE',tenant:'main',namespace,descendants:true,resource:'TRIGGER',actions:['READ','LIST'],ids:[],allIds:true},
+      {scope:'NAMESPACE',tenant:'main',namespace,descendants:true,resource:'NAMESPACE',actions:['READ','LIST'],ids:[],allIds:true},
+    ]).concat([{scope:'TENANT',tenant:'main',namespace:null,descendants:false,resource:'METADATA',actions:['READ','LIST'],ids:[],allIds:true},
+      {scope:'TENANT',tenant:'main',namespace:null,descendants:false,resource:'MCP_SERVER',actions:['READ','LIST'],ids:['default'],allIds:false}]),managementGrants:[]}
   const mcp=planMcpScenarios()
   for(const [name,scope]of Object.entries(mcp.revocationScopes)) {
     const flowId=mcp.scenarios[name].call.flowId
@@ -39,10 +42,10 @@ export function directoryActivationPlan(fixture,installationId) {
   assert(/^[0-9a-f-]{36}$/i.test(installationId),'actual installation UUID required')
   const names=[...fixture.projectScopeCatalog]
   assert.deepEqual([...names].sort(),fixture.directoryScopes.map(item=>item.key).sort(),'explicit scope catalog differs from generated definitions')
-  return {formatVersion:1,installationId,issuer:fixture.base,uiClientId:'kestra-ui',builtInApplicationGroupId:applicationProject,applicationGroups:[{
-      applicationGroup:{id:applicationProject,displayName:'Acceptance',active:true,revision:1,authorizationVersion:1},
+  return {formatVersion:2,installationId,issuer:fixture.base,uiClientId:'kestra-ui',builtInApplicationGroupId:applicationProject,applicationGroups:[{
+      applicationGroup:{id:applicationProject,displayName:'Acceptance',description:'Isolated access-control acceptance',active:true,revision:1,authorizationVersion:1},
       scopes:fixture.directoryScopes.map(scope=>({...scope,revision:1})),
-      applications:[{clientId:'kestra-ui',approved:true,audiences:['kestra-ui'],supportedScopeKeys:names,revision:1}],
+      applications:[{clientId:'kestra-ui',description:'Acceptance UI',audiences:[fixture.base+'/api/v1/main/mcp/default'],permissions:applicationPermissionRecords(fixture,names,{kestraPolicy:true}),revision:1}],
       userGrants:[{issuer:fixture.base,subject:fixture.admin.subject,
         scopeKeys:[scopeNames.identityManager,scopeNames.policyManager,fixture.observerScope],revision:1}]}]}
 }
@@ -50,7 +53,7 @@ export function directoryActivationPlan(fixture,installationId) {
 export class ApplicationGroupManagement {
   constructor(base,account) {
     assert.equal(arguments.length,2,'Complete policy recovery callbacks are not supported')
-    this.base=base;this.account=account;this.requests=[];this.approvedClientIds=new Map()
+    this.base=base;this.account=account;this.requests=[];this.registeredClientIds=new Map()
   }
   async login() {
     this.client=new ProductionOAuthClient(this.base)
@@ -63,6 +66,7 @@ export class ApplicationGroupManagement {
     assert(path.startsWith('/api/v1/main/extensions/rbac/'),'only formal same-origin management API accepted')
     const relative=path.slice('/api/v1/main/extensions/rbac'.length)
     assert(!/^\/(?:identity|projects|policy|roles|bindings|role-mappings)(?:[/?]|$)/.test(relative),'obsolete management API is not accepted')
+    assert(!relative.includes('/runtime-permissions')&&!relative.includes('/scope-declarations'),'retired parallel permission APIs are not accepted')
     assert(this.client,'fresh authenticated client required')
     const response=await this.client.request(path,{method,headers:{Accept:'application/json',...(body===undefined?{}:{'Content-Type':'application/json'}),...(revision===undefined?{}:{'If-Match':'"'+revision+'"'})},...(body===undefined?{}:{body:JSON.stringify(body)})})
     this.requests.push({path,method,status:response.status})
@@ -74,7 +78,24 @@ export class ApplicationGroupManagement {
     assert(typeof group==='string'&&/^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/.test(group),'exact application-group identifier required')
     return '/api/v1/main/extensions/rbac/application-groups/'+encodeURIComponent(group)
   }
-  runtimePath(group) {return this.groupPath(group)+'/applications/~'+Buffer.from('kestra-ui').toString('base64url')+'/runtime-permissions'}
+  applicationPath(group,clientId='kestra-ui') {return this.groupPath(group)+'/applications/~'+Buffer.from(clientId).toString('base64url')}
+  permissionsPath(group,clientId='kestra-ui') {return this.applicationPath(group,clientId)+'/permissions'}
+  async readPermissions(group,clientId='kestra-ui') {
+    const items=[];let total,parentRevision
+    for(let page=1;;page++) {
+      const response=await this.request(this.permissionsPath(group,clientId)+'?page='+page+'&size=100')
+      assert(Array.isArray(response.items)&&Number.isSafeInteger(response.total)&&response.total>=0)
+      assert(Number.isSafeInteger(response.parentRevision)&&response.parentRevision>0)
+      if(total===undefined){total=response.total;parentRevision=response.parentRevision}
+      else {assert.equal(response.total,total,'permission total drift');assert.equal(response.parentRevision,parentRevision,'permission snapshot drift')}
+      items.push(...response.items)
+      assert(items.length<=total,'permission list exceeds its authorized total')
+      if(items.length===total)break
+      assert(response.items.length>0,'permission pagination ended before total')
+    }
+    assert.equal(new Set(items.map(permission=>permission.key)).size,items.length,'duplicate permission across pages')
+    return {items,total,parentRevision}
+  }
   async reauthenticateGroup(group,{previousGroup}={}) {
     await this.login()
     const current=await this.request(this.groupPath(group))
@@ -83,79 +104,67 @@ export class ApplicationGroupManagement {
     assert(Number.isSafeInteger(current.authorizationVersion)&&current.authorizationVersion>0)
     if(previousGroup) {
       assert(current.revision>previousGroup.revision,'directory mutation did not advance its object revision')
-      assert(current.authorizationVersion>previousGroup.authorizationVersion,'directory mutation did not advance its revocation epoch')
+      assert(current.authorizationVersion>=previousGroup.authorizationVersion,'directory mutation decreased its revocation epoch')
     }
     const verified=await this.client.verifiedUiIdentity({applicationGroupId:applicationProject,subject:this.account.subject,audience:'kestra-ui'})
     if(group===applicationProject)assert.equal(verified.authorizationVersion,current.authorizationVersion,'fresh signed identity epoch differs')
     return {requests:[...this.requests],reauthentication:this.reauthentication,directoryRevision:current.revision,authorizationVersion:current.authorizationVersion}
   }
-  async updateRuntimeAudiences(group,audiences) {
-    assert(Array.isArray(audiences)&&audiences.length&&new Set(audiences).size===audiences.length)
-    assert(audiences.every(value=>typeof value==='string'&&value.length&&value.trim()===value&&!value.includes('*')))
-    const path=this.runtimePath(group),before=await this.request(path)
-    assert.equal(before.applicationGroupId,group);assert.equal(before.clientId,'kestra-ui');assert(before.policy)
-    const input={issuer:before.policy.issuer,audiences:[...audiences],enabled:before.policy.enabled}
-    const saved=await this.request(path,'PUT',input,before.revision)
-    assert.deepEqual(Object.keys(saved),['revision']);assert(saved.revision>before.revision)
-    const after=await this.request(path)
-    assert.equal(after.applicationGroupId,group);assert.equal(after.clientId,'kestra-ui');assert(after.revision>=saved.revision)
-    assert.deepEqual([...after.policy.audiences].sort(),[...audiences].sort())
-    assert.deepEqual(semantic(after.policy.scopes),semantic(before.policy.scopes))
-    return saved
-  }
-  async saveRuntimeScope(group,key,definition) {
-    assert(/^[a-z][a-z0-9-]{0,63}$/.test(key))
+  async saveTypedPermission(group,scopeKey,definition) {
+    assert(/^[a-z][a-z0-9-]{0,63}$/.test(scopeKey))
     assert.deepEqual(Object.keys(definition).sort(),['description','enabled','grants','managementGrants'])
-    const path=this.runtimePath(group),before=await this.request(path)
-    assert.equal(before.applicationGroupId,group);assert.equal(before.clientId,'kestra-ui');assert(before.policy)
-    const existed=Object.hasOwn(before.policy.scopes,key)
-    const input={scopeKey:key,...structuredClone(definition)}
-    assert.deepEqual(Object.keys(input).sort(),['description','enabled','grants','managementGrants','scopeKey'])
-    const saved=await this.request(path+'/scopes'+(existed?'/'+encodeURIComponent(key):''),existed?'PUT':'POST',input,before.revision)
-    assert.deepEqual(Object.keys(saved),['revision']);assert(saved.revision>before.revision)
-    const after=await this.request(path)
-    assert.equal(after.applicationGroupId,group);assert.equal(after.clientId,'kestra-ui');assert(after.revision>=saved.revision)
-    assert.deepEqual(semantic(after.policy.scopes[key]),semantic(definition))
-    for(const other of Object.keys(before.policy.scopes))if(other!==key)assert.deepEqual(semantic(after.policy.scopes[other]),semantic(before.policy.scopes[other]))
+    const path=this.permissionsPath(group),before=await this.readPermissions(group)
+    const metadata=applicationPermission(scopeKey),existing=before.items.find(permission=>permission.key===metadata.key)
+    const application=await this.request(this.applicationPath(group))
+    const input={key:metadata.key,name:existing?.name??metadata.name,scopeKeys:[scopeKey],...structuredClone(definition)}
+    const saved=await this.request(path+(existing?'/'+encodeURIComponent(metadata.key):''),existing?'PUT':'POST',input,existing?.revision??application.revision)
+    assert.deepEqual(Object.keys(saved).sort(),['key','parentRevision','revision']);assert.equal(saved.key,metadata.key)
+    assert(Number.isSafeInteger(saved.revision)&&saved.revision>=(existing?existing.revision+1:1))
+    if(!existing || !semantic(existing.scopeKeys).includes(scopeKey) || semantic(existing.scopeKeys).length!==1)await this.reauthenticateGroup(group)
+    const after=await this.readPermissions(group),stored=after.items.find(permission=>permission.key===metadata.key)
+    assert(stored);assert.equal(stored.revision,saved.revision)
+    assert.deepEqual(semantic(stored.scopeKeys),[scopeKey])
+    for(const field of ['description','enabled','grants','managementGrants'])assert.deepEqual(semantic(stored[field]),semantic(definition[field]))
+    for(const other of before.items.filter(permission=>permission.key!==metadata.key)) {
+      const unchanged=after.items.find(permission=>permission.key===other.key)
+      assert(unchanged,'editing one permission removed another')
+      const content=permission=>Object.fromEntries(Object.entries(permission).filter(([field])=>field!=='parentRevision'))
+      assert.deepEqual(semantic(content(unchanged)),semantic(content(other)))
+    }
     return saved
   }
-  async approveOrdinaryClient({clientId,audiences,applicationGroupScopes,registeredProtocolScopes,requestedProtocolScopes}) {
+  async registerOrdinaryClient({clientId,audiences,applicationGroupScopes,registeredProtocolScopes,requestedProtocolScopes}) {
     assert(clientId&&clientId!=='kestra-ui','ordinary client must never inherit first-party UI selector')
     assert(!applicationGroupScopes.includes('kestra:application-group-scopes')&&!requestedProtocolScopes.includes('kestra:application-group-scopes'),'UI selector is first-party only')
     assert(requestedProtocolScopes.every(scope=>registeredProtocolScopes.includes(scope)),'requested protocol capability exceeds registered scope')
     assert.deepEqual(audiences,[this.base+'/api/v1/main/mcp/default'],'MCP audience must match the exact protected resource')
     await this.login()
     const path=this.groupPath(applicationProject),current=await this.request(path)
-    const result=await this.mutateDirectory(path+'/applications','POST',
-      {clientId,approved:true,audiences:[...audiences],supportedScopeKeys:[...applicationGroupScopes]},current.revision)
-    const clientKey='~'+Buffer.from(clientId).toString('base64url')
-    for(const scope of applicationGroupScopes)await this.request(path+'/applications/'+clientKey+'/scope-declarations/'+encodeURIComponent(scope),'POST',{permissions:[applicationPermission(scope)]})
-    if(!this.runtimeAudienceBaseline)this.runtimeAudienceBaseline=[...(await this.request(this.runtimePath(applicationProject))).policy.audiences]
-    await this.updateRuntimeAudiences(applicationProject,['kestra-ui',...audiences])
-    return result
+    await this.mutateDirectory(path+'/applications','POST',
+      {clientId,description:'Ordinary acceptance application',audiences:[...audiences]},current.revision)
+    for(const scopeKey of applicationGroupScopes) {
+      await this.login()
+      const application=await this.request(this.applicationPath(applicationProject,clientId))
+      await this.request(this.permissionsPath(applicationProject,clientId),'POST',
+        {...applicationPermission(scopeKey),scopeKeys:[scopeKey],details:''},application.revision)
+    }
+    this.registeredClientIds.set(clientId,[...applicationGroupScopes])
+    return this.reauthenticateGroup(applicationProject,{previousGroup:current})
   }
   async removeOrdinaryClient(clientId) {
     assert(typeof clientId==='string'&&clientId&&clientId!=='kestra-ui','only an ordinary test application can be removed')
     await this.login()
-    const path=this.groupPath(applicationProject)+'/applications/~'+Buffer.from(clientId).toString('base64url')
-    const declarations=await this.request(path+'/scope-declarations')
-    assert(Array.isArray(declarations),'actual application declaration list required')
-    for(const declaration of declarations) {
-      assert(/^[a-z][a-z0-9-]{0,63}$/.test(declaration.scopeKey)&&Number.isSafeInteger(declaration.revision))
-      await this.login()
-      await this.request(path+'/scope-declarations/'+encodeURIComponent(declaration.scopeKey),'DELETE',undefined,declaration.revision)
-    }
-    this.approvedClientIds.delete(clientId)
-    await this.login()
-    if(!this.approvedClientIds.size&&this.runtimeAudienceBaseline)await this.updateRuntimeAudiences(applicationProject,[...this.runtimeAudienceBaseline])
+    const path=this.applicationPath(applicationProject,clientId)
     const member=await this.request(path)
     assert.equal(member.clientId,clientId)
-    return this.mutateDirectory(path,'DELETE',undefined,member.revision)
+    const result=await this.mutateDirectory(path,'DELETE',undefined,member.revision)
+    this.registeredClientIds.delete(clientId)
+    return result
   }
   async mutateDirectory(path,method,body,revision,group=applicationProject) {
     const groupPath=this.groupPath(group)
     assert(path===groupPath||path.startsWith(groupPath+'/'),'exact application-group directory target required')
-    assert(!path.includes('/runtime-permissions')&&!path.includes('/scope-declarations'),'directory mutation cannot update application permission data')
+    assert(!path.includes('/permissions'),'directory mutation cannot update application permission data')
     assert(['POST','PUT','DELETE'].includes(method))
     await this.login()
     const before=await this.request(groupPath)
@@ -170,7 +179,7 @@ export const fixtureGaps=Object.freeze([
   'new-install group identity boundaries, supported scope intersection, revocation, refresh, dependency faults and no-side-effect checks against formal artifacts',
 ])
 
-const semantic=value=>Array.isArray(value)?value.map(semantic).sort((a,b)=>JSON.stringify(a).localeCompare(JSON.stringify(b))):value&&typeof value==='object'?Object.fromEntries(Object.entries(value).sort(([a],[b])=>a.localeCompare(b)).map(([key,item])=>[key,semantic(item)])):value
+const semantic=value=>Array.isArray(value)?value.map(semantic).sort((a,b)=>JSON.stringify(a).localeCompare(JSON.stringify(b))):value&&typeof value==='object'?Object.fromEntries(Object.entries(value.scope==='TENANT'&&value.namespace===undefined?{...value,namespace:null}:value).sort(([a],[b])=>a.localeCompare(b)).map(([key,item])=>[key,semantic(item)])):value
 const api='/api/v1/main/extensions/rbac'
 const flowPath=(namespace,id)=>'/api/v1/main/flows/'+encodeURIComponent(namespace)+'/'+encodeURIComponent(id)
 const wait=ms=>new Promise(resolve=>setTimeout(resolve,ms))
@@ -210,22 +219,40 @@ export function planRestResources(fixture) {
   return {probes,seeds:[...seeds.values()]}
 }
 
-export async function provisionFixture({planned,effects,observer,record=async()=>{}}) {
+async function reusePreparedAccount(planned,management,account,prepared) {
+  assert(prepared.verified&&prepared.passwordChangeCompleted,'Previously prepared account has not completed production password change')
+  assert.equal(prepared.subject,account.subject);assert.equal(prepared.username,account.username)
+  assert.equal(prepared.password,account.password,'Prepared account credential does not match the current isolated test configuration')
+  const saved=await management.request(api+'/users/detail?subject='+encodeURIComponent(account.subject))
+  assert.equal(saved.subject,account.subject);assert.equal(saved.active,true)
+  assert(saved.revision>=prepared.revision,'Prepared account revision moved backwards')
+  const login=await new ProductionOAuthClient(planned.base).login(account.username,account.password)
+  assert.equal(login.authenticated,true)
+  return {transport:'reused-frozen-production-account',passwordChangedBeforeBoundaryData:true,authenticated:true}
+}
+
+export async function provisionFixture({planned,effects,observer,preparedAccounts={},record=async()=>{}}) {
   assert(planned&&effects,'own activated deployment and observer required')
   const events=[]
   const management=new ApplicationGroupManagement(planned.base,planned.admin)
-  management.approvedClientIds=new Map()
+  management.registeredClientIds=new Map()
   management.onRequest=async()=>record({events,requests:[...management.requests],completed:false})
   await management.login()
   const emit=async event=>{events.push(event);await record({events,requests:[...management.requests],completed:false})}
   for(const test of projectScopeCases) {
     const account=planned.accounts[test.id]
     await management.login()
-    const created=await management.request(api+'/users','POST',{username:account.username,name:'Acceptance '+test.id,email:account.username+'@acceptance.invalid',password:account.password})
-    assert.equal(created.subject,account.subject,'created account subject differs')
+    let prepared
+    if(Object.hasOwn(preparedAccounts,account.subject))prepared=await reusePreparedAccount(planned,management,account,preparedAccounts[account.subject])
+    else {
+      const created=await management.request(api+'/users','POST',{username:account.username,name:'Acceptance '+test.id,email:account.username+'@acceptance.invalid'})
+      assert.equal(created.subject,account.subject,'created account subject differs')
+      prepared=await new ProductionOAuthClient(planned.base).changeTemporaryPassword(account.username,created.temporaryPassword,account.password)
+      delete created.temporaryPassword
+    }
     const saved=await management.request(api+'/users/detail?subject='+encodeURIComponent(account.subject))
     assert.equal(saved.subject,account.subject);assert.equal(saved.active,true)
-    await emit({kind:'account-created',caseId:test.id,subject:account.subject,revision:saved.revision})
+    await emit({kind:'account-created',caseId:test.id,subject:account.subject,revision:saved.revision,passwordPreparation:prepared})
     await management.reauthenticateGroup(applicationProject)
     const project=await management.request(api+'/application-groups/'+applicationProject)
     const receipt=await management.mutateDirectory(api+'/application-groups/'+applicationProject+'/scope-grants','POST',
@@ -276,7 +303,7 @@ export async function provisionFixture({planned,effects,observer,record=async()=
   const deadline=Date.now()+30000;let last=effects.snapshot().hash;let stableSince=Date.now()
   for(;;){await wait(500);const next=effects.snapshot().hash;if(next!==last){last=next;stableSince=Date.now()}if(Date.now()-stableSince>=5000)break;assert(Date.now()<deadline,'seed database/queue/storage did not become quiescent')}
   await record({events,requests:[...management.requests],completed:true,seededFlows:resources.seeds.length,quiescentWindowMs:5000})
-  const prepareMcp=async()=>provisionMcpFixture({planned,management,effects,observer,record:async fragment=>record({events,requests:[...management.requests],seededFlows:resources.seeds.length,quiescentWindowMs:5000,mcp:fragment,completed:true})})
+  const prepareMcp=async()=>provisionMcpFixture({planned,management,effects,observer,preparedAccounts,record:async fragment=>record({events,requests:[...management.requests],seededFlows:resources.seeds.length,quiescentWindowMs:5000,mcp:fragment,completed:true})})
   return {prepareMcp,setEffects:current=>{effects=current},rest:{accounts:planned.accounts,observerAccount:planned.admin,expectedAudience:planned.expectedAudience,flowWrite:planned.flowWrite,probes:resources.probes,effects,effectsWindowMs:5000},management,planned}
 }
 
@@ -307,7 +334,7 @@ export function mcpFlowSource(namespace,id,toolName) {
   return `id: ${id}\nnamespace: ${namespace}\ndescription: Explicit MCP acceptance tool\ninputs:\n  - id: marker\n    type: STRING\n    required: true\ntasks:\n  - id: identity\n    type: io.kestra.plugin.core.debug.Return\n    format: "{{ execution.id }}"\n  - id: echo\n    type: io.kestra.plugin.core.debug.Return\n    format: "{{ inputs.marker }}"\noutputs:\n  - id: executionId\n    type: STRING\n    value: "{{ outputs.identity.value }}"\n  - id: marker\n    type: STRING\n    value: "{{ outputs.echo.value }}"\ntriggers:\n  - id: mcp\n    type: io.kestra.plugin.core.trigger.McpToolTrigger\n    mcpServer: default\n    toolName: ${toolName}\n    title: Explicit MCP acceptance\n    toolDescription: Executes a controlled flow and returns its persisted execution ID\n`
 }
 
-export async function provisionMcpFixture({planned,management,effects,observer,record=async()=>{}}) {
+export async function provisionMcpFixture({planned,management,effects,observer,preparedAccounts={},record=async()=>{}}) {
   const pendingScopes=Object.values(planned.mcp.revocationScopes).filter(value=>!Object.values(scopeNames).includes(value))
   assert.equal(pendingScopes.length,0,'main-owned shared scopeNames must explicitly accept independent MCP revocation scopes: '+pendingScopes.join(', '))
   const journal=[]
@@ -322,8 +349,15 @@ export async function provisionMcpFixture({planned,management,effects,observer,r
   for(const name of mcpScenarioNames) {
     const account=planned.mcpAccounts[name]
     await management.login()
-    const created=await management.request(api+'/users','POST',{username:account.username,name:'MCP acceptance '+name,email:account.username+'@acceptance.invalid',password:account.password})
-    assert.equal(created.subject,account.subject)
+    let prepared
+    if(Object.hasOwn(preparedAccounts,account.subject))prepared=await reusePreparedAccount(planned,management,account,preparedAccounts[account.subject])
+    else {
+      const created=await management.request(api+'/users','POST',{username:account.username,name:'MCP acceptance '+name,email:account.username+'@acceptance.invalid'})
+      assert.equal(created.subject,account.subject)
+      prepared=await new ProductionOAuthClient(planned.base).changeTemporaryPassword(account.username,created.temporaryPassword,account.password)
+      delete created.temporaryPassword
+    }
+    await emit({kind:'mcp-account-password-prepared',scenario:name,subject:account.subject,transport:prepared.transport})
     await management.reauthenticateGroup(applicationProject)
     const project=await management.request(api+'/application-groups/'+applicationProject)
     await management.mutateDirectory(api+'/application-groups/'+applicationProject+'/scope-grants','POST',{issuer:planned.base,subject:account.subject,scopeKeys:[...planned.mcp.scenarios[name].applicationGroupScopes]},project.revision)
@@ -340,7 +374,7 @@ export async function provisionMcpFixture({planned,management,effects,observer,r
   }
   async function localScope(name,definition) {
     await management.login()
-    const response=await management.saveRuntimeScope(applicationProject,name,definition)
+    const response=await management.saveTypedPermission(applicationProject,name,definition)
     planned.policy.applicationGroups[applicationProject].scopes[name]=structuredClone(definition)
     return response
   }
@@ -353,14 +387,11 @@ export async function provisionMcpFixture({planned,management,effects,observer,r
       assert(registration?.clientId&&registration.audiences?.length)
       assert.deepEqual([...registration.scopes].sort(),[...spec.applicationGroupScopes,...spec.protocolScopes].sort())
       assert(spec.protocolScopes.every(value=>mcpRegisteredProtocolScopes.includes(value)),'request exceeds the production helper DCR protocol registration')
-      management.approvedClientIds.set(registration.clientId,[...spec.applicationGroupScopes])
-      await management.approveOrdinaryClient({clientId:registration.clientId,audiences:registration.audiences,applicationGroupScopes:spec.applicationGroupScopes,registeredProtocolScopes:mcpRegisteredProtocolScopes,requestedProtocolScopes:spec.protocolScopes})
-      planned.policy.applicationGroups[applicationProject].audiences=['kestra-ui',...registration.audiences]
+      await management.registerOrdinaryClient({clientId:registration.clientId,audiences:registration.audiences,applicationGroupScopes:spec.applicationGroupScopes,registeredProtocolScopes:mcpRegisteredProtocolScopes,requestedProtocolScopes:spec.protocolScopes})
       const result=await receipt(start,client,account)
       result.restore=async()=>{
         const restoreStart=management.requests.length
         await management.removeOrdinaryClient(registration.clientId)
-        planned.policy.applicationGroups[applicationProject].audiences=[...(await management.request(management.runtimePath(applicationProject))).policy.audiences]
         return receipt(restoreStart,client,account)
       }
       await emit({kind,scenario,clientId:registration.clientId,applicationGroupScopes:[...spec.applicationGroupScopes]})
@@ -377,20 +408,26 @@ export async function provisionMcpFixture({planned,management,effects,observer,r
     }
     if(kind==='revoke-supported-scope') {
       const identity=await client.verifiedAccessIdentity({applicationGroupId:applicationProject,subject:account.subject})
-      assert(identity.clientId&&management.approvedClientIds.has(identity.clientId),'revocation requires an actually approved application')
+      assert(identity.clientId&&management.registeredClientIds.has(identity.clientId),'revocation requires an actually registered application')
       await management.login()
-      const path=management.groupPath(applicationProject)+'/applications/~'+Buffer.from(identity.clientId).toString('base64url')
+      const applicationPath=management.applicationPath(applicationProject,identity.clientId)
+      const originalApplication=await management.request(applicationPath)
+      assert(originalApplication.supportedScopeKeys.includes(scope),'application did not register the scope being revoked')
+      const path=management.permissionsPath(applicationProject,identity.clientId)+'/'+applicationPermission(scope).key
       const original=await management.request(path)
-      assert(original.supportedScopeKeys.includes(scope),'application did not register the scope being revoked')
-      const input={clientId:original.clientId,approved:original.approved,audiences:[...original.audiences],supportedScopeKeys:original.supportedScopeKeys.filter(key=>key!==scope)}
-      await management.mutateDirectory(path,'PUT',input,original.revision)
+      const input={key:original.key,name:original.name,scopeKeys:original.scopeKeys.filter(key=>key!==scope),details:original.details}
+      await management.request(path,'PUT',input,original.revision)
+      await management.reauthenticateGroup(applicationProject)
+      const reduced=await management.request(applicationPath)
+      assert(!reduced.supportedScopeKeys.includes(scope),'last permission reference did not remove support')
       const result=await receipt(start,client,account)
       result.restore=async()=>{
         const at=management.requests.length;await management.login();const current=await management.request(path)
-        await management.mutateDirectory(path,'PUT',{...input,supportedScopeKeys:[...original.supportedScopeKeys]},current.revision)
+        await management.request(path,'PUT',{...input,scopeKeys:[...original.scopeKeys]},current.revision)
+        await management.reauthenticateGroup(applicationProject)
         return receipt(at,client,account)
       }
-      await emit({kind,scenario,scope,clientId:original.clientId});return result
+      await emit({kind,scenario,scope,clientId:identity.clientId});return result
     }
     assert.equal(kind,'revoke-subject-scopes')
     await management.login()

@@ -3,8 +3,9 @@ import assert from 'node:assert/strict'
 import {runApplicationProjectAggregates} from './application-project-aggregate-cases.mjs'
 import {runApplicationProjectRest} from './application-project-rest-cases.mjs'
 import {runApplicationProjectMcp} from './application-project-mcp-cases.mjs'
-import {runPreparedApplicationProjectUi,uiRootChecks} from './application-project-ui-fixture.mjs'
+import {runPreparedApplicationProjectUi,uiRootChecks,initialApplicationProjectUiReport} from './application-project-ui-fixture.mjs'
 import {requiredProjectChecks,legacyMigrationChecks,projectScopeCases} from './application-project-cases.mjs'
+import {accessControlV3RestCheckIds} from './access-control-v3-rest-cases.mjs'
 
 export const plannedMcpCheckIds=Object.freeze(['mcp-production-dcr-owner-pkce-consent','mcp-tools-list-call','mcp-capability-without-application-scope','mcp-application-scope-without-capability','mcp-known-plus-unbound-list','mcp-known-plus-unbound-call','mcp-same-session-application-policy-revoke','mcp-same-session-supported-scope-revoke','mcp-user-scope-revoke','refresh-cannot-restore-revoked-scope','mcp-missing-extension'])
 
@@ -14,12 +15,14 @@ export function initialEvidence({legacyMigration=false}={}) {
     profile:legacyMigration?'legacy-migration':'new-install',
     excludedChecks:legacyMigration?[]:legacyMigrationChecks.map(id=>({id,reason:'Historical schema1 migration is outside the new-install profile'})),
     matrix:projectScopeCases.flatMap(item=>item.probes.map((probe,probeIndex)=>({transport:'rest',caseId:item.id,probeIndex,expectedAllowed:probe.allowed,resource:{tenant:'main',namespace:probe.namespace,resource:probe.resource,action:probe.action,...(probe.resourceId?{id:probe.resourceId}:{})},passed:false,status:'not_run',observed:{}}))),
-    checks:[...new Set([...requiredProjectChecks,...(legacyMigration?legacyMigrationChecks:[]),...plannedMcpCheckIds])].map(id=>({id,passed:false,status:'not_run',evidence:{}})),
-    ui:['light','dark','dark-2','system'].flatMap(theme=>['en','de','es','fr','hi','it','ja','ko','pl','pt','pt_BR','ru','zh_CN'].map(locale=>({case:'theme-language',theme,locale,passed:false,status:'not_run'}))),
+    checks:[...new Set([...requiredProjectChecks,...(legacyMigration?legacyMigrationChecks:[]),...plannedMcpCheckIds,...accessControlV3RestCheckIds])].map(id=>({id,passed:false,status:'not_run',evidence:{}})),
+    ui:[...initialApplicationProjectUiReport().ui,initialApplicationProjectUiReport().zeroGrant,...initialApplicationProjectUiReport().target.checks],
   }
 }
 export async function runIntegration(base,fixture,adapter,report,persist) {
   assert(fixture?.rest,'independently provisioned real REST test configuration required')
+  const frozenUiBaseline=fixture.frozenUiBaseline??report.fragments?.frozenUiBaseline
+  assert(frozenUiBaseline?.completed===true&&frozenUiBaseline.passed===true&&frozenUiBaseline.status==='passed'&&frozenUiBaseline.phase==='before-boundary-data'&&frozenUiBaseline.evidence?.source==='real-browser-before-boundary-data','real early frozen UI baseline must pass before integration REST/MCP execution')
   const mergeChecks=fragment=>{
     for(const check of fragment.checks??[]) {
       const index=report.checks.findIndex(item=>item.id===check.id)
@@ -59,7 +62,7 @@ export async function runIntegration(base,fixture,adapter,report,persist) {
   await persist()
   await runApplicationProjectAggregates(base,{planned:fixture.planned,rest:report.fragments.rest,mcp:report.fragments.mcp},async fragment=>{report.fragments.aggregates=fragment;mergeChecks(fragment);await persist()})
   if(fixture.prepareUi) {
-    try {fixture.ui=await fixture.prepareUi({rest:report.fragments.rest,mcp:report.fragments.mcp})}
+    try {fixture.ui=await fixture.prepareUi({rest:report.fragments.rest,mcp:report.fragments.mcp,frozenUiBaseline})}
     catch(error){report.fragments.uiPreparationFailure={completed:false,status:'failed',error:String(error.message)};await persist();throw error}
   }
   if(fixture.ui) {

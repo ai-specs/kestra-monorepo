@@ -52,6 +52,22 @@ export const projectTestAccounts = Object.freeze(projectScopeCases.map((item, in
   username: 'scope-test-' + String(index + 1).padStart(2, '0'), password: 'ProjectScopeTest123!', applicationGroupScopes: item.scopes})))
 
 export const applicationPermission = (scopeKey, roleName = scopeKey) => ({key: 'access-' + createHash('sha256').update(scopeKey).digest('hex').slice(0, 20), name: 'Access ' + roleName})
+export function applicationPermissionRecords(fixture, scopeKeys, {kestraPolicy}) {
+  assert.equal(typeof kestraPolicy, 'boolean', 'Explicit application execution kind required')
+  assert(Array.isArray(scopeKeys) && new Set(scopeKeys).size === scopeKeys.length, 'Unique permission scope keys required')
+  const definitions = new Map(fixture.directoryScopes.map(definition => [definition.key, definition]))
+  const policies = fixture.policy.applicationGroups[applicationProject].scopes
+  return scopeKeys.map(scopeKey => {
+    const definition = definitions.get(scopeKey)
+    assert(definition, 'Permission references an unknown group scope')
+    const policy = Object.hasOwn(policies, scopeKey) ? policies[scopeKey] : null
+    return {...applicationPermission(scopeKey, definition.name), description: definition.description,
+      scopeKeys: [scopeKey], enabled: kestraPolicy ? policy?.enabled ?? true : true,
+      grants: kestraPolicy ? structuredClone(policy?.grants ?? []) : [],
+      managementGrants: kestraPolicy ? structuredClone(policy?.managementGrants ?? []) : [],
+      details: '', revision: 1}
+  })
+}
 export function applicationDeclarations(fixture, clientId, keys = fixture.projectScopeCatalog) {
   const definitions = new Map(fixture.directoryScopes.map(scope => [scope.key, scope]))
   const scopes = keys.map(key => {

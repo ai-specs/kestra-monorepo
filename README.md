@@ -1,22 +1,74 @@
 # Kestra monorepo
 
-## 应用组重构状态（2026-10-22）
+## 访问控制需求 v3（2026-10-27，实施中，未发布）
 
-当前实施规范见 `docs/application-group-target-model.md`，差异与验收门见
+2026-10-30 当前正式输入：宿主 `e0e952b` 的自动CI `40964088091` 五项
+全部成功并已推广。正式镜像 digest 为
+`1b2b11023c35adf44f3f0dd534d591eaeeb243acab76ddcb9fc98625486e269a`，
+正式可执行产物 SHA-256 为 `9f563ad6d2498bf2923a0c9088c4f6152027bc89a2ab849cbfaa279fe740e450`。
+7件artifact实际下载后主控重解析原949、几何60/8诊断源零错误、UI95、后端395、
+4镜像专项及20认证JSON；正常拉取、双架构来源和SDK10等实际CI输入均已核。
+后端两项镜像专用跳过由实际镜像报告另核，不将跳过计通过；BuildKit completeness
+两项false的限制保留。此版本包含移动边界与桌面底部上翻/视口夹入，不复制原生筛选器。
+
+插件 `f45641b` 独立消费该正式宿主，CI `40972006759` 成功，artifact `12940707783`
+已实际下载。jar SHA-256 为 `c65805d4cb088032f2fed4ff0e4021b5cebc01ba246fdf2c6fefd590b240d418`。
+主控重解析Java286、PostgreSQL108、生命周期24、UI156均零失败、零错误、零跳过，
+schema2升级8及新装3具名门另核；薄jar、23bean索引、349UI资源和编译provenance已核。
+新增subject空交集保留来源且不放宽结果、原生box页签取消后受控选中态的回归包含于
+这次报告，旧146项不能替代。`.env.example` 和本地正式jar选择上述实际下载输入，
+上一组27520a2/d099594的正式jar保留在被忽略的deployment/libs中。
+这些独立发布结果不是根仓组合通过；根仓须从空数据库完成生产登录及完整Ego/Compose
+验收，再取得最终根提交的成功CI和实际下载报告。
+
+本轮完整目标以 `docs/access-control-ui-requirements.md` 为准，
+`docs/application-group-target-model.md` 是同步摘要。当前差异、风险与发布顺序见
+`implementation-gap-report.md` 的2026-10-27章节。下方历史版本的构建与验收结果
+不能证明新目标已经交付；旧双权限入口、独立可写支持集与插件 approved 不是新契约。
+
+冻结输入可以运行 `python3 scripts/check-access-control-prototype.py` 检查。它只核对
+已审查原型的 hash、裁决、字段提示及测试数据，不运行原型脚本，也不证明业务通过。
+默认 `new-install` 的最终报告还必须包含 T1–T12 以及独立 `declaration-upgrade` 门；
+schema2 升级不能归入历史 schema1 的 `legacy-migration` 排除项。未执行保持 not_run，
+旧绿色报告不得满足本轮新增门。
+
+历史检查点（2026-10-29，非当前部署锁）：宿主原生筛选 ShadowRoot 定位修复通过独立发布门，overlay `1e3632e`、
+CI `40822882820`，正式镜像为
+`sha256:9e2667744f9f0515a9902aa3d83bca3a3433aa9b752ec72fd8c07f3c539acdd0`。
+该提交的 SDK 949、新增筛选定位36项、后端、镜像专项及两种首装报告已实际下载核对；
+正常拉取原 digest 及正式可执行产物提取已完成。BuildKit provenance 的 completeness
+限制保留在差异报告，不宣称完整依赖可复现性。
+
+插件 `70cb552` 已消费该正式输入，CI `40908627243` 成功，正式 jar SHA-256 为
+`b4866c5b6e184a0ef08804ea8976948edadeb5cb6e9d57375b9e224833ac0800`。
+最终 artifact 已实际下载，Java 286、PostgreSQL 108、生命周期24、UI JUnit 144均零失败、
+零错误、零跳过，schema2升级8项另核。UI JUnit 包含同路径query保实例、
+并发及宿主回传顺序、失权清敏和侧栏跨页选中。当时选择该组输入；当前选择见本页顶部。
+插件继续复用原生 KsFilter；修复条件添加、AND约束、移动关闭保存入口和错误恢复，
+不提供未适配的全局 MessageBox 保存筛选服务。
+根仓真实组合仍未通过：匿名 favicon 及测试观察者缺少首页 Trigger 读取的配置已修正，
+须以新正式组合从空数据库重验，不能用宿主或插件独立成功代替。
+独立发布成功不能替代新部署组合验收，不得将现有 jar 与镜像描述为已验收组合。
+
+## 历史：应用组重构状态（2026-10-22）
+
+本节仅记录 2026-10-22 的版本状态，不是当前部署锁。当前需求见本页顶部。
+当时实施规范见 `docs/application-group-target-model.md`，差异与验收门见
 `implementation-gap-report.md`。应用组、scope、应用支持、用户授予、应用权限声明、
 管理 UI/API 与业务存储全部属于插件。overlay 只保留标准 OIDC 与只读协议输入机制。
 当前是单一 issuer、共享协议端点及经过签名校验的应用组 claim，不提供多 issuer 模式。
 
-宿主 `c2390ff` 的 CI `39712369397` 全部通过并发布，`.env.example` 固定其镜像 digest。
+宿主 `c2390ff` 的 CI `39712369397` 当时全部通过并发布，`.env.example` 当时固定其镜像 digest。
 插件 `6f23eeb` 的 CI `39715045248` 通过，实际下载产物与独立克隆构建的 jar hash 一致。
 插件 Java 218 项、PostgreSQL 76 项与前端逻辑 39 项通过，薄 jar 与公开契约门通过。
 根仓本地空库 `new-install` 通过 REST 56、安全 15、MCP 11 和 UI 99 项，失败与未运行
 均为零，资源已清理。开发报告为 nonFinal，最终根提交 CI 尚须取得。历史结果不能
 替代当前提交的真实 REST、安全、MCP 和 UI 报告。
 
-根仓要求实际 jar 含插件自有目录、服务、安装 CLI 与新模型类型，数据库包含七个插件
+该历史版本要求实际 jar 含插件自有目录、服务、安装 CLI 与新模型类型，数据库包含七个插件
 业务表且没有旧宿主组表或 schema1 策略表。安装计划与 scope 使用新字段，不保留旧 API、
 首方成员类别、完整恢复、应用组级配置状态或权限声明驱动资源授权的旧路径。
+当前 v3 的新装契约为四个统一应用组表与一个生命周期审计表，不沿用上述七表模型。
 
 以下旧“应用项目”发布记录仅说明指定版本的历史验收，不是当前应用组的启用说明。
 
@@ -130,6 +182,10 @@ cp /tmp/kestra-rbac-artifact/build/libs/kestra-rbac-authorizer.jar deployment/li
 
 本地浏览器调用 `application-project-ui-fixture.mjs` 的
 `runRootApplicationProjectWithEgo`，传入本次已有任务空间的 Page；不得创建重复空间。
+选项中的 `browserCdp` 必须绑定同一已有任务空间的
+`(method, params) => task.cdp(method, params)`。它只用于核对当前页面所属上下文并控制
+该测试来源的剪贴板权限；不得改为操作其他页面或清理整个浏览器配置。
+剪贴板与响应丢失用例必须执行真实浏览器操作，不读取或保存凭据响应正文。
 本地与 CI 共用 56 个 REST 探针、MCP 业务断言及 4 主题 × 13 语言 UI 矩阵。
 默认只运行一个 PostgreSQL 服务。错误 issuer 与缺插件用例需要辅助 JVM 时，在该 PostgreSQL
 创建独立测试数据库，并保留 owner 校验；MCP 阶段结束后立即清理辅助实例。

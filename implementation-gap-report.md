@@ -1,5 +1,912 @@
 # 应用组目标模型实施差异报告
 
+## 当前交付阻塞（2026-10-29）
+
+### 维护者补充：原生筛选弹层对照矩阵（2026-10-29）
+
+2026-10-30 08:59根并发测试前置修正后的Ego定向round7四项实际全过，清理通过，
+互删与互停用各有精确双waiter、holder已释放、一成功一安全拒绝、持久结果与原会话
+撤销证据。后台准备实际观察并排空，未关闭清理任务。准备等待后重新取得mutation
+客户端及CSRF，原会话见证不重新登录且在操作前再次实测允许；完整账号行hash在所有
+准备登录之后取得（正式宿主登录会更新last_login_at），不将合法准备写误算拒绝副作用。
+此前round5旧mutation客户端在等待后提前403、round6新登录后旧账号hash失败的报告均
+保留，不计通过。最终定向证据`resumed/t6-desktop-observer-ego-round7/main-audit.json`。
+这只证明T6，完整新空库Ego与根最终CI仍必须执行；不继承首两轮完整失败报告。
+
+2026-10-30 08:44并发观察器的额外writer已取得正式运行证据：第二轮新空库实际
+采样为一个holder加三个JDBC waiter，未放宽断言，仍判失败。无业务HTTP请求的独立
+有界探测再次观察到一个后台waiter，同刻HotSpot线程栈明确为scheduled线程调用
+`OidcOwnershipService.cleanup → OidcProtocolState.lockSecurityState → OidcSecurityTransactions.lock`。
+本次SIGQUIT只打印线程，正式JVM始终运行，holder已释放；报告与限定栈保留于
+`resumed/t6-scheduled-writer-probe-round2/`。宿主0190公开源码的每分钟清理与该证据一致，
+不是把第三个未知事务任意忽略。前一探测缺SQL终止分号失败，亦保留；07:53:21合盖睡眠
+至08:37:19的系统事件只影响诊断窗口，不用它解释此前07:47的真实三waiter失败。
+根测试增加独占cohort准备：不发HTTP写、不关闭scheduler，实际观察一个后台writer并
+释放、确认安全锁已排空后才取业务before快照。初版分段短事务的定向round4仅互删
+通过，互停用准备失败，报告保留且不计全过；分段间隙可能漏过清理，因此当前改为单个
+连续有界测试事务，500ms心跳和服务端4秒空闲断连兜底，总准备期限75秒。它只阻塞
+本次隔离部署且没有业务HTTP请求的准备阶段，不修改产品60秒撤权门；随后原1.5秒
+真实双waiter观察与第三writer拒绝完全保留。7项离线拒绝保护通过；新定向真实T6
+round5仍在执行，尚未把准备代码宣称为完整组合通过。首两轮完整报告及失败保持不变。
+
+2026-10-30 07:44新正式组合首轮Ego已在T6观察器失败，不能计通过：冻结原型真实UI、
+维护、首装与两项回滚检查通过，但并发DELETE虽为204/403，未取得双waiter证明；
+报告`resumed/root-compose-desktop-final-local/`保留。初始错误未保存具体观察断言，
+不能断言是产品缺陷或已确定的环境故障。主控补充失败phase与实际PG采样，不延长
+1.5秒观察期限、不允许顺序结果通过。普通Node定向诊断中互删真实双waiter通过，
+后续因诊断回调写同一tmp文件竞争失败；该诊断失败与源码、旧报告均保留。另一次Ego
+诊断因工具PATH未传入立即失败；修正独立诊断PATH及串行记录后，真实四项T6全部
+通过，互删/互停用均实际双waiter、holder释放与恢复通过，证据
+`resumed/t6-desktop-observer-ego-round3/report.json`。这不是完整组合通过，也不追认首轮。
+主控另将本地冻结检查后仍存活的Ego页面导航到about:blank，保证并发门的独占两请求
+前置；CI冻结浏览器原先已关闭。该隔离不放宽产品门，不能据此断言首轮根因已证实。
+首轮owner已核label定点清理，下一轮复用同一Ego14空间但必须新空库完整执行。
+
+2026-10-30 07:27插件f45641b/CI40972006759成功，artifact12940707783实际ZIP SHA
+f59cb42b11e5eb9850e39ca8120e13f6083bd92456e4018a66d737e6b4a0005f由主控核元数据。
+实际下载XML286/108/24、UI156完整本地顺序/10新具名门、升级8/新装3、审计PG见证、
+23bean/349UI逐hash及正式host provenance均亲核。正式jar SHA为
+c65805d4cb088032f2fed4ff0e4021b5cebc01ba246fdf2c6fefd590b240d418。主控只从该下载件
+选择本地正式jar，保留d099旧件；`.env.example`同步正式1b2b镜像，三仓源码与正式组合
+证据绑定到`resumed/formal-release-evidence-desktop-final.json`。主控下载复核脚本和结果为
+`resumed/plugin-desktop-final-ci-main/audit.py`及main-audit.json。
+唯一PG已交回主控，准备新空库完整Ego共享矩阵，不选例、不改业务断言。根最终提交和CI
+仍未取得，不将独立发布写成根交付成功。
+
+2026-10-30 07:15插件最终7文件本地门已由主控重解析：unit286、PG108、lifecycle24、
+UI156均零失败/错误/跳过，升级8及新装3具名用例存在，审计实际PG见证已核。
+canonical与独立克隆均从正式registry输入提取，两份插件jar SHA一致为
+c65805d4cb088032f2fed4ff0e4021b5cebc01ba246fdf2c6fefd590b240d418；仅为本地候选。
+23bean索引、349UI资源逐hash与薄jar门亲核，唯一测试PG/owner资源已清理，未知原卷保留。
+主控审计`resumed/plugin-final-desktop-main-audit.json`，明确授权仅精确7filehash提交推送，
+随后必须实际下载最终自动CI产物。根仍不得选择候选jar。此处不代表新插件CI或组合通过。
+
+2026-10-30 07:02桌面视口宿主e0e952b/CI40964088091五job成功并推广，主控重解析
+7实际ZIP及报告：后端97XML/395（2镜像专用skip另由4实际MCP报告核验）、UI95、
+20认证JSON、SDK949精确父版ID顺序、几何60精确组合/8诊断源零错误。原digest为
+1b2b11023c35adf44f3f0dd534d591eaeeb243acab76ddcb9fc98625486e269a，正常pull/
+RepoDigests及未启动提取已核；正式exe为9f563ad6d2498bf2923a0c9088c4f6152027bc89a2ab849cbfaa279fe740e450。
+SDK10逐字节等实际CI tar，双架构after/run/BASE匹配，completeness两项false继续保留。
+主控已将canonical overlay干净快进到正式提交。审计入口
+`resumed/host-desktop-final-ci-main/main-audit.json`及同目录可复跑audit.py。
+唯一PG与插件7文件/独立验证树的写入权已交rbac-plugin-final；其本地完整门亲审前
+不得提交推送CI。根当前仍选择27520a2/d099594的旧正式输入，不能冒称新组合通过。
+根新增几何断言已纳入T11/T12底层重derive：必须有四主题真实底锚点Clear/Close及几何
+证据，旧正常位置绿色行不能通过；8项合成报告拒绝保护已过，不算浏览器通过。
+新版宿主Compose配置检查也通过且未创建容器；旧正式jar仅作为只读挂载路径验证语法，
+不表示新旧组合兼容。报告为`resumed/root-review-agent/new-host-compose-config-only.json`。
+
+本次续接主控另亲跑插件全部156项UI，零失败/取消/跳过，5文件SHA仍等冻结表，日志
+`resumed/plugin-ui-main-recheck.log`；不算新宿主编译或正式CI。根定位谓词增加当前锚点
+水平夹入检查，11项离线保护通过（8项几何、3项滚动归属与恢复）；生产共享矩阵另增加四主题权限页底锚点实际宿主滚动、
+上翻及Clear/Close点击，未修改页面样式或业务数据。这些新增浏览器断言尚未运行，
+必须在最终正式组合执行，不能沿用此前正常位置的通过结果。最终插件报告门同步提高至
+156并逐名要求10项subject/页签回归。根静态26项检查通过，396项业务仍明确not_run。
+
+2026-10-30 06:43重新核对：Docker正常命令可用，`docker ps`为空，Compose v5.5.1，
+可用磁盘约1.5GiB；未检查socket或清理缓存。桌面底部锚点缺口的独立宿主提交为
+e0e952ba77804e84724d23d415ec11bbcc8f3684，自动CI40964088091的patch/build/OIDC
+三项成功，SDK job尚在执行；未推广，不是插件正式输入。原949保留，几何门由48增至60，
+另12项覆盖四主题的桌面底部、离屏和展开重开/resize；本地通过不替代本次CI或根组合。
+当前根正式组合仍是27520a2/d099594，根完整验收未通过。插件5文件候选已主控逐SHA核对，
+22定向与156全部UI测试通过，但尚待新正式宿主输入的独立编译、存储门和发布CI。
+其中subject授予重验空交集不得退回全表、原生box页签取消丢弃必须保留当前选择；
+两项须在正式生产登录组合中复验。根T6离线12项本次重跑全过，既有真实双waiter结果
+仅属于此前组合，最终组合仍须重跑。证据入口为`resumed/host-desktop-main-approval.json`、
+`resumed/plugin-scope-tabs-main-source-audit.json`及`resumed/local-ci-full146/`。
+
+2026-10-30 04:19宿主27520a2/CI40941713707最终5job全成功并推广，7artifact实际
+下载、ZIPdigest核对；主控重解析SDK949/几何48/8诊断源零错误、后端395及UI93、
+20首装JSON/4MCP专项。registry原digest为bd04a93453bc57d26d7ab2e8292823cbdb81de4398f2b6935f88ae221460e191，
+正常pull/RepoDigests及created未启动cp/rm已核，正式exe SHA为
+211d6095cb641584ef7797de604aaa74ee5abcc03a775aad354aaac11249d8af。双架构after/run/BASE
+匹配，BuildKit completeness两项false保留。canonical已干净快进；插件获准从registry
+自己提取编译输入并补公开KsTabs type=box对齐MCP参照，尚未发布新插件或组合通过。
+
+独立根审查F1–F4已形成实质修复：最终checker重derive底层T门/摘要一致；T6并发必须
+同一主PG实际安全锁两waiter及精确owner释放证据；workflow只清本run登记且owner核对的
+资源；最终期望input从镜像文件/实际jar/root gitlink独立计算。离线12保护通过，真实
+强化T6与最终根CI仍待。审查pane wW:p1R本次创建，任务结束已清理，证据保留root-review-agent。
+
+2026-10-30 02:40跨浏览器新宿主缺口已接收、未发布：生产权限长详情页390×900中，
+mobile-bar.bottom=1669.031、sheet top约1677/maxHeight=0，字段在视口外；Ego与
+CI Playwright共享原断言均失败，不能仅用键盘绕过。实际几何保留于
+`resumed/production-mobile-bottom-anchor-gap.json`。overlay独立release树先形成
+r-ee-rbac最小通用契约提案：下方够空间保原偏移，不足上翻/夹入视口且保持正高度、
+实例归属/滚动/resize/焦点清理。不得引入plugin业务路径。原949/36保持，底锚点另增
+精确门；未审/未发布前禁止插件消费。主控旧owner已全部清理，唯一PG验证位置交宿主。
+
+后段诊断（非整轮）另发现并已修根驱动：管理client并行登录竞争改串行显式认证；
+Dialog隐藏保留节点按可见判断；原生textarea/wrapper焦点均按计算样式核；冲突刷新
+限当前抽屉；掩码提示等待实际读回；默认page1/size25与编码等价按参数核；历史条目
+等待当前URL与业务稳定。生产19项聚焦曾全过，后续原完整矩阵仍有失败，全部报告保留。
+最新local-ci-full144在移动视口失败后停止，尚未完成全部主题/语言/账号/凭据矩阵，
+更未取得根最终提交CI。宿主新正式产物发布后仍须插件独立消费、完整组合重验。
+
+2026-10-30 00:23正式插件70cb552/CI40908627243成功，artifact12911564479实际下载，
+主控核286/108/24/144零失败错误跳过、349UI摘要及host9e266/exe6e1一致，jar为
+b4866c5b6e184a0ef08804ea8976948edadeb5cb6e9d57375b9e224833ac0800。该版本补原生
+size100的同tick重复page更新覆盖；此前3e7正式版本已保留上游styleBase修复真正缺失
+overlay样式和删除成功规范导航。主控生产聚焦19个共享操作已全部通过：卡片搜索、
+历史、完整分页/100、焦点最大化、删除next/previous/empty、非法query及四类遮罩。
+报告`resumed/shared-ui-final-pagination-diagnostic/`；其余not_run，不能代全量。旧owner
+部署/PG/卷已定点清理，当前准备从空库完整重验，根最终提交/CI仍未完成。
+
+20:47正式plugin6eb6bc0/CI40872250865通过，artifact12896672301实际下载后主控重核
+286/108/24/133零失败错误跳过、host9e266/exe6e1一致及349UI逐hash；正式jar为
+4b7b223c0f7ca0a05adbf820a402fd33e8bff88a09bba95ae93a5aac4fb2b1a3。
+本轮修复真实SDK portal层在内容完整性失败前的原生关闭顺序，主控在正式运行产物上
+执行共享原断言诊断：六条关联导航通过，筛选四主题×四位置桌面/390的48条观察、
+16次Apply删除后的真实Clear/重挂载/列表恢复均通过。报告为
+`resumed/shared-production-filter-recovery-round3/report.json`，主控审计`main-audit.json`。
+诊断只选择六项，其余明确not_run且完整module返回未完成，不能替代全量或根CI。
+外部物理移除生命周期scrim的探索失败仍保留，当前SDK不保证该情况安全恢复，不计通过。
+
+18:36第二次完整本地组合因环境干扰作废：macOS日志实证17:33:53 Clamshell Sleep、
+17:36:43 DarkWake及反复睡眠至18:24:24；同区间Docker子命令和HTTP发生超时。
+此前新空库REST56、冻结原型/T6/维护通过，但安全v3准备失败、UI未运行，不能计最终。
+主控核专属Node75227后停止并确认CLI退出；睡眠事件、原报告、环境判定及owner清理
+均保留于`resumed/root-compose-query-final-local/`。唯一主Compose/PG/卷已定点清理。
+未改产品来掩盖此环境超时，不延长60秒撤权标准。下一轮使用任务专属caffeinate防空闲
+睡眠，不修改系统设置；合盖仍不能保证被阻止，若重现仍不计通过。
+
+17:17正式plugin4e2ed30/自动CI40845571223通过，artifact12885066771已实际下载，完整
+ZIP SHA与metadata digest匹配。主控重解析286/108/24/125全零失败错误跳过、349UI资源
+逐hash及host9e266/exe6e1一致；jar3d388db75d15c3a2578330558003c21f7b20d0a71aeca23137ba41386d922e5b。
+在保留诊断部署重启JVM装载该正式下载jar后，生产Ego query聚焦32/32（四主题×四位置
+×桌面/390）真实选值、query保存、弹层连续操作及关闭通过，64个打开定位样本已绑定
+运行hash。旧失败报告和辅助脚本错误保留，不能算整轮通过。诊断owner主Compose/PG及
+卷已定点清理，接下来从空库执行新全量组合；根最终CI仍未触发。
+
+16:43生产几何独立诊断已完成32/32（四主题×四管理位置×1280/390），实际64次打开/
+重开。主控核运行镜像9e266及jar b44b，对应正式plugin5628；报告与SHA在
+`resumed/production-filter-geometry-themes/`。此结论不覆盖已知query连续编辑失败。
+插件候选App级回归已复现有效值host echo导致实例卸载、连续query被busy挡、过时host ack
+回退新query三类问题。7项权限/身份/403/503/历史清敏回归曾通过，但ack顺序门仍红，
+候选未提交。主控发现并纠正过时load清掉新query刷新标志的generation边界；要求真实
+refresh点击和外部路径/tenant/dispose取消待发query回归，禁止以保实例为由绕过授权。
+
+16:29真实组合首次本轮已失败并停止，不能记交付：正式host1e363/plugin5628下REST56、
+安全26、MCP11、聚合、维护、冻结原型及T6事务均通过；UI先10项通过，scope/app深链
+跨侧栏页时选中项不可见导致4项等待超时。PID335为本次嵌入Node，核lstart/进程后已
+SIGTERM并确认退出，CLI退出；报告/截图及owner部署保留诊断，不将局部通过归最终。
+插件侧栏红2→绿2、完整UI113并实施候选；尚未发布。
+
+聚焦生产筛选round2实际8/8（4位置×1280/390，各2opens）通过；round1因用户单字段
+重复添加不会生成第二行而断言错误，已改真实Clear归零，不降低合法添加检查。round3
+实际选值触发另一个产品缺口：query保存后App整页load清敏卸载KsFilter，父弹层消失，
+Close找0。已交插件修同路径query同步并保留组件/焦点，身份/路径改变仍重载且非法query
+失败关闭。必须补App级context.navigate回传回归及真实生产多条件/重开，不能仅靠孤立
+KsFilter绿测。报告路径`resumed/root-compose-filter-final-local`及`production-filter-focused-round*`。
+
+15:21正式宿主本机产物门已通过：OCI缓存13个可达blob主控逐hash/size亲核，正常
+docker pull原9e266成功、RepoDigests包含原index digest；created未启动容器提取后已rm。
+正式exe SHA为6e1a19a258917e1d40e00b0abde9d80371d3dfe471ae133f79760a479e3af09f，
+主控复算SDK10与CI/被测输入逐字节相同、宿主UI532。镜像获取阻塞解除，已交插件从
+自身registry入口独立提取并执行完整本地门，禁止把host.work文件当编译依赖。根仍保留
+旧正式jar/pin，待最终插件CI和产物后切换；根396项完整生产验收尚未运行。
+
+15:08主控已解析插件候选原生Node JUnit：111具名用例全passed，新增移动false配置、
+en→fr/de切换、合法选择/Clear/Apply及结构损坏后的卸载→清除→重挂载两项均存在。
+根发布门已强制下载最终插件`.evidence/ui/results.xml`并核这些具名用例、真实数量及
+零失败/错误/跳过；最终报告再绑定commit/run/artifact/SHA与后端同件产物。不是插件CI
+或生产浏览器通过。移动保存裁决已收窄为落实既有false，不新增保存功能；适配代码不
+读取/迁移/删除旧保存记录，但原生KsFilter自身仍会useStorage读取默认key，未虚报消除。
+新镜像层保留约91MB连续前缀及已验证非连续块，完整SHA/正式exe/插件新输入门尚待。
+
+14:46新增消费风险尚未裁决：DS0.5移动层忽略`buttons.savedFilters.shown=false`，
+仍露Save/My Filters；其保存key依赖prefix与route.name，插件尚未提供隔离prefix，
+删除还调用未声明适配的KsMessageBox服务。已要求插件核最小范围：落实原有隐藏配置
+或明确支持后按公开prefix隔离，不为修界面引入全局服务劫持或复制vendor。不能把这些
+按钮计有效。Ego空间7已在14:42返回not found、list为空；已停止该空间操作并保存
+`ego-space7-disappeared.json`，原因未验证，之前8组报告保留，生产UI仍未运行。
+
+14:39重新核根当前HEAD的真实CI：a6fe358对应40467372007为failure，已下载失败日志
+并在写入前脱敏。失败发生在正式插件选择：当时gitlink16869c1没有成功发布CI；不是
+浏览器通过，也不是缺少读取凭据的证据。最终根提交必须更新为本轮正式两仓gitlink并
+重新成功运行，不能复用此失败run或旧绿色。日志为`root-existing-head-ci-failure-redacted.log`。
+
+14:37下载缓存补救取得可复核进展：主控正常`docker image save`上一正式90388，流式
+检查而不保存整archive，得到9个与新arm64 manifest逐SHA/size相同的原压缩blob，合计
+123,598,967字节；报告与文件在`resumed/formal-parent-blob-cache/`。此为正式Docker
+缓存复用，不读取相邻源码、不构建宿主。已交下载owner复核，只剩新层120,292,156及
+157字节需获取；仍须原digest正常pull/RepoDigests及created/cp门。前述fork辅助下载
+失败日志保留并已改独立subprocess硬截止，不能把工具失败误记为产品或网络失败。
+
+14:28正式产物获取诊断：Docker客户端/daemon29.8.2正常，普通只读df容器立即执行，
+VM盘剩279.1GiB，未启动PG。registry鉴权、manifest及两新blob HEAD200；实际Range
+GET从pkg-containers.githubusercontent.com取得206及精确Content-Range，公开传输并非
+完全不可达。Docker原pull停在新层，已停止本次自有挂起pull，未停daemon。子agent仅从
+正式registry按原index/arm64 manifest/config/逐层SHA下载OCI缓存补救；仍必须正常
+pull原多架构digest、RepoDigests精确匹配及created/cp正式exe，不能用单架构archive
+冒充发布digest或通过状态。插件和根完整门仍待，未降低。
+
+14:15主控核下载949的ID/顺序与根完整计划精确相同，几何driver/fixture三源码摘要与
+canonical一致；双架构provenance事件after1e363/run40822882820/BASE172匹配，BuildKit
+两项completeness=false仍明确保留。canonical overlay从干净4151安全快进至正式1e363，
+无自造提交。根部署pin仍90388配原正式jar，未误混新宿主。arm64首次拉取600秒超时，
+原collector未保存partial stdout/stderr是证据限制；已要求独立流式重试及具体错误定位。
+根生产门另增加52主题语言的AND说明精确翻译及独立说明块无溢出检查，仍全部未运行。
+
+14:04宿主1e3632e的自动CI40822882820最终5job全部成功，推广成功。7件artifact已实际
+下载，主控重解析97XML=395/0失败/0错误/2镜像专项skip、SDK949全部通过、几何36全部
+通过且8诊断源零错误；同build691f78及driver/source/frozen结束摘要一致。registry raw
+index摘要为9e2667744f9f0515a9902aa3d83bca3a3433aa9b752ec72fd8c07f3c539acdd0。
+正式arm64拉取及exe审计正在继续，canonical尚未快进；插件待消费正式输入，根组合未通过。
+主控独立报告：`.work/access-control-v3-20261027/resumed/host-filter-main-downloaded-audit.json`。
+
+13:36主控独立Ego补验完成：同冻结SDK691f78的4主题×桌面/390共8组，每组依次
+打开实例0、1、0，等待锚点偏移稳定、真实选择First并保存，验证实例1未改变。报告
+`filter-native-comparison/host-candidate/ego-review-round-20261029.json`为8/8，明确只证明
+独立SDK，不证明生产插件。当前根静态检查0失败/396未运行，完整§11原文脚本通过。
+根发布门修正几何报告字段核对：driverSha256才是driver摘要，sourceSha256是多文件映射；
+同时强制finalSourceHashesEqual和finalInputHashesEqual，未降低36项/8诊断/949门。
+
+13:48根真实生产筛选断言已补齐，尚未运行：4主题×4页面，桌面各重开两次并核同主题
+Namespaces原生计算样式、AND禁用说明、键盘跳过禁用OR、添加行、字段选择及二级Escape；
+390窄屏实际选值、等待URL保存与唯一结果、Apply关闭及重开定位。单比较符原生下拉本应
+disabled，旧脚本尝试点击不合法；改断言禁用及正确Equals/Contains，有多比较符仍真实选。
+打开高级筛选按当前原生状态识别直接高级面板或入口，不重复假定入口存在。插件候选
+组件106/106仅是子agent输入，主控仍需复核，正式宿主消费/完整插件门/组合UI均待执行。
+
+13:27复核：宿主b363001的CI40818562486实际失败，原949通过但新增几何在dark/390
+选择值后Apply超出视口，promote跳过。旧失败JSON、截图及日志完整保留，不计正式发布。
+子agent在本地重新完成36项后提交1e3632e，仅为内层select仍打开时先用Escape关闭并
+断言父层保留；不改SDK、样式、949或矩阵数量。自动CI40822882820仍在运行，禁止消费
+候选。主控Ego空间7实际dark390选择First、Apply保存、再次打开保留值，证据为
+`filter-native-comparison/host-candidate/ego-ci-driver-review.json`。根仓生产门同步修正
+重开入口状态识别，新增四位置disabled/aria-describedby的AND说明检查；未执行仍不计通过。
+
+12:48发布进度：宿主b363001/自动CI40818562486的patch、build和OIDC job已成功，
+SDK job仍执行原949及新增几何，推广未开始。主控已复算14提交blob等批准SHA，不切换
+插件/部署。插件AND消费限制裁决已记录：DS0.5公开接口没有logical能力开关，后续
+用版本绑定、精确owned filter/portal的薄封装明确禁用不支持OR入口并提供本地化说明，
+同时阻止mouse/Enter/Space；不得仅CSS、全局事件、OR静默转换或复制vendor。合法AND
+与手工OR错误清除恢复必须真实验证。该方案未实施，不能将当前groupable修复计完整。
+
+12:34宿主14文件主控最终快审接收并授权提交：最终localci后端395/前端89、MCP四项、
+两首装20JSON、原949完整及新增36几何同build691f78均通过；主控亲核零浏览器错误。
+333触达文件正确parent4151加46patch独立重放一致，UI532未变，SDK10仅helper/README
+更新。CI失败前初始化geometry未运行报告/隐藏PNG上传已审。候选exe9638e2f7…a8dcabd
+不作为正式输入；新提交CI/推广/下载尚待取得。插件inline冲突取消与groupable配置候选
+继续冻结，正式SDK发布后一起消费重验，不能把宿主36通过写成真实插件UI通过。
+
+12:24最终候选补验：无追踪冻结buildId为691f78fc…1f52664，独立真实几何36/36、
+8份collector零错误，主控亲解析。原949同快照已593通过/零失败，尚未结束。主控Ego
+复核双实例：第2锚点x114/bottom391.187→弹层x114/y397.187，宿主同名decoy x8不影响，
+二级ESC保留父层；dark390第2栏x12/w366→面板x12/w366，真实Second选择及Apply仅更新
+第2实例。截图/JSON在host-candidate/ego-frozen-*，不是正式插件组合通过。先前16条
+移动锚点console已通过逐实例关联修复，未豁免；root内滚动捕获及已登记advanced样式
+重算防宿主全局锚点覆盖。仍须949结束、普通镜像完整门/最终CI/发布，然后插件消费。
+
+12:03补充：生产对照时宿主Namespaces曾出现授权拒绝提示，主控核实为测试观察者未配置
+该参照页的NAMESPACE读取。根配置只补四个既有测试命名空间READ/LIST及默认MCP server
+精确ID的READ/LIST，供正式页面参照，不扩普通账号/不加写权限。下一轮必须实际核对
+允许列表与无拒绝诊断，不能以组件可见代替页面授权成功。
+
+| 位置/动作 | 正式版本实际证据 | 当前裁决与所属仓 | 本次已验证状态 |
+|---|---|---|---|
+| 宿主Namespaces添加筛选→高级筛选 | 按钮(301,92)，弹窗left301/top130；重开同位置，添加条件有效 | 实际发布宿主的比较基准 | Ego真实点击与JSON已保存 |
+| 插件应用组列表高级筛选 | 按钮(311,163)，弹窗(0,0)、style空；重开仍错 | SDK桌面锚点无法穿透ShadowRoot，最小宿主适配 | 旧SDK新增回归真红；候选unit14及Ego定位/重开通过，未发布 |
+| 插件用户/权限列表高级筛选 | 弹窗(0,0)，enabled“添加条件”点击后0行 | 定位归SDK；groupable:false配置归插件 | Ego分别复现；插件候选组件门通过，未正式组合验证 |
+| chip编辑与二级select | 候选真实选择First后仅one/three两行 | 保留原生chip自身定位，SDK不覆盖 | Ego实际选择/数据结果通过；完整多主题及重开门仍待 |
+| rules-pill/同根多个filter | 额外入口曾未记录，可能沿旧锚点 | SDK只跟踪本根真实控件，不使用全局query或固定坐标 | 单元新增rules-pill/scroll/dispose；真实多filter单列几何门待完成 |
+| 390窄屏 | 宿主原生移动面板与栏位x32/w326对齐；候选同样x32/w326 | 保持宿主响应式行为及主题 | Ego对照JSON已存，全部主题/语言/焦点仍待最终矩阵 |
+| 插件AND业务约束 | nativeChips拒绝OR；原生条件组提供OR入口 | 不擅改业务语义，必须核公开配置/明确支持范围 | 风险已记录，不将enabled但必错按钮计通过 |
+
+2026-10-29 11:40，维护者新增筛选交互重点已实际调查：Ego对照正式宿主Namespaces与
+正式插件，宿主按钮(301,92)→高级弹层left301/top130，插件应用组按钮(311,163)→
+弹层(0,0)、无style，关闭重开仍错误；用户和权限页同样复现。主控源码核上游高级
+筛选document.querySelector无法找到ShadowRoot锚点，最小SDK候选只定位本根真实
+customize/rules-pill，不全局替换查询、不复制vendor。旧正式helper新增几何用例红1/
+13通过，候选14/14；Ego候选最终x86/bottom319.328→弹层x86/y325.328、条件/组和
+嵌套select真实点击过滤有效，390移动与原生对照无横向溢出。仍是候选，不计发布。
+另插件AccessList所有keys配置groupable:false使用户/权限/subject高级“添加条件”
+点击零行，已分配插件合法原生配置修复；不将业务字段迁宿主。正式证据与截图在
+`filter-native-comparison/`。已授权宿主完整原949加单列几何门，随后插件消费发布及
+根真实全组合验收，尚未通过。诊断root20已正常结束并按owner清理，无遗留执行Node。
+
+2026-10-29 10:50：发现主控中止方法错误：SIGINT仅断开ego-browser CLI，embedded
+Node执行仍可继续。已核round19 runtime PID40092及启动时间，仅SIGTERM该本次执行，
+ps确认消失；Ego服务29466未signal。原operator-stop文件保留，并为16/17/18/19新增
+更正证据；不能把CLI退出视为执行停止，存在后续输入变化的轮次标operatorInvalidated，
+不计验收。round19原partial报告保留，主控owner部署已拆除。重复名409后取消禁用
+已作为插件真实UI缺陷授权最小修复；最终仍须全新冻结输入从头运行，不能用这些局部
+诊断或先前绿色结果代替根最终提交的组合与CI。
+
+2026-10-29 10:11：插件 `862ccf9` / CI `40803869433` 成功，artifact `12867218072`
+已实际下载，主控复解析286/108/24全零失败错误跳过，新jar99f1已装入忽略目录，旧6318
+保留。最终clone/UI89/升级8/首装3通过，正式host90388不变。round19现从空数据库
+执行包含原生筛选/焦点/冲突修复的最新组合；非最终根提交运行，不能计最终根CI通过。
+
+2026-10-29 10:00：插件唯一冲突11文件通过主控逐SHA审查并授权提交；scope创建/改名
+及跨组client三项旧400真红均修为精确409，无副作用。final-success286单元/108PG/
+24生命周期全零失败错误跳过，UI89/升级8/首装3通过；测试client旧登记前置错误与
+多轮exit1报告单独保留，不当成产品红测。候选jar99f1f5e1…bec818，最终提交CI/下载/
+独立clone待取得。宿主90388不变，根完整组合与全UI、最终提交CI仍未通过。
+
+2026-10-29 09:40：round18再次通过真实T6四项、REST56、MCP全11项，安全仅旧内置组
+400断言失败，已改精确409 protected_group待新轮重验。真实UI前十项通过，重复scope名
+真实PUT400（预期409）确认为插件分类缺口；已授权仅事务写边界的scope_name_exists/
+client_already_assigned专用409，损坏快照/非法输入不改分类。其余UI诊断失败涉及
+导航稳定内容、原生复选框隐藏input、advanced filter二级入口、chip定位及授予派生
+授权版本比较，已按实际DOM和公开契约修测试，未记通过。主控仅SIGINT中止本轮CLI，
+保留partial报告与operator-stop记录，owner独占部署已清理。新插件正式发布、全UI/
+完整组合和根最终提交CI仍待完成。
+
+2026-10-29 09:00：插件 `192062d` / CI `40788946268` 成功，artifact `12859849870`
+实际下载，主控复解析286/108/23零失败/错误/跳过，新jar6318已装入忽略目录且旧e071
+保留。独立最终clone/UI89/首装3/升级8通过。round18现从空数据库执行正式90388+
+6318组合，包含最新根UI/安全断言修正；仍为根仓未提交的非最终运行，不计最终CI通过。
+
+2026-10-29 07:39：插件删除冲突七文件通过主控逐SHA审查并授权提交：内置组409
+protected_group、非空409 group_not_empty，CAS412/非法400/权限403保持。286单元/
+108PG/23生命周期全零失败错误跳过，新增真实Controller无副作用检查通过；候选jar
+63189673…9189303，薄jar/索引/349资源通过。新最终CI、正式下载及独立最终clone待取得。
+root业务UI定位/原生可见焦点修正与完整runtime已实现，但未完成全矩阵，不能计通过。
+
+2026-10-29 07:28：round12真实T6四项、REST56、MCP全部11项（含三撤权/refresh/缺插件）
+通过。安全失败四项中：两503实际状态正确但测试漏宿主traceId；旧路由扫描误把无
+Controller注册的历史类方法计活动路由；零授权capabilities应按宿主403拒绝而非200。
+这些已据实际契约修正，原报告不改。业务UI初始菜单/路径等待及多处定位错误已用
+Ego实际DOM纠正；诊断13–17保留，16/17因具体失败由主控中止，仅本次CLI收到SIGINT，
+未停止Ego/Herdr服务，不记通过。CI运行时控制丢失已补共享hydrate并实际执行，仍需
+最终完整矩阵。内置/非空组删除目前400，主控裁决分别409 protected_group/group_not_empty，
+已授权插件最小分类修复及真实PG无副作用回归；CAS412/非法400/权限403保持。
+本轮owner部署已清理；新插件发布、完整UI/组合及最终根提交CI仍未通过。
+
+2026-10-29 06:34：插件 `42ceeeb` / CI `40780018961` 成功，artifact `12857491022`
+实际下载，主控复解析286/108/22零失败/错误/跳过并重算新jar e071；最终提交独立克隆
+clean check通过。已保留旧801d，根仓选择正式90388镜像及新jar，round12从空数据库
+执行。前置输入及故障断言修复须由该轮重验，原round11失败不改。当前仍非最终根提交
+运行，真实完整组合、业务UI和最终根CI尚未通过。
+
+2026-10-29 06:25：插件消费正式90388镜像及授权复查接口，十三文件已主控逐SHA审查
+并授权提交推送。42 XML/286单元、17 XML/108 PG、3 XML/22生命周期均零失败/错误/
+跳过，UI89、upgrade8/newinstall3与候选独立克隆通过；正确路由下3项真红→3绿，
+首轮缺路由失败单独保留，不误算产品红测。候选jar `e071ca20…37f88f`，薄jar/23索引/
+349资源重算通过。最终提交CI、正式下载及最终clean clone尚待取得；根仓未切换候选。
+
+2026-10-29 05:58：宿主 `4151e1b` / CI `40767280055` 五项job成功并正式推广
+`90388a6d…d9bdfe`，executable为 `169fe749…58ebd9`。主控实读最终下载97 XML/395
+（零失败错误、2专用跳过）、SDK949与20认证JSON全通过；实际推广/registry及双架构
+provenance匹配，完整性false限制保留。canonical已安全ff且干净。已分配插件消费
+正式default授权复查入口和精确依赖异常；其本地门/新提交CI/产物仍待验证，根仓尚未
+切换部署组合，不继承旧镜像的局部通过。完整根组合及最终根提交CI仍未通过。
+
+2026-10-29 04:58：宿主503修复 `4151e1b` 已推送，自动CI `40767280055` 正在构建，
+patch-verify成功；主控复算17提交blob全等批准表，release干净。尚未推广，不能供插件
+消费。根故障断言保留精确503，并按新增公开契约核安全RFC7807 service-unavailable
+正文或原插件directory_unavailable错误码；403继续失败，不把安全拒绝当依赖故障。
+
+2026-10-29 04:52：503宿主17文件通过主控逐SHA审查并授权提交推送；两种首装各10份
+JSON全部completed，新增真实生产cookie503各7项、原身份复查24/资料26/favicon26等
+均保持。MCP审计原错误计零份，主控实际解析四XML各1项零失败/跳过并要求修正，
+不是省略专项。新增脚本先拒绝五类同名资源冲突且不取得清理权，安全复测通过；58源
+独立重放、SDK10/UI532保持父正式输入。最终提交CI/SDK949/推广尚未取得，插件仍
+消费旧正式2b67镜像；根仓后续完整组合与最终提交CI仍未通过。
+
+2026-10-29 04:42：503宿主候选完整local-ci 395项（393通过、2镜像专用跳过）及UI87
+通过，仍未提交或发布。主控另核真实生产签名cookie与应用组claim的镜像探针7项：
+允许200→自有投影表不可读503→恢复后同cookie200，无账号副作用。该证据文件名含red，
+但实际为成功诊断，不记为红测；真正begin-sync403→503红测另存。classpath/OIDC35/MCP4
+通过，两种首装完整门仍在执行。V1普通异常与V2借用连接兼容保持，新增default授权
+入口，不以旧SDK949代替新提交CI。根仓静态检查0失败、395未运行；完整组合仍未通过。
+
+21:42 round11真实T6四项及REST56全部通过，后续安全/MCP/UI准备失败仍保留，不作组合
+通过。已实证两项根前置问题：TENANT grant的GET省略null namespace，严格写输入需补
+合法null，原输入PUT400、补null后200；MCP资源audience曾误用登录kestra-ui，改成精确
+MCP资源URL后真实DCR/PKCE/consent及tools/list200返回精确4工具，证据
+`mcp-resource-audience-diagnostic.json`。根测试据此规范输入/刷新支持变化后会话，保留
+错误audience拒绝，不扩大业务授权。另集合顺序比较与RFC7807拒绝正文已按正式契约修正。
+依赖表不可读的管理GET仍403，违反明确503门；主控已接收宿主最小授权依赖异常分类
+提案，V1普通/V2生命周期原契约保持，新增default授权复查入口和明确异常传播，不把
+未知异常/缺插件全改503。宿主实施与发布、插件消费、根重验仍未完成。原round11及
+故障回执保留，本轮独占部署已按owner清理，不删除用户部署或未知匿名卷。
+
+20:51 新正式组合已取得：宿主 `e720f55` / CI `40663374442` 五门成功并推广
+`2b67b233…2644b8`，正式exe `aad527bb…095cbcc`；主控核实际下载385 XML/SDK949与exe。
+插件 `3cb6a33` / CI `40681482628` 成功，artifact `12813530231` 实际下载；主控复解析
+281/108/19全部零失败/错误/跳过，新jar `801d3d56…159870` 已保留于deployment/libs，
+旧b7a另保留.work。最终clone门与schema2升级8/首装3/UI89通过；BuildKit完整性false
+限制不变。round11现以新正式组合从空数据库执行，仍是未提交根仓的非最终诊断。
+真实HTTP互删/互停用、后续业务UI、完整根组合与最终根提交CI仍待该轮核验。
+
+17:19 宿主V2分类修复11文件通过主控审查并授权提交推送：真实锁等待4红→4绿、分类
+单元6、完整93 XML/385（383通过、2镜像专用跳过）、UI87、OIDC35/MCP四项及两模式
+18份认证报告通过，新增每模式V2复查24项。借用连接无提交/回滚/关闭副作用，SQL/投影
+损坏仍UNAVAILABLE，V1原异常契约保持。21源码重放一致、SDK10/UI532等正式父输入；
+本地候选exe `77d49fd2…8967c0` 不作为正式插件输入。最终提交CI/949/推广待取得，
+真实插件互删、互停用与完整根仓验收仍未通过。
+
+16:41 round10 两项真实事务回滚检查通过，互删管理员请求实际204+503失败，互停用未运行。
+已确认宿主借用连接身份复查将锁等待后账号删除/停用等明确身份失效折叠为普通异常，
+生命周期分派再转UNAVAILABLE；插件最终映射503。主控接收最小宿主异常分类修复提案，
+仅明确安全拒绝映射FORBIDDEN、SQL/投影/组件故障保持UNAVAILABLE，不按异常消息分类，
+不把503纳入根允许集。原事务清理中permission及报告回调失败仍保留失败；独占round10
+部署已按owner拆除。根仓另修报告并发持久化队列，30并发回执测试最大同时写入1，
+业务状态门不变。宿主新修复测试/CI/发布、后续插件消费及完整根验收均尚未通过。
+
+16:33 插件修复 `a1894b7` / CI `40656389624` 成功，artifact `12802191008` 实际
+下载，主控复解析281/108/16全零失败/错误/跳过；新jar `b7a872aca460739020c9655c4f570e38c093877c1e2402b8f6b71d0323789ecc`
+已装入被忽略的 deployment/libs，旧正式jar另保留于.work。最终提交独立克隆门通过。
+round10正在从空数据库执行正式a56镜像与新jar组合，publication已通过；本次根仓
+仍带未提交改动，属于非最终诊断，不能计为最终提交组合或根CI通过。
+
+16:22 插件目录缺组404最小修复九文件已主控审查接收：仅目录入口先校验IDENTITY动作，
+通过安全 optional 边界区分未知404与跨issuer403；upperBound、capabilities与LOCAL_POLICY
+拒绝规则保持。新增4项单元和1项真实PG生命周期用例，完整281/108/16及UI89均零失败
+零跳过，schema2升级8和首装3保持通过。已授权按显式九文件提交推送及自动CI，尚未
+取得该修复最终CI/产物；候选jar为 `b7a872ac…89ecc`，不得继续以旧47cf作修复后产物。
+
+16:10 round9 冻结生产准备及真实浏览器检查已通过，原 favicon/父入口问题不再阻塞。
+随后 T6 准备失败，清理原管理员授予成功、无剩余事务测试资源。主控实际生产登录后
+复现有 IDENTITY READ/MANAGE 的 bootstrap 对未知组 GET 返回403；插件目录入口先调用
+缺失目标会拒绝的 upperBound，未返回公开管理 API 规定的404。裁决为插件缺陷，不能把
+403当不存在或放宽断言。已授权仅插件目录入口修复与红绿回归，保留无权/跨issuer403、
+capabilities未知403及LOCAL_POLICY失败关闭。根仓新增仅请求方法/规范路径/状态的安全
+事务回执，不保存请求体或凭据；原失败报告保持不改。完整组合与根仓最终CI仍未通过。
+
+16:02 插件 `1aecf6f` / CI `40650697989` 正式成功，artifact `12799642126` 已实际
+下载；主控重新解析 41 XML/277 单元、17 XML/108 PG、2 XML/15 生命周期，全部零
+失败/错误/跳过，jar 保持 `47cf65f8…68f9`；独立最终提交克隆 clean check 通过。
+根仓已选择新正式 digest 与插件，round9 使用真实已下载 artifact 输入，从空数据库
+执行。publication、feature-off 首装、显式目录 apply 与统一权限初始化已通过，正进行
+功能启用后 JVM 阶段；当前仅为未提交根仓的非最终诊断运行，不能满足最终验收。
+
+15:23 宿主 favicon 正式发布门通过：`dae2b4a` / CI `40645098489` 五项 job 全成功，
+registry 推广 digest 为 `a56adfb92b775ec586e70918bbebd6509557b71173faa7c7eb80fea260b84ade`。
+主控独立实际下载核心报告核对 91 XML/375 项、16 JSON、SDK949 精确唯一 ID、零失败
+及零未分类错误；四份镜像专项覆盖原两项专用跳过，元数据七项均对应最终提交。
+正式 executable 为 `33d21c2055c1e3e14063144627d1c4e5f4095364b55f6a249b8e43dfee4565a4`，
+双架构 provenance 的 completeness=false 限制仍保留。canonical 已安全快进且干净。
+已分配插件消费正式输入并独立复测；当前根 `.env.example` 尚保持上一组合，待插件
+对应 CI/产物通过后再整体切换。根仓业务 UI、完整 Compose 和最终提交 CI 仍未通过。
+
+14:47 宿主 `dae2b4adaa9cc0fadbfc9a44a6ba58633dac0419` 已按 14 文件提交推送，
+主控逐文件复算提交 blob 等最终批准 SHA。`0385` 仅一行空上下文格式规范化，
+19 源码与 SDK10 不变，真实 cached check exit0。自动 CI `40645098489` 正在执行，
+patch-verify 成功、build-push 运行中；尚未有新正式镜像推广结论。canonical 保持
+旧正式提交，插件输入与根仓组合不抢先切换。
+
+14:36 提交前 cached 检查实际失败：新 `0385` 的单空格空上下文行被判尾随空白。
+此前主控普通 `git diff --check` 未覆盖未跟踪 patch，是本次审查遗漏，不能记为索引检查
+通过。提交和推送尚未发生。已授权仅规范空上下文格式，必须保存原 patch、重放核对
+19 源码与 SDK10 不变、更新输入 hash 后取得真实 cached exit0，才可继续提交。
+
+14:34 主控完成宿主 favicon 14 文件快审并授权提交推送：显式工作文件 SHA 全等审计表，
+19 触达源码经正确父提交加 46 补丁独立重放一致；新定向 7 项、完整后端 375 项
+（373 通过、2 镜像专用跳过）、UI87、OIDC35、四份 MCP 专项、form/env 原有完整门
+及各 favicon26 均核对，新增诊断回归由主控独立重跑 10/10。两模式最终未分类错误零；
+早期两份浏览器失败和错误生成基线保留。SDK10 与 UI532 实际文件等正式父镜像，
+旧 SDK949 只作为不变输入证据，最终新提交 CI 必须实际执行并下载949，不继承旧绿。
+当前仅授权发布步骤，尚无本次新提交 CI/推广结论；正式产物门通过后插件才可更新输入。
+
+14:00 宿主审查：主控亲读新增 favicon HTTP 红测和最终定向日志，后者 7 项通过、零跳过，
+但未据此接收候选产物。候选 `0385` 还重复增加父提交 `0230` 已有的改密协议判定；
+主控已明确拒绝该 patch，要求从核对完整输入的父基线重新生成并复测，不准仅手删 hunk
+掩盖来源问题。完整 local-ci、镜像专项、真实浏览器、新提交 CI 与推广均未通过，根仓
+仍只保留未完成结论。
+
+13:51 续核：已接收宿主 favicon 最小提案，实施只限独立 release；共享分类必须核对
+规范原始路径、GET/HEAD、真实静态解析及宿主打包资源归属，不能放行所有无方法路由。
+宿主 agent 正在补红测，尚无新提交、CI 或镜像通过结论。round7 的两个 owner 容器、
+本轮卷和网络已清理，独立清理记录为 `root-compose-round7-cleanup.json`，原失败报告不改。
+根仓同类父入口断言已统一：通过公开集合取得首项预期，仍实际进入父路径或点击计数
+入口，再等待精确规范子路径；该变更须待新正式组合真实复测。静态检查为 0 失败、
+395 未运行，最终 checker 使用完整参数实际拒绝该报告，未将静态成功计为交付。
+
+13:40 续核：正常 `docker ps` 与 `docker compose version` 均成功，未访问 Docker socket。
+根仓 round7 在冻结页面的父路径与实际自动选择首个 scope 的规范路径断言不一致处失败；
+已修正为从父路径进入并等待实际规范子路径，不手动跳转隐藏失败。随后独立诊断 round8
+实际读回 22 用户、19 scope、19 权限和 1 subject，但保留五项未分类浏览器错误，未记通过。
+其中首页八个真实图表请求已按请求 ID 与请求正文再次核对：七项执行图表为 200，
+`next_executions` 的 `Triggers` 数据源为 403。原因是根仓测试观察者只登记 FLOW/EXECUTION，
+缺少 TRIGGER 读取；本次仅给该观察者的四个既有测试命名空间增加 READ/LIST，未增加写入
+或普通账号授权。证据为 `.work/access-control-v3-20261027/resumed/dashboard-preview-diagnostic.json`。
+匿名登录文档 `/favicon.ico` 的 401 及配对 console 错误仍在调查，不作噪声豁免。
+插件正式提交 `32d6f443`、CI `40636316445` 与已下载 jar 已核对；真实完整 Compose、生产
+业务 UI 与最终根提交 CI 尚未通过。
+
+12:59 续核：overlay `3a96e111` 的 CI `40632084140` 五项门全部成功并推广。主控实际
+下载七项 artifact 元数据与报告，核对后端 368、UI 87、四份 MCP 专项、两种首装 14 份
+JSON（包括各 26 项空资料）及 SDK 949 精确矩阵/零错误。registry index、推广日志和
+SDK candidate image 一致为 `e5f8a2e5…0014fb26`，双架构 provenance 的提交/run/BASE
+均匹配，完整性 false 限制保留。正式 arm64 镜像已拉取，未启动提取容器删除，正式
+executable SHA 为 `190fb02df7923f096bc8a540b49c5e96f16a25736f3c1649749dcb51a7eae15b`；
+十项 SDK 资源等最终 CI 输入包，canonical 已干净 fast-forward 至同一提交。插件正在
+消费新正式输入并执行新增空资料 readback；根仓冻结准备、生产业务 UI、完整组合和
+最终根提交 CI 仍须继续，不继承旧输入的局部成功。
+
+12:25 续核：账号空资料最小修复已完成本地门并提交为 overlay `3a96e111`，自动 CI
+`40632084140` 运行中。主控实读红测两项失败、修复后目录 14 项全过，归档后端 368
+项（366 通过、2 项镜像专用前置跳过）、UI 87 项；新镜像 classpath/OIDC35/MCP四项
+和 form/env 各 22/7/26/52/215/14 + profile26 全部通过，后端两项专用在镜像门实际
+执行零跳过。候选 executable 为 `7398388f…88dee6`。14 文件提交 blob、remote、父提交
+及干净 release 已亲核；323 编译源、441 SDK 缓存及 9 入口哈希实际重算一致。
+需取得该提交最终 CI、实际下载报告及正式镜像推广后，插件才可消费并执行新增空资料
+读回断言。根仓不能改非空测试数据绕过；生产业务 UI 和最终组合/根 CI 仍未通过。
+
+11:39 续核：插件 `4f7fa9a` 的 CI `40626018407` 成功，主控已实际下载 artifact
+`12789646503`，核对 277/108/15 项 XML、新装三项、升级八项及 349 项 UI 资源，正式
+host provenance 为 f7d195b6/ fd16fcfa，jar 47cf65f8。根仓 `root-compose-round5` 使用
+这两个正式产物，真实通过新装五表、完整维护轮换、临时密码强改及重新登录。
+随后冻结准备的 bootstrap 账号空姓名/邮箱 PUT profile 返回 400。需求明确姓名/邮箱
+可空，原型“—”转空；实际插件 HTTP/UI 允许空字符串，宿主 OidcUserDirectory 的
+createTemporary 将空转 null 后生成 subject/@localhost 默认资料，update 的 text 校验
+又拒空。属于新发现的宿主公开账号目录契约缺口，不能改非空测试数据或另造插件存储。
+已授权仅 V2 临时创建保存空资料及 update 清空能力的最小修复方向，保留历史 V1 默认
+行为和 subject/凭据/权限边界；须先真实 PG 红测，再完整宿主门并正式发布，插件之后
+才可消费。失败轮留证后已核 owner 清理唯一 Compose/PG，旧报告不改写为通过。
+当前无环境阻塞，正在处理实际产品缺口；生产业务 UI、根仓最终组合和 CI 仍未通过。
+
+10:58 续核：最终 overlay `cfd81ec` 的 CI `40619438865` 五项 job 全成功。主控实际
+下载 7 个 artifact 元数据及报告，核对后端 365、UI 87、MCP 4、两种首装 12 份 JSON
+和 SDK 949 全门；registry raw index、真实推广日志和 SDK report 的 candidate image
+均为 `f7d195b6…36ffe1f`。双架构 provenance 对应最终提交/run/BASE，完整性 false 限制
+保留。正式 arm64 镜像已实际拉取，未启动的提取容器已删除，正式 executable SHA 为
+`fd16fcfa82fe8ebed22cbcb22dcb7be215b9c40d703050920365201194866acd`，10 个 SDK 资源逐字节
+等最终 CI 输入包；canonical overlay 已干净 fast-forward 到同一提交。插件现获准只从
+正式 registry digest 独立提取并复测；新插件发布及根仓真实生产 UI/组合/最终 CI 仍未通过。
+当前无 Docker 或执行权限阻塞，不把下方历史故障继续当成当前状态。
+
+10:11 续核：首次改密修复的本地 classpath、OIDC 35、MCP 四份各 1 项零跳过，以及
+form/env 两种首装各 22/7/26/52/215/14 项均已通过，候选 image 中 executable 由主控
+实际提取并重算为 `021abcf5…2f72ad`。修复提交 `a21417f` 后又发现宿主黑盒脚本依赖
+PostgreSQL 自动匿名卷，owner 查询会漏掉这类卷。已改三脚本为显式 owner/run 命名卷、
+拒绝同名已存在卷，并按标签清理；重新完整执行受影响镜像门，前后卷清单相同、未新增
+匿名卷。本次修复为 `cfd81ec`，自动 CI `40619438865` 运行中，最终发布必须对应此提交。
+4 个此前无 owner 标签的卷未凭时间推断删除，正在只读核对归属；不得把它们冒称已清理。
+上述本地门不代表正式宿主推广、插件新输入发布或根仓生产 UI/组合通过。
+
+09:45 续核：执行权限已恢复，主控仅使用正常 Docker 命令确认 `docker ps -a` 成功且
+零容器、context 为 desktop-linux、磁盘约 16 GiB。固定 IMAGE_BASE digest 与新
+executable `021abcf5…2f72ad` 的候选镜像已实际构建成功；旧只读和会话权限阻塞均不再
+作为当前结论。当前正串行补跑 classpath、OIDC、MCP 和两种首装镜像门，尚未通过，
+不继承旧产物结果，也未触发 CI。下方 09:22 及 08:39 记录保留其历史语境。
+
+09:22 续核：维护者反馈 Docker 已可执行，主控实测宿主可用空间约 16 GiB。当前会话
+执行权限已变为 workspace-write、网络受限、approval never；`docker ps -a` 返回
+permission denied，Unix socket 直接连接返回 errno 1 / Operation not permitted。
+不能据此声称 Docker 仍是只读，也不能通过 Herdr、其他 pane 或子进程绕过沙箱。
+候选补丁结构 15 项及来源回归 10 项重新通过；驱动测试 16/17，唯一失败为
+`listen EPERM 127.0.0.1`。原型完整断言及根仓静态检查通过，但不代表组合通过。
+当前首先需要恢复本会话的 Docker、本机监听及发布操作所需执行权限，随后继续下列
+宿主镜像门；不是要求重新确认已授权的业务范围。实测证据见
+`.work/access-control-v3-20261027/resumed/docker-resume-session-permission-20261028.json`。
+
+尚未完成 v3 最终交付。正式 overlay 为 `2906d795`（CI `40576953734`），正式插件为
+`9e10e4d`（CI `40600248458`）；两者实际报告和产物均已下载核对。根仓真实新装五表
+和 R25 维护流程已通过，但生产首次改密遇到宿主精确协议路由遗漏。修复候选的
+365 项后端中 363 项通过、2 项镜像专用未执行，UI 87 项通过；候选镜像导出因 Docker
+VM 写 I/O 错误、journal 中止及 containerd 只读而失败，后续镜像门未运行。
+空间保真回收不能证明内部存储恢复可写。用户禁止停止共享后台进程，未重启 Docker
+或删除其数据，未越过本地门提交/推送该候选或触发 CI。需先恢复 Docker 可写环境，
+再按宿主→插件→根仓顺序续验。生产业务 UI、根仓最终组合和最终提交 CI 尚未通过。
+精确候选、原失败、恢复的 SDK 缓存和所有正式 jar 保留在 `.work` 与部署目录。
+
+## 2026-10-27：需求 v3 重新调查与实施裁决
+
+本节依据当前工作树、真实 Git 远端、当前 CI 和本次浏览器调查，优先于下方历史状态。
+目标入口为 `docs/access-control-ui-requirements.md` 的 v3，R21 替代双分节权限设计。
+以下“已核对源码”不等于行为测试、正式发布或组合验收通过。
+
+### 环境、版本与前置检查
+
+- 实际环境为 Darwin、zsh、`/Users/xuybin/kestra-monorepo`。Docker 正常，Compose
+  v5.5.1、context 为 desktop-linux；调查开始时没有运行中的容器。
+- Herdr 0.9.5 的真实主控为 CLI 返回的 `wW:p1A`。继承 pane 已失效，终端内容匹配
+  确认归属后新建后台 `wW:p1B`，实际运行指定 Codex 参数。只读任务、同 agent 后续
+  消息及保持焦点复测通过；初次焦点变化来源未确定，原始记录和复测均保留在
+  `.work/herdr-probe-20261027/`，不以 idle 或创建成功代替通信证据。
+- root HEAD/远端均为 `a6fe358c22a8188427a6c2f41f39e8f23ba76f82`；overlay 为
+  `c2390ff22705135ba2773bce23aab27bb4e9472b`；plugin 为
+  `40715daee761043783a9dd53f9ec1694f5d53fb3`。两子仓工作树干净。root 已有插件
+  指针差异（记录 `16869c1`、实际 `40715da`），不得回退或冒称本次新增改动。
+- 当前 overlay CI `39712369397`、plugin CI `40468205769` 成功，仅说明各自旧契约。
+  root 当前提交 CI `40467372007` 失败：发布选择器拒绝没有成功 CI 的 gitlink
+  `16869c1`；没有运行 Compose。日志已下载到 `.work/access-control-v3-20261027/`。
+  修正最终指针不能代替新增需求验收，不盲目重跑旧提交。
+- §11 完整原文校验已实际执行，**失败在 hash 断言**。当前原型与 HEAD blob 一致，
+  实际 SHA-256 为 `7bb5c48639f78c018971bb7b768625f463a421c8a6251f60330ed8f7829f929a`，
+  不等于正文的 `089b9a...5140`。独立诊断为12条 ruling、20处字段提示、计数
+  `19/1/19/22/18`。失败与诊断分别保留，不能算冻结门通过。已用 ego-browser 实际
+  点击卡片、应用页签及侧栏“＋”：登记表单在详情内容区，不在侧栏、不是第五抽屉。
+  裁决为核对已提交原型差异后显式修正文档冻结值及过时19处/内联表单记录，不修改
+  原型交互来凑旧 hash；全部断言重跑后才能作为新基线。
+- `.env.bak-round-ap` 不读取、不修改、不删除、不提交。已有 `.work` 与正式 jar 保留。
+
+### N/T → 实现、契约与发布门
+
+P0 是授权/事务/凭据风险，P1 是数据升级与协议一致性，P2 是界面行为和样式；均为必需门。
+表中的测试路径表示现有入口及必须扩充的位置，不表示已有测试覆盖新目标。
+“目标行为与差异证据”保留本轮首次调查的缺口定位；当前进度以下面的状态更新表及最新
+阶段证据为准，不将初始旧源码描述继续当作当前能力结论。
+
+| 范围 | 当前已核对进度 | 剩余发布门 |
+|---|---|---|
+| N4/N5/N19、T5/T6 | 宿主账号生命周期、受限首次改密和借用连接机制已随协议 44 正式发布；最终 CI 的 17 个具名账号/密码/凭据用例已由主控读取下载 XML 核对通过 | 插件真实 V2 适配、审计、最终 PG 与组合事务仍未通过 |
+| N11/N19、T7/T8 | 宿主掩码提示、普通轮换及维护 CLI 已正式发布；插件控制器为候选，当前正在消费正式 digest 接线 | 完整生产 UI 一次性明文、CSRF、响应丢失、维护与新旧 secret 协议组合未通过 |
+| N10–N14、T3 | 插件统一权限实体及单表 UI 候选已存在；先前单元和 PG 结果只覆盖各自记录的版本，不代表当前源码 | 最终正式输入的编译、独立 CI、发布和真实 typed/external 边界组合未通过 |
+| N20、T12 | declaration-upgrade 候选及八个具名真实 PG 用例在先前版本通过；当前新审计表增量须再次纳入升级门 | 当前最终源码、最终正式输入的升级 CI 与根仓核对仍未通过 |
+| T10/T11 | overlay `2906d795` 的 CI `40576953734` 五个 job 全成功，SDK 949 报告实际下载核对；正式镜像 `91827c9d…79f0a2e6` 推广及 arm64 拉取成功，正式 executable `67f0d8a6…cb21134` 的全部 10 个 SDK 资源等最终 CI 输入 | 插件已获准只从正式 registry digest 独立提取 SDK 并接线；生产插件 UI 和根仓 Compose 仍未通过 |
+
+2026-10-28 续核：合法空 context 未计数是结构解析器缺口。独立 release 的最小修复及
+10 个正反回归、45 补丁结构 15/0 已由主控实际运行通过；两次失败回归保留。原补丁
+`b57b59a8` 仅规范精确单空格 context 后为 `0bd5022a`。主控复算重放树、已测构建树
+全部 323 个触达文件及 SDK owner 的 13 文件，差异均为零。最终 cached 检查另发现
+共享矩阵末尾多余空行；仅独立 release 删除一个 LF，矩阵 SHA 为 `1bac5b40`，不改
+当前运行中的旧矩阵。最终 29 文件逐项哈希与 parent `64c4498` 已核对，index 为空。
+新 build `6c7873d3` 的完整双浏览器门各 949 项通过，不改写或继承 `f34331c5` 的结果。
+主控于 2026-10-28 04:16 后核对实际报告、冻结哈希、29 文件变更集合及父提交，明确
+授权独立 release 提交推送，证据为 `.work/access-control-v3-20261027/resumed/` 内
+`sdk45-final-main-precommit-review.json`。随后正式提交 `2906d795` 的五项 CI 和镜像推广
+通过。主控独立下载并核对 89 XML/364 项（362 通过、2 镜像专用跳过）、四份镜像专项
+各 1 项零跳过、UI 87 项、两种首装十份 JSON 及 SDK 949 报告。真实推广日志与 registry
+raw index 的 SHA-256 一致，双架构 provenance 的事件提交、run 和上游 BASE 相符；
+`buildkit_completeness` 为 false 的限制保留，不把上游 revision 冒充 overlay 提交。
+正式 arm64 镜像已实际拉取，主控读取 executable 并复算完整 hash，全部 10 个 SDK
+资源逐字节等下载的 CI 输入包。证据为 `sdk45-main-full-downloaded-ci-audit.json`、
+`sdk45-main-downloaded-sdk-audit.json`、`sdk45-main-named-lifecycle-checks.json`。
+canonical 在完整备份 43 项旧候选后只作 fast-forward，当前 HEAD/远端均为 `2906d795`
+且工作树干净，未新增提交，未改 `.work` 或 SDKdev。插件生产 UI、插件最终发布和
+根仓 Compose 验收仍未通过，不以宿主 SDK 发布替代这些门。
+
+插件与根仓只读对照又确认三项缺口：subject 创建时 scope 下拉选择器不唯一；插件
+自身失权页换号只跳 `/ui/`，未执行公开退出；LOCAL_POLICY.READ+MANAGE 且无
+IDENTITY.READ 时缺父修订和受限 scope 输入。归插件修复，不新增宿主业务 API，也
+不隐含授予 IDENTITY.READ。root 已补明确 scope 控件定位、双权限账号真实修改保存/
+刷新及拒绝目录读取、插件错误页实际退出后换号断言；尚未运行，不能算验收通过。
+
+2026-10-28 插件消费正式 SDK 后，主控又确认两项提交前缺口。实际 Micronaut 路由红测
+把合法 key `mutation-metadata` 分派到集合管理方法；原生语言红测显示德语上下文仍为
+英语。集合 metadata 已改为 `permissions/-/mutation-metadata`，保留合法 key 的普通
+READ 和逐项 metadata，不保旧集合别名。原生 ElConfigProvider 现消费公开 locale 并
+随宿主偏好更新。根仓新增真实合法同名权限读写及全部主题/语言/宽度的 Select 无匹配
+文案检查，不以新逻辑测试代替浏览器。两处红测、初次测试准备失败和最终复测均保留。
+主控已核最终本地 40 套 Java 274、16 套 PG 105、生命周期 2 套 15 项全部零失败/跳过，
+亲跑 UI 89 项通过；正式 host/SDK 输入未变。当前本地 jar 为 `17b7f079…68468e8`，不是
+正式 CI 产物。精确 135 路径（133 文件、2 个旧 UI 文件删除）提交为 `37c7560`，随后
+自包含 `file:// --no-local` 独立克隆实际执行 README 提取与 clean check，通过 274 项
+Java 和 89 项 UI 逻辑。主控重算克隆 133 文件、薄 jar、349 项 UI 清单资源及正式宿主
+provenance，全等已审结果；无 alternates，node_modules 非链接且由独立 npm ci 安装。
+独立 clone 门通过后已授权推送，远端 main 为 `37c7560`，自动 CI `40595114003` 运行中，
+没有重复 dispatch。仍须实际下载该提交成功 CI 的正式 jar 和全部阶段报告。
+
+插件 `37c7560` 的 CI `40595114003` 已成功，主控下载 artifact `12775364735` 并核对
+三个隐藏阶段 274/105/15 项、升级 8 项、薄 jar、349 项 UI 资源与正式宿主 provenance。
+正式 jar `17b7f079…68468e8` 已保留在 `deployment/libs`，旧不同 jar 按 hash 备份。
+根仓真实开发轮 `root-compose-round2` 已用这两个正式产物创建唯一 Compose/PG，通过
+发布输入、功能关闭首装、显式目录 preview/apply、统一权限初始化及功能开启重启。
+**新装存储门失败**：实际存在 `rbac_application_scope_declaration` 旧平行表。根因是
+插件 `ApplicationScopeDeclarationMigration` 作为生产 `MigrationScript` bean，仅受
+PostgreSQL 条件约束，会在功能关闭首装自动建旧表。此失败归插件，不放宽新装五表
+断言，不把 schema2 升级降为可选。插件正在修复生产发现与显式历史升级边界。
+失败报告和未执行项保留；根仓该轮 finally 已核 owner 清理全部容器、网络和卷，数量
+均为零。真实 UI 尚未运行，不能以宿主 SDK 双矩阵或已发布插件 CI 代替组合验收。
+
+该新装修复仅变更六个插件路径，移除旧迁移类的自动 bean 注解，保留类本体、原
+scriptId/checksum 以及显式旧入口。真实 PG 红测已复现旧表创建；修复后新装三项、
+原升级八项、Java 277、PG 108、生命周期 15 和 UI 89 项通过。主控读取实际 XML、
+检查新 jar 的旧类保留但 bean 索引缺失；根仓新增同样的产物预检，以实际旧 jar 为
+拒绝反例、新 jar 为允许正例，不放宽数据库断言。精确六路径提交为 `9e10e4d`，
+独立克隆复用前核对 BASE、干净状态、无 alternates 与全部已装依赖哈希，随后精确
+fast-forward 并重跑 README 提取和 clean check，新 jar `47cf65f8…5d068f9` 与主树相同。
+已授权该提交推送；必须再取得对应成功 CI 和实际下载产物，此处仍未取得新版本根仓
+组合通过证据。
+
+插件新装修复已随 `9e10e4d` 的 CI `40600248458` 发布，artifact `12779210882` 由主控
+实际下载并核对。根仓 `root-compose-round3b` 已用正式新 jar 从空库重新执行，五表门
+通过。R25 维护门首次失败归根仓断言：旧消费者 secret 在 `/oauth/login/kestra` 入口
+被宿主以 500 拒绝，具体 host 日志含唯一 traceId 和明确初始化配置错误；旧断言只认
+回调拒绝。已按精确请求阶段与唯一来源日志修正分类，不接受任意 500/网络故障。
+`root-compose-round4` 从头运行，完整 R25 prepare/cancel/activate/旧配置拒绝/rollback/
+confirm/真实登录十步通过，所有失败轮保留，恢复登录及 owner 清理均核对成功。
+
+round4 随后在冻结账号真实准备阶段失败：宿主接受临时密码 POST 并 303 至
+`/oidc/password`，但 GET 返回 401。主控定位正式宿主的 `TypedRestRbacFilter` 在
+匿名身份检查前调用精确 `RestRbacFilter.protocol` 清单，该清单遗漏
+`OidcPasswordChangeController`。公开 Compose 的 `/oidc/**` 匿名规则不能绕过此独立
+授权过滤器，故属于 overlay 必要协议激活点缺口，不是插件业务模型或 root 放宽认证。
+已授权仅实际控制器、精确路径、GET page/POST submit 的最小补足方向；受限交互、
+CSRF/Origin、首次改密前零授权和错误路由失败关闭必须完整保留。宿主独立修复、CI 和
+正式发布后，插件才能消费新正式输入。当前 root 仍无最终组合/UI/CI 成功结论。
+
+2026-10-28 08:39（本地时间）宿主候选镜像导出遇到环境阻塞。实际 Docker 构建日志为
+containerd `tmpmounts` 的 `read-only file system`。主控读取 Docker VM 系统日志确认
+vda 写入 I/O 错误、vda1 journal 中止及 containerd/BuildKit 元数据只读；不是根据
+socket 路径猜测故障。恢复空间后，当前 `desktop-linux` context 的 `docker ps -a`
+与 `docker desktop status` 分别仍在 15 秒超时，Compose CLI 5.5.1 可正常执行。
+正常命令输出和具体日志保留在 `docker-storage-readonly-diagnostics.json`、
+`docker-storage-readonly-log-excerpts.txt` 与 `host-password-image-build.log`。
+主控另对已停用自有依赖的 4,014 个小文本文件保真压缩，实际减块 355,938,304 字节，
+路径、逻辑 SHA、大小、mode、纳秒 mtime 与归属保持；未删除缓存或正式产物。
+可用空间回升约 461 MiB，但不能据此宣称 Docker 内部已恢复可写。
+用户禁止停止共享后台进程，因此没有重启共享 Docker、Herdr 或 Codex，也未 prune、
+删除 Docker 数据或越过本地镜像门触发 CI。宿主协议定点修复仍是未发布候选；必须先
+恢复 Docker 可写性，完成新镜像和两种首装的 RBAC 改密门，再依次发布宿主、重验插件
+正式输入及根仓真实组合，最后才可取得根仓最终提交 CI。当前不是全部交付成功。
+
+| N/T | 目标行为与初查差异证据 | 归属、公开输入与实施方案 | 必须测试与发布门 | 初查状态 |
+|---|---|---|---|---|
+| N1–N6 / T1 | 卡片 key 主标题、同快照 counts 链接、组描述和创建抽屉；`ui/src/ApplicationGroupCards.vue` 仍以 displayName 为主且无 counts；`ApplicationGroupDirectory.Group` 无 description | plugin 目录/API/UI；只用正式宿主 UI SDK，组 id 不改名、内置标识与退役约束保留 | 扩充模型/服务/UI测试；真实卡片、统计点击、普通空组删除、内置拒删；plugin→root门 | 已核对源码，目标未验收（P2） |
+| N7–N9 / T2 | scope key/name/description 与 key 不可变已存在；`ApplicationGroupChanges.deleteScope` 只检查独立支持集和用户授予，尚无权限激活引用阻塞明细 | plugin；改为按统一权限激活关系/用户授予/残留策略受限删除，READ过滤错误明细 | scope并发加引用/删除、重名、不可变key、MANAGE-only不泄露、拒绝前后DB一致；真实侧栏与双深链 | 部分旧行为存在，新门未验收（P0） |
+| N10–N14 / T3 | `ApplicationGroupDirectory.Application` 仍有 approved 与可写 supportedScopeKeys；`ApplicationScopeDeclarationStore.StoredScope` 按 scope 嵌套权限且禁止跨scope重复key；不满足多对多、单一事实源 | plugin 独立权限实体 key/name/scopeKeys、description；支持取全部关系并集；server决定 kestra-policy/external-declaration；主动登记真实标准client、不绕过pending/owner | P1→s1,s2/P2→s2、空关联、最后引用撤权、metadata不撤权、外部“管理员”文本不扩权；真实PG和REST；plugin发布门 | 已核对源码，模型需替换（P0/P1） |
+| N14/N19 / T3/T9 | `management/ManagementController` 同时注册 runtime-permissions；declaration控制器另有scope-declarations。UI App.vue 仍有独立 declarations 页签；R21明确替代这些入口 | plugin：当前Kestra grants/managementGrants存入同一权限实体并直接typed投影，不另建实际策略区；保留同scope完整授权，不跨scope拼接 | 新权限CRUD及旧两套写路由不注册；grants变更真实允许/拒绝；IDENTITY与LOCAL_POLICY独立，支持变化双域、只写回执；单/多角色精确namespace；plugin→root门 | 已核对源码，未实现（P0） |
+| N15/N16 / T4/T5 | 当前UserGrant可保存空scope；eligibleScopeKeys已求支持∩授予；涉及应用、禁用过滤、ANY/AND深链、分页与同快照枚举仍需重做 | plugin；(issuer,subject)精确身份；用户目录提供候选，subject删除不删账号、禁用保留授予 | 两组两应用、同名scope、超过25行、失效深链、筛选后Total、刷新/返回、组外拒绝；真实UI→DB | 交集源码存在，其余未验收（P1/P2） |
+| N4/N5/N19 / T5/T6 | `ManagementController.createUser` 仍接收调用方password；UserDirectoryV1没有公开delete；宿主已有同连接IdentityLifecycleGuardV1与安全锁，但不满足物理删除全组清理和完整首次强改 | overlay先发布通用生命周期机制；plugin借用宿主连接清全组授予并重验当前操作者/最后管理员；宿主不读插件表；临时凭据宿主生成、生产改密页受限会话 | 参与者写后抛错/宿主删失败全回滚；缺失重复参与者拒绝；并发互删/停用；历史执行审计保留；首次改密前拒绝业务/code/token/refresh绕过；overlay→plugin→root门 | 缺口已确认，需最小宿主提案（P0） |
+| N11/N19 / T7/T8 | 当前宿主pbkdf2哈希不能还原提示；没有公开credential状态/轮换/维护CLI；插件无credentials入口 | overlay F4：maskedHint与哈希同存、历史无提示明确显示；普通secret原子轮换、强修订；配置登录client只允许维护prepare/activate/cancel/回退/清回退材料。plugin仅调用公开契约 | public拒绝、旧secret失败、新secret成功、并发/CAS/CSRF、一次性no-store与内存清理；维护全链真实登录/回退后单值有效；overlay→plugin→root门 | 未实现，不以“已设置”替代R20（P0） |
+| N19 / T9/T12 | 单issuer、签名组claim、client登录audience与MCP资源audience已有机制；不能被UI重构误改。旧metadata更新由DirectoryStore.update无条件推进epoch，会误撤权 | overlay保留精确issuer/签名/audience机制；plugin只在有效支持/授予变化推进epoch、真实grants更新失效缓存；60秒为维护者可调参数，不是技术必然 | 真实签发/验签/错issuer/audience/未知scope整单拒绝、metadata凭据保持、缩减60秒内失效、扩大不升级旧code/token/refresh/UI/MCP | 源码部分存在，目标未验收（P0） |
+| N17/N18/N19 / T10/T11 | 现有页面以整页表单与独立声明表维护，未达到四抽屉、侧栏只读详情/显式编辑、失败草稿和焦点行为；KsFilter已从正式设计包导入，可复用但不是交互通过证据 | plugin使用正式SDK、宿主主题/13语言与原生组件；不复制原型壳层、独立偏好按钮或私有宿主翻译；根仓ego/CI共用断言 | 403/409/412/503、保存中禁闭、ESC/焦点返回/丢弃确认；四主题×全部语言、中英计算样式、1280/768/390；宿主实页对照；plugin与root门 | 原型已浏览，生产UI未验收（P2） |
+| N20 / T12 | 现有脚本仅new-install/legacy-migration，无独立declaration-upgrade门；旧声明与实际策略分存，需显式映射，不能猜测grants归属或静默丢弃 | plugin离线preview/apply：绑定schema/revision/hash、显式冲突决策、停写安全锁事务、新单一事实源；root同步生产安装计划和验收输入 | 真实PG schema2干净转换/同key冲突/旧独立支持不等价/approved=false/未知引用/映射冲突、回滚/幂等/并发；升级前后等价及旧凭据不扩权；独立必需发布门 | 未实现（P1，不能归入历史排除） |
+| 全部 / T12 | 旧project类名/脚本/历史README、旧绑定/恢复/配置状态描述仍有残留；当前业务路由多已改application-groups，不能用历史文档恢复旧机制 | 各仓自足文档按当前目标同步；root保留历史schema1显式legacy-migration，不把脚本文件名等同于仍有旧运行API；正式输入从已发布digest取得 | 独立克隆README流程、薄jar/bean索引/provenance、下载最终报告；new-install REST/MCP/安全/UI/缺插件/关闭功能加declaration-upgrade；最终三仓HEAD/远端/CI | 当前无v3发布与组合通过证据 |
+
+### 实施方案、依赖顺序与裁决边界
+
+1. 先修正已核对的冻结输入冲突，按 N/T 建立完整测试映射；保存失败，不把历史绿色
+   CI 计入新目标。模型设计归 plugin 自足文档，通用宿主提案归 overlay 能力文档。
+2. P0 宿主前置先行：复用现有安全锁/guard，新增账号删除同连接参与与受限首次改密、
+   client公开状态及secret轮换/维护机制；R24/R25保持“维护者可复核设计”来源限定。
+   不引入组CRUD/存储；候选明确未发布。主控负责共享manifest/机制/差异表一致性。
+3. P0/P1 插件统一权限模型与升级设计可以并行推进，但新增宿主类型的编译与交付必须
+   等宿主本地完整门、独立CI及正式镜像发布。外部声明不得进入Kestra资源授权。
+4. 插件从正式digest提取类型/SDK，完成服务、API、UI与new-install/declaration-upgrade
+   测试、独立克隆和CI发布。保留拒绝/撤权/最后管理员门，不降低旧有效断言。
+5. root只选择正式镜像/jar；一个主Compose与一个PG，辅助JVM按真实阶段启动且owner
+   label可追踪。真实生产登录、允许写入保存、拒绝无副作用与完整矩阵本地通过后，
+   才提交最终组合并取得该提交成功CI及实际下载报告。最终证据不足不得宣称交付。
+
+### 本轮已取得证据与剩余门
+
+- 冻结值已按提交`716f00a`实际原型显式修正，原型文件未修改。重新执行§11完整脚本
+  通过；新增CI/静态入口复用的原型检查器通过，改原型字节和正文/脚本hash不一致的
+  两个反例均拒绝。原失败保留，不覆盖为通过记录。
+- 已输出19条逐key映射（保留scope名称/说明及permission key/name）、22个标准用户和
+  1个持久subject的期望。原型impl缺完整typed字段和managementGrants，仅作历史
+  参考，实际初始化必须来自明确typed测试策略，不推断管理员权限。
+- 实际下载plugin当前CI`40468205769`的artifact`12717382010`，jar SHA-256为
+  `5ccb6a569d2450f572cda00ee20f52234af9fab7e90cc9ef18353d4be0b374df`。
+  下载报告实际为Java219、PostgreSQL77，失败/错误/跳过均0，两个现有数量检查器通过。
+  provenance镜像为正式`sha256:50315684e3826c4fafadac834ed1fc5438c3e2c77c394740634b59a1f6591024`。
+  这只确认旧契约基线，不是本轮模型、生命周期或UI通过。
+- overlay当前CI的host-scoped-tests已下载：XML合计325项，失败0、错误0、跳过2；
+  两项的镜像专项执行证据尚需单独核对，不能把该报告说成零跳过全通过。
+- root静态入口通过且明确`completed=false`、167项not_run、未创建容器。新增T1–T12
+  与declaration-upgrade均从not_run开始；没有真实执行证据不得从静态通过转换为通过。
+- overlay、plugin后端、plugin UI分别由独占修改范围的本次Herdr agent实施；主控保留
+  root全部验收文件。当前仅候选修改，无本轮正式提交、发布或Compose通过证据。
+- 继续实施时发现正式UI SDK只承诺按钮/输入/表格，明确不支持dialog/popover/复杂
+  dropdown；v3四抽屉/居中确认不能因公开npm中有组件就描述为宿主已支持。已按现有
+  管理UI能力文档要求调查通用portal/focus/主题/卸载兼容提案，未发布前仍为明确缺口。
+  新增一次性凭据截图防泄露门只完成源码/语法检查，实际浏览器反例尚未通过。
+- **外部浏览器前置阻塞**：本次唯一ego空间35曾成功用于原型调查，随后
+  `taskSpace(35)`返回`task space not found: 35`，`listTaskSpaces()`无同id或同名空间。
+  没有创建第二空间绕过，也没有claim用户空间或擅自升级。具体输出保存在
+  `.work/access-control-v3-20261027/browser-space-failure.md`。本地真实UI组合及截图门
+  未运行，不能用CI另一个矩阵替代；不依赖浏览器的实现和独立检查继续。
+
+### 2026-10-27 候选检查点（未发布，未完成最终交付）
+
+2026-10-28 续行早期检查点：本地日期已核对进入次日。当时第五轮 SDK 矩阵仍在运行；插件正式
+协议输入已实际提取并由主控核对 executable SHA-256 与五个公开类型。首次编译通过，
+后续单元及生命周期 PG 当时有真实失败，按日志修复，未触发插件 CI 或宣称 PG 通过。
+该阶段本地只运行插件 owner 标记的一个 PostgreSQL，没有第二套验收服务。
+
+2026-10-28 01:10 更新：主控已重新运行插件的真实报告检查器，并读取保存的全部 XML。
+正式协议 44 输入的本地候选为单元 39 套 272 项、PG 存储与业务 16 套 104 项、正式
+宿主适配器生命周期 2 套 15 项，均零失败、错误、跳过；另核八个具名 declaration-upgrade
+用例及宿主 image/executable provenance。各阶段不相加冒充唯一用例；这不是最终 SDK
+输入、插件 CI、正式 jar 发布或生产登录/UI 通过。插件 PG owner 容器已清理。
+SDK 第六轮因无稳定 key 的探针列表复用触发 DOM 失败（8/1/940），主控实际节点引用
+证明其不是节点删除；已修探针 key，并强制断开前置及准确 fallback。第七轮同一新
+冻结输入的 13 个行为已全部通过，936 个配置检查仍在运行。宿主已获单 PG 窗口并行
+执行新版候选本地门；最终完整 949、本地镜像门及精确 diff/hash 未审查通过前不得触发
+新版宿主 CI 或发布，不改变宿主→插件→root 的正式交付顺序。
+
+2026-10-28 02:15 更新：旧候选 `69e11808` / probe `02d12978` 的 Ego 与本仓独立
+CDP+Log 驱动均已完整 949/949、零失败/未运行/诊断错误，主控亲自核对精确同一用例
+集合及结束源哈希。完整 local-ci、UI83 和该候选新镜像门也已核过。但最终公开契约
+审查发现打包 contract.json 仍标 overlay 为未发布候选且 README 仍称 dialogs 不支持，
+因此主控没有批准提交或推送。当前只修契约元数据、SDK README 与一致性测试，核心
+renderer/helper 不变；必须按新最终输入重算补丁、jar、镜像及完整矩阵，不将旧绿色
+结果冒充新输入通过。根文档另已改条件式发布规则，`r-oidc-server.md` 同步正式44
+状态，待审显式文件集合从26增至27；后续仍按实际新补丁与文件集合重新审查。
+
+2026-10-28 02:30 更新：公开契约修复输入为 SDK `2f2984a`、0384 patch `b57b59a8`，
+实际触达13文件（原11加SDK README和一致性单元）；完整UI单元87项，保留原83并新增
+4项。正式能力字段为 overlayCompatibility，不保留 candidate 别名；四个原生组件须
+经公共适配，未适配 overlay/popover/KsPagination 仍不支持。发布资格以对应提交 CI 与
+推广为准。新 probe `f34331c5` 已冻结，主控和宿主按新输入重跑全部门。原 Ego 空间2
+实际失效，本轮尚无浏览器检查时即失败；已按维护者授权建立真实空间3，续跑8b完整
+949，未把工具恢复当通过或外部阻塞。证据分别保留，不改原型或降低任何断言。
+
+最新续接状态：协议 44 已由独立 release 树提交并推送为
+`64c449867b09ec21a5462104783fd2b8c7a4b4c5`。主控实际回读远端 main 一致，CI
+`40523539018` 的 headSha 一致，四个 job 全部成功。主控实际读取推广日志和注册表
+`:64c4498` 原始 OCI index，二者 digest 一致：
+`sha256:bebf7a7c06a6205c151ffd35882c54965918357f4e1c71bc0cd2879c3177a22e`。
+主控实际下载该 run 的认证 artifact，10 份报告完整覆盖两种首装；也实际解析已下载的
+89 份后端 XML 和 4 份镜像 XML。该正式协议输入已允许插件核对 provenance 后消费，
+但不包含新 SDK。canonical overlay HEAD/index 与 SDK 开发树未改。
+26 个工作文件和 index blob 的 SHA-256 已由主控逐一核对；44 补丁不含 0384。
+实际 XML 为后端 364 项（362 通过、2 项镜像专用跳过），镜像 4 份 XML 各 1 项、
+零跳过；UI 单元 8 文件 64 项。独立 44 镜像 OIDC 35 项及两种首装完整门通过。
+详见被忽略的 `.work/access-control-v3-20261027/resumed/protocol44-main-review-verdict.md`
+及同目录最终 provenance、原始日志和 XML。此处不将该阶段证据计为 SDK 或组合通过。
+
+SDK 完整 949 计划的第三次诊断运行：4 通过、1 失败、944 未运行。原生筛选器
+触发 `Unknown extension Teleport target`。SDK owner 已修复通用原生 Tooltip 弹层
+归属机制，完整 UI 单元 83 项通过。第四轮最终为 707 通过、1 失败、241 未运行；
+主控实际测量确认 system 主题失败发生在原生 0.3 秒过渡中，终态颜色正确。共享测试
+已改为等待实际原生 token 目标及连续稳定样式，不关闭动画或降低对比度标准。
+第五次原 949 计划实际为 936 通过、1 失败、12 未运行：全部主题/语言/宽度配置已通过，
+首个导航行为因测试把原始 `%2F` 编码当规范 URL 失败。主控核对实际 runtime 与公开
+契约：宿主沿用 Vue Router 的 parseQuery/stringifyQuery，解码值、重复值、null、空值
+均正确，查询中的斜线规范输出为 `/`。不改已正确的宿主实现；共享测试正修为独立
+规范预期，并将 13 个行为前置，仍须同一冻结输入完整 949，不合并前轮绿色结果。
+Ego 空间 2 继续复用；空间失效时已获授权重新创建。
+根仓共享 UI 当前初始计划 268 行；12 个 T 门已严格聚合，但生产运行仍未通过。
+新增实际缺口：当前已调查范围未找到可绑定主体的生产审计 writer/reader；测试中的
+`test_history.subject` 不计生产审计，`AUDIT_LOG` 枚举和普通执行日志也不能代替。
+该缺口归插件管理生命周期与凭据业务审计，不扩建宿主完整审计业务。主控已接收并
+收窄方案：仅对正式 `IdentityLifecycleParticipantV1` 已有五种操作，在宿主借用连接
+追加 `rbac_management_audit` 提交记录；不扩展无公开钩子的创建/资料更新，也不新增
+执行审计。读取沿用 §4.7 的 issuer 范围 IDENTITY.READ，包含同 issuer 已退役组历史，
+不新增组级 IDENTITY 权限。此前主控按组隔离的提案已纠正。subject 原值无级联关系，凭据、
+哈希和请求内容均不记录。失败与审计写入共同回滚。新安装及 schema2 升级必须包含
+该第五业务表与真实 PG 检查；候选实施中，尚未发布。
+审计保留门不排除、不计通过；测试不得强加需求未规定的 executionId 关联或伪造记录。
+根仓维护验收另修复一处误判：确认后的回滚必须明确收到正式 CLI 的 `CONFLICT`，
+网络故障及 `UNAVAILABLE` 不能算拒绝。三项离线控制流回归通过；生产维护门仍未运行。
+以下旧检查点中的“未提交”“空间前置”“顶层门未整合”和旧数量仅说明当时状态，
+不能覆盖本段最新结果。最终发布、生产 UI、独立插件及最终根 CI 仍必须实际验证。
+
+2026-10-27续接纠正：维护者明确授权旧Ego空间失效时新建空间。已实际创建新空间
+`kestra-access-control-20261027-resumed-1915`（本次返回spaceId=1、page=p1），打开实际
+原型并取得页面内容。下方旧空间35丢失仅保留为历史工具故障，**不再是当前阻塞**。
+后续浏览器操作复用新空间；宿主公开契约、独立发布和真实组合验收门仍须完成。
+
+续接已实测同一新空间中的截图安全门：可见一次性凭据标记位于ShadowRoot时截图被拒绝，
+没有输出PNG；移除公开测试标记后普通截图成功。证据在
+`.work/access-control-v3-20261027/resumed/adapter-security/report.json`。这仅证明工具安全门，
+不证明生产凭据、授权或UI通过。R19最小协议区分和UI SDK通用扩容已分别分配独占修改
+范围重新实施；R19方向已接收，新增接口版本和UI兼容细节仍须主控审查及实际测试。
+
+维护者续接补充：UI优先上游原生组件和主题，不另造全部控件或独立配色。已同步根需求
+§6及各实施owner。SDK完整浏览器矩阵已发现真实宽度、筛选、窄屏与关闭回焦问题，失败
+和未运行项保留，修复后仍须完整执行原949条，不以单元绿色或独立探针代替生产验收。
+
+主控阶段发布裁决：先隔离并完整验证、发布0380–0383的账号/凭据/R19公开协议契约，
+不包含尚未通过浏览器门的0384；插件仅在该协议正式CI与镜像推广后取得真实编译输入，
+推进事务参与者和真实PG检查。0384仍须独立完成原矩阵及宿主门，再发布正式SDK。
+最终插件UI、正式jar与根仓组合必须消费包含已验收SDK的正式版本；该阶段发布不代表
+完整目标交付，不删除SDK断言，不将45补丁的镜像测试冒充44补丁测试。
+
+| 所属 | 主控实际核对结果 | 不代表通过的门 |
+|---|---|---|
+| overlay | 0380账号删除/同连接参与、0381临时密码/受限改密、0382凭据状态/轮换/维护CLI的候选patch已生成；主控结构检查43个patch、PASS=15/FAIL=0 | 完整local-ci、最终镜像HTTP/浏览器、正式CI与镜像发布未运行；定向测试的不同阶段不得相加冒充完整门 |
+| plugin后端 | 最新保存XML为Java34套239项、真实PG13套91项，均零失败/错误/跳过；主控亲自运行PG检查器与8个具名declaration-upgrade检查器通过 | F3/F4尚未接入正式新契约；独立克隆、最终新宿主输入CI与发布未通过 |
+| plugin整体 | 主控执行clean check，日志显示BUILD SUCCESSFUL、69项前端逻辑与verifyThinJar通过；外层zsh误用只读status变量报错后，以正确变量重新执行check，退出0 | 构建仍消费旧正式宿主SDK；SDK明确未支持的弹层、导航守卫不能因候选编译成功升级为公开能力；真实UI没有通过证据 |
+| root | 统一formatVersion=2安装计划保留19条scope及权限key/name、typed测试grants；静态/语法及输入反例通过；新REST/UI用例从not_run初始化，不造通过行 | REST/MCP/安全/UI/维护CLI/缺插件/关闭功能与最终组合CI均未运行；顶层T门尚未整合；静态不等于部署验收 |
+
+候选源码与报告保存在原工作树及各仓被忽略的`.work`。没有本轮正式提交、推送、CI触发或
+产物发布；根仓已有插件gitlink差异保留，没有回退用户修改。正式jar及原有缓存保留。
+本轮唯一手动PG容器在确认测试退出并核对owner后用`docker rm -f -v`清理，未删除用户数据。
+
+下一步必须先解决并正式发布宿主最小机制：弹层/ShadowRoot/导航query与离开守卫的公开
+SDK兼容边界，以及资源Audience可空与登录client audience分离的R19提案。插件的空资源
+Audience登记仍被正式V1投影限制，未用默认clientId伪造资源列表。随后才消费正式新digest，
+接入F3/F4，执行独立克隆与正式插件CI、完整根仓真实组合并下载最终提交报告。
+冻结22用户与初始1个subject的生产准备/浏览器阶段也仍须落实，不能用之后的多页随机
+测试数据计数代替。Ego空间恢复或新的明确浏览器上下文授权仍是本地Ego检查的外部前置。
+
+收尾核对：本次创建的5个子agent均已结束任务或中止报告轮，读取其状态/输出后逐个关闭
+本次pane；最终CLI只列原主控`wW:p1A`且focused=true，未关闭原pane。owner容器、网络、
+卷查询均为空。三仓HEAD、upstream及远端main仍分别为`a6fe358`、`c2390ff`、`40715da`，
+所有候选改动保持未提交，三仓diff空白检查通过。没有创建交接文件，未读取用户秘密备份。
+根静态最新报告为`completed=false`、224项not_run、无容器，保留于
+`.work/access-control-v3-20261027/root-checkpoint-static-report.json`；不作为业务通过报告。
+
 ## 2026-10-22 当前交付验证
 
 正式组合为宿主 `c2390ff` / CI `39712369397`，插件 `6f23eeb` / CI `39715045248`。

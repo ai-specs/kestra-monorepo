@@ -28,7 +28,7 @@
   即复原）——这些仅为原型自证手段，实施时全部不实现。
 - 原型内嵌两类机器可读资产，实施 AI 必须读取：
   - `<script type="application/rulings+json">`：历史裁决集 R1–R12（按本文最新替代条款解释）；
-  - 19 处 `data-field-note` 元素属性：字段级实施语义（就地提示）。
+  - 20 处 `data-field-note` 元素属性：字段级实施语义（就地提示）。
 
 ### 0.3 文档效力（冲突时以此为准）
 
@@ -372,6 +372,16 @@ READ 时不展示依赖枚举的编辑抽屉，但公开写 API 仍独立验收�
 
 ## 6. 实施约束
 
+维护者补充（2026-10-27）：UI 优先使用 Kestra 上游原生组件与交互，不得将全部控件
+重新实现。主题优先复用宿主现有主题、语义令牌和偏好机制，不建立平行配色或主题存储。
+独立扩展通过已发布的公开 UI SDK 和原生组件包消费这些能力；公开机制不足时，仅补充
+必要的通用适配，不复制相邻宿主私有源码，也不将插件业务页面迁入宿主。
+
+维护者补充（2026-10-29）：多处“添加筛选/添加过滤器”必须按实际发布的 Kestra 原生
+控件对照验收。检查弹层随当前触发控件定位、内部按钮与嵌套弹层的真实点击效果、
+关闭后再次展开的位置与行为；同时覆盖多个筛选控件、滚动、窄屏、主题及焦点。
+导入原生组件不能代替这些行为检查，不能用固定页面坐标或复制组件实现修复。
+
 1. 组件：筛选用上游 KsFilter；图标/抽屉/表格对齐宿主设计体系；原生组件优先；
 2. 宿主 KsButton `primary+link` 白字缺陷：插件 CSS 兜底，上游修复后移除
    （`implementation-gap-report.md` 已记录）；
@@ -502,7 +512,7 @@ PostgreSQL 的独立测试数据库，不是产品多 issuer 功能。缺插件/
 
 基线来源为提交 `82f5657`，经2026-10-27本次反向评审同步后的
 `docs/prototype-application-groups.html`，当前冻结文件 SHA-256：
-`089b9a8093223580d7618925a282f7e9fd239cb10c167bb078b5d5e0f08e5140`。
+`7bb5c48639f78c018971bb7b768625f463a421c8a6251f60330ed8f7829f929a`。
 实际 12 条历史 ruling、20 处字段提示；不为计数增删语义。原型只有少量 data-test，
 不能当成完整验收清单。执行以下完整命令核对，
 只解析 JSON，不执行原型脚本或读取本地部署：
@@ -512,7 +522,7 @@ python3 - <<'PY'
 from pathlib import Path
 import hashlib, json, re
 source = Path('docs/prototype-application-groups.html').read_bytes()
-assert hashlib.sha256(source).hexdigest() == '089b9a8093223580d7618925a282f7e9fd239cb10c167bb078b5d5e0f08e5140'
+assert hashlib.sha256(source).hexdigest() == '7bb5c48639f78c018971bb7b768625f463a421c8a6251f60330ed8f7829f929a'
 text = source.decode('utf-8')
 data = json.loads(re.search(r'const DATA\s*=\s*(\{.*?\});', text, re.S).group(1))
 rulings = json.loads(re.search(r'<script[^>]*type="application/rulings\+json"[^>]*>(.*?)</script>', text, re.S).group(1))
@@ -536,12 +546,13 @@ PY
 |---|---|
 | 删除概览Audience行 | §2.5无组级统一Audience；概览仅保留共享Issuer，不能显示应用audience |
 | 应用详情增加资源Audience只读行 | §3.2展示所选应用的audiences列表；切换应用不得复用上一个应用值 |
-| 应用侧栏增加登记已有应用内联表单 | §12.3禁止第五抽屉；输入clientId和描述，已登记/未注册client拒绝，成功新增并选中空支持应用 |
+| 应用侧栏标题增加登记入口，详情内容区显示表单 | §12.3禁止第五抽屉；输入clientId、描述和audiences，已登记/未注册client拒绝，成功新增并选中空支持应用；侧栏不保留内联表单 |
 | 统一所有原型分页默认值与选项 | §12.3规定page1/size25，允许10/25/50/100；权限、用户、subject列表共同采用 |
 
-以上四处变更的旧冻结hash为
-`7bb5c48639f78c018971bb7b768625f463a421c8a6251f60330ed8f7829f929a`；新hash见本节
-当前冻结值和上方校验命令，两者必须一致。历史rulings仍12条，data-field-note仍19处，
+以上四处变更之后又加入侧栏标题入口并移除了重复内联表单。2026-10-27重新核对发现
+正文和校验命令误留`089b9a...5140`，与提交`716f00a`的实际文件不符；本次只修正冻结
+记录，不修改原型。新hash见本节当前冻结值和上方校验命令，两者必须一致。
+历史rulings仍12条，data-field-note现为20处，
 DATA快照计数不变。登记示例`demo-registered-client`存在于原型独立的标准注册模拟表，
 初始未加入组，不计入DATA的1个应用；其resource Audience为示例URL、类型为public。
 真实实现必须通过宿主已发布协议契约校验当前注册状态，不能读取此模拟表充当验收。
@@ -645,8 +656,9 @@ scope 分组的只读结构，不要求物理表仍按 scope 嵌套，更不能�
 
 保留主路由 application-groups、users；组详情四页签路径为组根、scopes、applications、
 scope-grants，scope/app选择写入其子路径。侧栏只切内容与规范URL，不进详情抽屉；
-详情初始只读，显式编辑后保存/取消回只读。应用侧栏增加“登记已有应用”内联表单，
-不新增第五个抽屉，标准redirect/type/owner仍由宿主管理。
+详情初始只读，显式编辑后保存/取消回只读。应用侧栏标题行“＋”打开详情内容区的
+“登记已有应用”表单，与scope新建模式一致；不在侧栏内联，不新增第五个抽屉，
+标准redirect/type/owner仍由宿主管理。
 
 深链query约定permissionKey、filterSubject、重复scopeKeys、page/size。subject跳应用
 保留来源与scope集合，READ后重新校验当前授予，不继续采用过期范围；scopeKeys内ANY，

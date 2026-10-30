@@ -56,6 +56,30 @@ export class ProductionOAuthClient {
     // verifies the SPA's final canonical route and stable business content.
     return {callbackPath:finalUrl.pathname,authenticated:true,credentialsSubmitted}
   }
+  async changeTemporaryPassword(username, temporaryPassword, newPassword) {
+    assert(!this.#cookies.has('JWT'),'Temporary-password preparation requires a new unauthenticated client')
+    assert(typeof temporaryPassword==='string'&&temporaryPassword.length>0,'Host-generated temporary password required')
+    assert(typeof newPassword==='string'&&newPassword.length>=8&&newPassword!==temporaryPassword,'A distinct new password is required')
+    const started=await this.request('/oidc/login',form({username,password:temporaryPassword,from:'/oauth/login/kestra'}))
+    assert.equal(started.status,303,'Temporary credentials must enter the restricted password-change flow')
+    const target=new URL(started.headers.get('location'),this.#base)
+    assert.equal(target.origin,this.#base);assert.equal(target.pathname,'/oidc/password')
+    assert(!this.#cookies.has('JWT')&&!this.#cookies.has('oidc_session'),'Temporary credentials created a normal session')
+    const page=await this.request(target)
+    assert.equal(page.status,200,'Production password-change page is unavailable')
+    const csrf=(await page.text()).match(/name="csrf"[^>]*value="([A-Za-z0-9_-]+)"/)?.[1]
+    assert(csrf,'Restricted password-change form has no CSRF value')
+    const before=await this.request('/api/v1/configs',{headers:{Accept:'application/json'}})
+    assert([401,403].includes(before.status),'Temporary identity obtained business access before password change')
+    await before.body?.cancel()
+    const changed=await this.request('/oidc/password',{...form({csrf,password:newPassword,confirmation:newPassword}),headers:{'Content-Type':'application/x-www-form-urlencoded',Origin:this.#base}})
+    assert.equal(changed.status,303,'Production forced password change failed')
+    const destination=new URL(changed.headers.get('location'),this.#base)
+    assert.equal(destination.origin,this.#base);assert.equal(destination.pathname,'/oidc/login')
+    assert(!this.#cookies.has('oidc_password_change'),'Restricted password-change cookie was not cleared')
+    const login=await this.login(username,newPassword)
+    return {transport:'http-form',passwordChanged:true,businessBeforeChange:before.status,login}
+  }
   async discover() {
     const response = await this.request('/.well-known/openid-configuration')
     assert.equal(response.status, 200)
@@ -64,6 +88,64 @@ export class ProductionOAuthClient {
     for (const name of ['authorization_endpoint', 'token_endpoint', 'jwks_uri']) assert.equal(new URL(metadata[name]).origin, this.#base)
     this.#discovery = metadata
     return metadata
+  }
+  async verifyConfidentialRotation({clientId,redirectUri,oldSecret,newSecret}) {
+    assert(typeof clientId==='string'&&clientId&&clientId!=='kestra-ui')
+    assert(typeof oldSecret==='string'&&oldSecret&&typeof newSecret==='string'&&newSecret&&oldSecret!==newSecret)
+    const discovery=await this.discover()
+    const verifier=randomBytes(48).toString('base64url'),state=randomBytes(20).toString('hex'),nonce=randomBytes(20).toString('hex')
+    const query=new URLSearchParams({client_id:clientId,redirect_uri:redirectUri,response_type:'code',scope:'openid',state,nonce,
+      code_challenge:createHash('sha256').update(verifier).digest('base64url'),code_challenge_method:'S256'})
+    let authorization=await this.request('/oidc/authorize?'+query)
+    assert.equal(authorization.status,200,'Ordinary confidential client must reach production owner consent')
+    const interaction=(await authorization.text()).match(/name="interaction" value="([^"]+)"/)?.[1]
+    assert(interaction,'Production confidential client consent interaction missing')
+    authorization=await this.request('/oidc/consent',{...form({interaction,decision:'approve','scope-openid':'yes'}),headers:{'Content-Type':'application/x-www-form-urlencoded',Origin:this.#base}})
+    assert.equal(authorization.status,303)
+    const callback=new URL(authorization.headers.get('location'))
+    assert.equal(callback.origin+callback.pathname,redirectUri);assert.equal(callback.searchParams.get('state'),state)
+    const code=callback.searchParams.get('code');assert(code&&!callback.searchParams.has('error'))
+    const exchange=secret=>this.request(discovery.token_endpoint,form({grant_type:'authorization_code',client_id:clientId,client_secret:secret,
+      redirect_uri:redirectUri,code,code_verifier:verifier}))
+    const old=await exchange(oldSecret)
+    assert.equal(old.status,401,'Old confidential secret was not rejected')
+    assert.equal((await old.json()).error,'invalid_client','Infrastructure failure is not proof of secret revocation')
+    const accepted=await exchange(newSecret)
+    assert.equal(accepted.status,200,'New confidential secret failed the production code exchange')
+    const tokens=await accepted.json()
+    assert(tokens.access_token&&tokens.id_token,'Production exchange omitted signed access or ID token')
+    const keysResponse=await this.request(discovery.jwks_uri)
+    assert.equal(keysResponse.status,200)
+    const keys=(await keysResponse.json()).keys
+    for(const [kind,token]of [['access',tokens.access_token],['id',tokens.id_token]]) {
+      const segments=token.split('.');assert.equal(segments.length,3)
+      const header=JSON.parse(Buffer.from(segments[0],'base64url').toString('utf8'))
+      assert.equal(header.alg,'RS256')
+      const matching=keys.filter(key=>key.kid===header.kid&&key.kty==='RSA');assert.equal(matching.length,1)
+      assert(verify('RSA-SHA256',Buffer.from(segments[0]+'.'+segments[1]),createPublicKey({key:matching[0],format:'jwk'}),Buffer.from(segments[2],'base64url')),'Confidential exchange signature did not verify')
+      const claims=JSON.parse(Buffer.from(segments[1],'base64url').toString('utf8'))
+      assert.equal(claims.iss,this.#base);assert.deepEqual(Array.isArray(claims.aud)?claims.aud:[claims.aud],[clientId])
+      assert(claims.exp>Date.now()/1000)
+      if(kind==='id')assert.equal(claims.nonce,nonce)
+    }
+    return {transport:'production-oidc',newSecretAccepted:true,oldSecretAccepted:false,oldStatus:old.status,newStatus:accepted.status,signedTokensVerified:true,resourceRequested:false}
+  }
+  async probeCurrentIdpSession() {
+    const verifier=randomBytes(48).toString('base64url'),state=randomBytes(20).toString('hex')
+    const redirectUri=this.#base+'/oauth/callback/kestra'
+    const query=new URLSearchParams({client_id:'kestra-ui',redirect_uri:redirectUri,response_type:'code',scope:'openid',state,
+      code_challenge:createHash('sha256').update(verifier).digest('base64url'),code_challenge_method:'S256'})
+    const response=await this.request('/oidc/authorize?'+query)
+    const location=response.headers.get('location')
+    assert(redirects.has(response.status)&&location,'IdP session observation must reach a precise production redirect')
+    const target=new URL(location,this.#base)
+    assert.equal(target.origin,this.#base)
+    await response.body?.cancel()
+    if(target.pathname==='/oidc/login')return {source:'production-authorize-existing-idp-cookie',authenticated:false,status:response.status,passwordRequired:true,codeIssued:false}
+    assert.equal(target.origin+target.pathname,redirectUri,'Unexpected IdP session observation destination')
+    assert.equal(target.searchParams.get('state'),state)
+    assert(target.searchParams.get('code')&&!target.searchParams.has('error'),'Existing IdP session did not produce a normal authorization code')
+    return {source:'production-authorize-existing-idp-cookie',authenticated:true,status:response.status,passwordRequired:false,codeIssued:true}
   }
   async issueMcpScopes(scopes, approveClient, reauthenticate, {registeredClient} = {}) {
     const endpoint = '/api/v1/main/mcp/default'

@@ -11,9 +11,9 @@ import {applicationProject,scopeNames} from './application-project-cases.mjs'
 import {ProductionOAuthClient} from './production-oauth-client.mjs'
 import {runTargetGroupBrowser,targetUiCheckIds} from './application-project-target-ui.mjs'
 import {flowSource} from './application-project-fixture.mjs'
-import {applicationPermission} from './application-project-policy.mjs'
-import {applicationProjectUiLocales,applicationProjectUiThemes} from './application-project-ui-cases.mjs'
+import {applicationProjectUiLocales,applicationProjectUiThemes,applicationProjectUiCaseIds,sanitizeApplicationProjectUiEvidence,waitForNativeStyleSettlement} from './application-project-ui-cases.mjs'
 import {createEgoApplicationProjectAdapter,runApplicationProjectBrowser} from './application-project-browser-adapters.mjs'
+export {frozenBaselinePlan,prepareFrozenBaseline,runPreparedFrozenBaselineUi} from './access-control-v3-frozen.mjs'
 
 const api='/api/v1/main/extensions/rbac'
 const key=value=>'~'+Buffer.from(value).toString('base64url')
@@ -140,16 +140,18 @@ const nsGrant=(namespace,resource,actions)=>({scope:'NAMESPACE',tenant:'main',na
 const tenantGrant=resource=>({scope:'TENANT',tenant:'main',namespace:null,descendants:false,resource,actions:['READ','LIST'],ids:[],allIds:true})
 const scopeDefinition=(description,grants)=>({description,enabled:true,grants,managementGrants:[]})
 export function planApplicationProjectUi() {
-  const ids=Array.from({length:26},(_,i)=>String(i+1).padStart(3,'0'))
+  const ids=Array.from({length:28},(_,i)=>String(i+1).padStart(3,'0'))
   const edit=scopeDefinition('UI initial explicit application policy',[nsGrant(uiNamespaces.initial,'FLOW',['READ','LIST'])])
   const reference=scopeDefinition('UI reference page access',[
     ...['FLOW','EXECUTION','NAMESPACE','LOG','METRIC','TRIGGER','KVSTORE','NAMESPACE_FILE'].map(resource=>nsGrant(uiNamespaces.reference,resource,resource==='FLOW'?['READ','LIST','CREATE']:['READ','LIST'])),tenantGrant('METADATA'),tenantGrant('MCP_SERVER')])
+  const accessDefinitions=Object.fromEntries([['identity-read','IDENTITY','READ'],['identity-manage','IDENTITY','MANAGE'],['local-read','LOCAL_POLICY','READ'],['local-manage','LOCAL_POLICY','MANAGE']].map(([name,domain,action])=>['acceptance-ui-'+name,{description:'UI separate '+domain+' '+action,enabled:true,grants:[],managementGrants:[{domain,actions:[action],applicationGroupIds:domain==='LOCAL_POLICY'?[applicationProject]:[]}]}]))
+  accessDefinitions['acceptance-ui-local-read-manage']={description:'UI LOCAL_POLICY READ and MANAGE without IDENTITY.READ',enabled:true,grants:[],managementGrants:[{domain:'LOCAL_POLICY',actions:['READ','MANAGE'],applicationGroupIds:[applicationProject]}]}
   const directory=(key,definition)=>({key,name:key.replace(/^acceptance-/, '').split('-').map(word=>word[0].toUpperCase()+word.slice(1)).join(' '),description:definition.description})
-  return {projects:ids.map(id=>({id:'ui-acceptance-group-'+id,tenant:'main',displayName:'UI acceptance group '+id})),
-    scopes:[directory(uiScopeNames.edit,edit),directory(uiScopeNames.reference,reference),...ids.map(id=>directory('acceptance-ui-filter-'+id,scopeDefinition('UI filter scope '+id,[nsGrant(uiNamespaces.initial,'FLOW',['READ','LIST'])])))],
-    users:ids.map(id=>({username:'ui-acceptance-user-'+id,name:'UI acceptance user '+id,email:'ui-acceptance-user-'+id+'@acceptance.invalid',password:randomBytes(24).toString('base64url')+'Aa1!'})),
+  return {projects:ids.map(id=>({id:'ui-acceptance-group-'+id,tenant:'main',displayName:'UI acceptance group '+id,description:''})),
+    scopes:[directory(uiScopeNames.edit,edit),directory(uiScopeNames.reference,reference),...Object.entries(accessDefinitions).map(([key,definition])=>directory(key,definition)),...ids.map(id=>directory('acceptance-ui-filter-'+id,scopeDefinition('UI filter scope '+id,[nsGrant(uiNamespaces.initial,'FLOW',['READ','LIST'])])))],
+    users:ids.map(id=>({username:'ui-acceptance-user-'+id,name:'UI acceptance user '+id,email:'ui-acceptance-user-'+id+'@acceptance.invalid'})),
     clients:ids.map(id=>({client_name:'UI acceptance client '+id,redirect_uris:['http://127.0.0.1:19997/callback'],token_endpoint_auth_method:'none',grant_types:['authorization_code','refresh_token'],response_types:['code'],scope:'openid'})),
-    applicationPolicies:{[uiScopeNames.edit]:edit,[uiScopeNames.reference]:reference},zeroAccount:{username:'ui-acceptance-zero',subject:'ui-acceptance-zero',name:'UI zero authorization',email:'ui-acceptance-zero@acceptance.invalid',password:randomBytes(24).toString('base64url')+'Aa1!'}}
+    accessDefinitions,applicationPolicies:{[uiScopeNames.edit]:edit,[uiScopeNames.reference]:reference,...accessDefinitions},zeroAccount:{username:'ui-acceptance-zero',subject:'ui-acceptance-zero',name:'UI zero authorization',email:'ui-acceptance-zero@acceptance.invalid'}}
 }
 
 /** Concrete candidate actions from public KsFilter 0.5.0 dist components.
@@ -157,28 +159,29 @@ export function planApplicationProjectUi() {
  * No URL query, router, sessionStorage or synthetic event is used to set filters.
  */
 export function uiFilterPlans(records) {
-  const fields={projects:{label:'Application group ID',field:'id'},scopes:{label:'Scope key',field:'key'},clients:{label:'Client ID',field:'clientId'},assignments:{label:'User identity',field:'subject'}}
+  const fields={projects:{label:'Application group ID',field:'id'},permissions:{label:'Permission key',field:'key'},users:{label:'subject',field:'subject'},subjects:{label:'subject',field:'subject',records:'assignments'}}
   const plans={}
-  for(const [section,{label,field}]of Object.entries(fields)) {
-    assert(records[section].length>25,'actual directory must exceed 25: '+section)
-    const first=records[section][25][field],second=records[section][26]?.[field]??records[section][24][field]
-    const prefix=first.slice(0,-1)
-    const contains=records[section].filter(item=>String(item[field]).toLocaleLowerCase().includes(prefix.toLocaleLowerCase())).map(item=>item[field])
-    // Limit expected results to a page because shared assertions compare visible
-    // rows; choose the exact first ID if a generated client prefix is too broad.
-    const needle=contains.length<=25?prefix:first
-    const rows=records[section].filter(item=>String(item[field]).toLocaleLowerCase().includes(needle.toLocaleLowerCase())).map(item=>item[field])
-    const open=[fill('.ks-search input',''),click('.customize-button'),click('.adv-clear'),click('.adv-footer .adv-add:nth-child(1)')]
-    const condition=(index,comparator,value)=>{
+  for(const [section,definition]of Object.entries(fields)) {
+    const {label,field}=definition,items=records[definition.records??section]
+    assert(items.length>25,'actual directory must exceed 25: '+section)
+    const first=items[25][field]
+    const open=[fill('.ks-search input',''),{action:'open-advanced'},click('.adv-clear'),click('.adv-footer .adv-add:nth-child(1)')]
+    const condition=(index,fieldLabel,comparator,value,enumerated=true)=>{
       const root='.adv-body .adv-row:nth-child('+index+')'
-      return [click(root+' .cond-field .kel-select__wrapper'),option(label),click(root+' .cond-op .kel-select__wrapper'),option(comparator),fill(root+' .cond-value-input input',value)]
+      const operation=section==='projects'?[click(root+' .cond-op .kel-select__wrapper'),option(comparator)]:[{action:'assert-comparator',selector:root+' .cond-op',value:comparator}]
+      return [click(root+' .cond-field .kel-select__wrapper'),option(fieldLabel),...operation,...(enumerated?[click(root+' .cond-value-select .kel-select__wrapper'),option(value)]:[fill(root+' .cond-value-input input',value)]),{action:'wait-query-value',value}]
     }
     const close=click('.adv-header-close')
-    plans[section]={
-      equals:{steps:[...open,...condition(1,'Equals',first),close],expectedIds:[first]},
-      contains:{steps:[...open,...condition(1,'Contains',needle),close],expectedIds:rows},
-      and:{steps:[...open,...condition(1,'Contains',needle),click('.adv-footer .adv-add:nth-child(1)'),...condition(2,'Equals',first),close],expectedIds:[first]},
-      or:{steps:[...open,...condition(1,'Equals',first),click('.adv-footer .adv-add:nth-child(2)'),...condition(2,'Equals',second),close],expectedIds:[first,second]},
+    plans[section]={equals:{steps:[...open,...condition(1,label,'Equals',first,section!=='projects'),close],expectedIds:[first]}}
+    if(section==='projects') {
+      const needle=first.slice(0,-1)
+      plans[section].contains={steps:[...open,...condition(1,label,'Contains',needle,false),close],expectedIds:items.filter(item=>item.id.includes(needle)).map(item=>item.id)}
+      plans[section].and={steps:[...open,...condition(1,label,'Contains',needle,false),click('.adv-footer .adv-add:nth-child(1)'),...condition(2,label,'Equals',first,false),close],expectedIds:[first]}
+    }
+    if(section==='permissions') {
+      const name=items[25].name
+      plans[section].contains={steps:[...open,...condition(1,'Permission name','Contains',name,false),close],expectedIds:items.filter(item=>item.name.includes(name)).map(item=>item.key)}
+      plans[section].and={steps:[...open,...condition(1,'Permission name','Contains',name,false),click('.adv-footer .adv-add:nth-child(1)'),...condition(2,label,'Equals',first),close],expectedIds:[first]}
     }
   }
   return plans
@@ -193,10 +196,8 @@ export function uiBrowserFixture({base,admin,zeroAccount,clientId,subject,record
       locales:Object.fromEntries(applicationProjectUiLocales.map(locale=>[locale,[click('.settings-block:last-child .setting-row:first-child .kel-select__wrapper'),option(uiLanguageNames[locale])]]))},
     localeText:copy(uiLocaleText),translationEvidence:{kind:'target-wording-expectations',status:'runtime-validation-required',artifactBinding:'parent acceptance image and jar hashes'},
     references:{mcpPath:'/ui/main/admin/mcp-servers/edit/default/edit',namespacesPath:'/ui/main/namespaces',flowsPath:'/ui/main/flows',tab:'#tab-edit',button:'button.kel-button--primary',search:'.ks-search input',tableHeader:'.kel-table th',tableCell:'.kel-table tbody td'},
-    referenceEvidence,pagination,filters:uiFilterPlans(records),filterEvidence:{status:'candidate-public-component-structure; runtime DOM not yet verified',components:['CustomizeFilters','AdvancedFilterBuilder','ConditionRow'],package:'@kestra-io/design-system',version:'0.5.0'},
-    expectedRequestErrors:[...['ui-client-membership-approval','ui-subject-grant-revoke','ui-scope-registration-no-runtime-grant','cleanup-restore-client','cleanup-restore-assignment'].flatMap(name=>[401,403].map(status=>({case:name,method:'GET',path:'/api/v1/main/extensions/rbac/capabilities',status}))),
-      {case:'ui-scope-registration-no-runtime-grant',method:'GET',path:api+'/application-groups/'+applicationProject+'/scopes/acceptance-ui-declared-empty',status:404},
-      {case:'ui-412-conflict-no-policy-change',method:'PUT',path:api+'/application-groups/'+applicationProject+'/applications/'+key('kestra-ui')+'/runtime-permissions/scopes/'+uiScopeNames.edit,status:412}],
+    records:copy(records),referenceEvidence,pagination,filters:uiFilterPlans(records),filterEvidence:{status:'candidate-public-component-structure; runtime DOM not yet verified',components:['CustomizeFilters','AdvancedFilterBuilder','ConditionRow'],package:'@kestra-io/design-system',version:'0.5.0'},
+    expectedRequestErrors:[],
     base,expectedBrowserErrors:[]}
 }
 
@@ -205,15 +206,17 @@ async function prepareUiData({base,management,planned,completedFragments,isolati
   assert.equal(management.base,base);assert.equal(planned.base,base)
   assert(completedFragments?.rest?.completed&&completedFragments.rest.matrix?.length===56&&completedFragments.rest.matrix.every(row=>row.passed&&row.status==='passed'&&row.skipped===undefined&&row.transport==='rest'),'prepare UI only after actual REST56 completion')
   assert(completedFragments?.mcp?.checks?.length>=11&&completedFragments.mcp.checks.some(row=>['passed','failed'].includes(row.status)),'actual MCP execution evidence must be retained before independent UI checks')
+  assert(completedFragments?.frozenUiBaseline?.completed===true&&completedFragments.frozenUiBaseline.passed===true&&completedFragments.frozenUiBaseline.status==='passed'&&completedFragments.frozenUiBaseline.phase==='before-boundary-data','run the independent frozen UI baseline before adding boundary test data; final random totals are not frozen-data evidence')
   assert(/^application-projects-bb-[0-9]+-[0-9]+$/.test(isolation?.composeProject??''),'own isolated Compose UI data preparation required')
-  assert(typeof management.saveRuntimeScope==='function'&&typeof management.reauthenticateGroup==='function'&&management.approvedClientIds instanceof Map,'application-group management helper required')
+  assert(typeof management.saveTypedPermission==='function'&&typeof management.readPermissions==='function'&&typeof management.reauthenticateGroup==='function'&&management.registeredClientIds instanceof Map,'v3 application-group management helper required')
   const origin=new URL(base);assert.equal(origin.origin,base);assert(['localhost','127.0.0.1'].includes(origin.hostname));assert(Number(origin.port)>1024)
   const inspect=(format,id)=>execFileSync('docker',['inspect','-f',format,id],{encoding:'utf8'}).trim()
   for(const id of [isolation.kestraContainer,isolation.postgresContainer]){assert(/^[a-f0-9]{12,64}$/.test(id??''));assert.equal(inspect('{{index .Config.Labels "com.docker.compose.project"}}',id),isolation.composeProject)}
   const ports=JSON.parse(inspect('{{json .NetworkSettings.Ports}}',isolation.kestraContainer))
   assert(ports['8080/tcp']?.some(binding=>binding.HostPort===origin.port&&binding.HostIp==='127.0.0.1'),'UI API base is not the owned loopback deployment port')
   const spec=planApplicationProjectUi(),events=[]
-  const emit=async event=>{events.push(event);await record({completed:false,events,requests:[...management.requests]})}
+  const credentialSecrets=[planned.admin.password]
+  const emit=async event=>{events.push(event);await record(sanitizeApplicationProjectUiEvidence({completed:false,events,requests:[...management.requests]},credentialSecrets))}
   const baseline=copy(planned.policy.applicationGroups[applicationProject].scopes)
   const protectedScopes={}
   await management.login()
@@ -222,12 +225,12 @@ async function prepareUiData({base,management,planned,completedFragments,isolati
   try {
     for(const project of spec.projects) {
       await management.login()
-      const before=await management.request(management.runtimePath(applicationProject))
+      const before=await management.readPermissions(applicationProject)
       await management.request(api+'/application-groups','POST',project)
       await management.reauthenticateGroup(applicationProject)
-      const after=await management.request(management.runtimePath(applicationProject))
+      const after=await management.readPermissions(applicationProject)
       equal(after,before)
-      await emit({kind:'application-group-created',applicationGroupId:project.id,actualPolicyCreated:false,policyRevision:after.revision})
+      await emit({kind:'application-group-created',applicationGroupId:project.id,actualPolicyCreated:false,parentRevision:after.parentRevision})
     }
     for(const scope of spec.scopes) {
       await management.login()
@@ -235,7 +238,7 @@ async function prepareUiData({base,management,planned,completedFragments,isolati
       await management.mutateDirectory(api+'/application-groups/'+applicationProject+'/scopes','POST',scope,project.revision)
       const actual=spec.applicationPolicies[scope.key]
       if(actual) {
-        await management.saveRuntimeScope(applicationProject,scope.key,actual)
+        await management.saveTypedPermission(applicationProject,scope.key,actual)
         planned.policy.applicationGroups[applicationProject].scopes[scope.key]=copy(actual)
       }
       await emit({kind:'ui-scope-created',scopeKey:scope.key,actualPolicySaved:Boolean(actual)})
@@ -243,11 +246,9 @@ async function prepareUiData({base,management,planned,completedFragments,isolati
     await management.login()
     const uiPath=api+'/application-groups/'+applicationProject+'/applications/'+key('kestra-ui')
     const ui=await management.request(uiPath)
-    assert(ui.approved===true&&ui.clientId==='kestra-ui')
-    await management.mutateDirectory(uiPath,'PUT',{clientId:ui.clientId,approved:true,audiences:ui.audiences,supportedScopeKeys:[...new Set([...ui.supportedScopeKeys,...spec.scopes.map(scope=>scope.key)])]},ui.revision)
+    assert(ui.clientId==='kestra-ui'&&!Object.hasOwn(ui,'approved'))
     for(const scope of spec.scopes) {
-      await management.request(api+'/application-groups/'+applicationProject+'/applications/'+key('kestra-ui')+'/scope-declarations/'+encodeURIComponent(scope.key),'POST',
-        {permissions:[applicationPermission(scope.key,scope.name)]})
+      if(!spec.applicationPolicies[scope.key])await management.saveTypedPermission(applicationProject,scope.key,scopeDefinition(scope.description,[]))
     }
     const clients=[]
     for(const registrationInput of spec.clients) {
@@ -255,10 +256,9 @@ async function prepareUiData({base,management,planned,completedFragments,isolati
       const response=await client.request('/oidc/register',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(registrationInput)})
       assert.equal(response.status,201);const registered=await response.json()
       assert(registered.client_id&&!registered.client_secret);assert.equal(registered.token_endpoint_auth_method,'none')
-      management.approvedClientIds.set(registered.client_id,[uiScopeNames.edit])
-      await management.approveOrdinaryClient({clientId:registered.client_id,audiences:[base+'/api/v1/main/mcp/default'],applicationGroupScopes:[uiScopeNames.edit],registeredProtocolScopes:['openid'],requestedProtocolScopes:['openid']})
+      await management.registerOrdinaryClient({clientId:registered.client_id,audiences:[base+'/api/v1/main/mcp/default'],applicationGroupScopes:[uiScopeNames.edit],registeredProtocolScopes:['openid'],requestedProtocolScopes:['openid']})
       planned.policy.applicationGroups[applicationProject].audiences=['kestra-ui',base+'/api/v1/main/mcp/default']
-      if(clients.length===0){
+      if(clients.length<2){
         const owner=new ProductionOAuthClient(base)
         const issued=await owner.issueMcpScopes(['openid'],undefined,current=>current.login(planned.admin.username,planned.admin.password),{registeredClient:registered})
         assert.deepEqual(issued.issuedScopes,['openid'])
@@ -269,16 +269,34 @@ async function prepareUiData({base,management,planned,completedFragments,isolati
       }
       clients.push(registered.client_id);await emit({kind:'ui-member-created',clientId:registered.client_id,supportedScopeKeys:[uiScopeNames.edit]})
     }
+    const unassignedClientId=clients.shift()
+    await management.removeOrdinaryClient(unassignedClientId)
+    await emit({kind:'ui-existing-client-reserved-for-browser-registration',clientId:unassignedClientId})
     const subjects=[]
     for(const user of spec.users) {
       await management.login();const created=await management.request(api+'/users','POST',user)
-      assert.equal(created.subject,user.username);await management.reauthenticateGroup(applicationProject)
+      assert.equal(created.subject,user.username);assert.equal(typeof created.temporaryPassword,'string');credentialSecrets.push(created.temporaryPassword);await management.reauthenticateGroup(applicationProject)
       const project=await management.request(api+'/application-groups/'+applicationProject)
       await management.mutateDirectory(api+'/application-groups/'+applicationProject+'/scope-grants','POST',{issuer:base,subject:created.subject,scopeKeys:[uiScopeNames.edit]},project.revision)
       subjects.push(created.subject);await emit({kind:'ui-subject-assigned',subject:created.subject,scopeKeys:[uiScopeNames.edit]})
     }
+    const accessAccounts={}
+    for(const scopeKey of Object.keys(spec.accessDefinitions)) {
+      const username='ui-'+scopeKey,password=randomBytes(24).toString('base64url')+'Aa1!'
+      await management.login();const created=await management.request(api+'/users','POST',{username,name:username,email:username+'@acceptance.invalid'})
+      assert.equal(typeof created.temporaryPassword,'string');credentialSecrets.push(created.temporaryPassword,password)
+      const client=new ProductionOAuthClient(base);await client.changeTemporaryPassword(username,created.temporaryPassword,password)
+      await management.login();const group=await management.request(api+'/application-groups/'+applicationProject)
+      await management.mutateDirectory(api+'/application-groups/'+applicationProject+'/scope-grants','POST',{issuer:base,subject:created.subject,scopeKeys:[scopeKey]},group.revision)
+      accessAccounts[scopeKey.replace('acceptance-ui-','')]={username,subject:created.subject,password}
+      await emit({kind:'ui-read-manage-separate-account-prepared',subject:created.subject,scopeKey})
+    }
     await management.login();const zero=spec.zeroAccount
-    const zeroCreated=await management.request(api+'/users','POST',{username:zero.username,name:zero.name,email:zero.email,password:zero.password});assert.equal(zeroCreated.subject,zero.subject)
+    const zeroCreated=await management.request(api+'/users','POST',{username:zero.username,name:zero.name,email:zero.email});assert.equal(zeroCreated.subject,zero.subject)
+    assert.equal(typeof zeroCreated.temporaryPassword,'string');credentialSecrets.push(zeroCreated.temporaryPassword)
+    zero.password=randomBytes(24).toString('base64url')+'Aa1!';credentialSecrets.push(zero.password)
+    const zeroClient=new ProductionOAuthClient(base)
+    await zeroClient.changeTemporaryPassword(zero.username,zeroCreated.temporaryPassword,zero.password)
     await management.reauthenticateGroup(applicationProject)
     const assigned=await management.request(api+'/application-groups/'+applicationProject+'/scope-grants/detail?subject='+encodeURIComponent(planned.admin.subject))
     await management.mutateDirectory(api+'/application-groups/'+applicationProject+'/scope-grants/detail?subject='+encodeURIComponent(planned.admin.subject),'PUT',{issuer:base,subject:planned.admin.subject,scopeKeys:[...new Set([...assigned.scopeKeys,uiScopeNames.reference])]},assigned.revision)
@@ -288,20 +306,23 @@ async function prepareUiData({base,management,planned,completedFragments,isolati
     const seeded=await adminClient.request('/api/v1/main/flows',{method:'POST',headers:{'Content-Type':'application/x-yaml'},body:flowSource(uiNamespaces.reference,'ui-reference-row')})
     assert(seeded.ok,'reference flow creation denied with status '+seeded.status)
     await seeded.body?.cancel()
-    const zeroClient=new ProductionOAuthClient(base);await zeroClient.login(zero.username,zero.password)
     const actualZero=await zeroClient.verifiedUiIdentity({applicationGroupId:applicationProject,subject:zero.subject,audience:'kestra-ui'});assert.deepEqual(actualZero.applicationGroupScopes,[])
-    const denied=await zeroClient.request('/api/v1/main/flows/search?size=1');assert.equal(denied.status,403);await denied.body?.cancel()
-    await emit({kind:'zero-account-production-identity',subject:zero.subject,applicationGroupScopes:actualZero.applicationGroupScopes,businessStatus:403})
+    const zeroDenied=await zeroClient.request('/api/v1/main/flows/search?size=1');assert.equal(zeroDenied.status,403);await zeroDenied.body?.cancel()
+    await emit({kind:'zero-account-production-identity',subject:zero.subject,applicationGroupScopes:actualZero.applicationGroupScopes,businessStatus:403,firstPasswordChange:'http-form-preparation-not-T5'})
     await management.login()
     const all=async path=>{
-      const items=[];let total
-      for(let page=1;;page++) {const value=await management.request(path+'?page='+page+'&size=100');assert(Array.isArray(value.items)&&Number.isSafeInteger(value.total));total??=value.total;assert.equal(value.total,total);items.push(...value.items);if(items.length===total)return items;assert(value.items.length&&items.length<total,'directory pagination stalled')}
+      const items=[];let total,revision
+      for(let page=1;;page++) {const value=await management.request(path+'?page='+page+'&size=100');assert(Array.isArray(value.items)&&Number.isSafeInteger(value.total));const current=value.directoryRevision;assert(Number.isSafeInteger(current)||path===api+'/users'&&page===1&&value.total<=100,'directory snapshot revision missing');total??=value.total;revision??=current;assert.equal(value.total,total);assert.equal(current,revision,'directory snapshot drift');items.push(...value.items);if(items.length===total)return items;assert(value.items.length&&items.length<total,'directory pagination stalled')}
     }
-    const records={projects:await all(api+'/application-groups'),scopes:await all(api+'/application-groups/'+applicationProject+'/scopes'),clients:await all(api+'/application-groups/'+applicationProject+'/applications'),assignments:await all(api+'/application-groups/'+applicationProject+'/scope-grants')}
+    const records={projects:await all(api+'/application-groups'),scopes:await all(api+'/application-groups/'+applicationProject+'/scopes'),clients:await all(api+'/application-groups/'+applicationProject+'/applications'),assignments:await all(api+'/application-groups/'+applicationProject+'/scope-grants'),users:await all(api+'/users'),permissions:(await management.readPermissions(applicationProject)).items}
     for(const [section,items]of Object.entries(records))assert(items.length>25,'insufficient real UI data: '+section)
     for(const scope of [scopeNames.identityManager,scopeNames.policyManager])equal(await management.request(api+'/application-groups/'+applicationProject+'/scopes/'+encodeURIComponent(scope)),protectedScopes[scope])
     for(const [scope,definition]of Object.entries(baseline))equal(planned.policy.applicationGroups[applicationProject].scopes[scope],definition)
     const fixture=uiBrowserFixture({base,admin:planned.admin,zeroAccount:zero,clientId:clients[0],subject:subjects[0],records,referenceEvidence:{status:'measure-current-formal-host-through-same-adapter; no historical styles consumed'}})
+    fixture.unassignedClientId=unassignedClientId
+    fixture.accessAccounts=accessAccounts
+    fixture.frozenUiBaseline=completedFragments.frozenUiBaseline??null
+    fixture.firstPasswordChange={path:'/oidc/password',newPassword:'input[name="password"]',confirmPassword:'input[name="confirmation"]',submit:'button[type="submit"]'}
     await record({completed:true,events,requests:[...management.requests],counts:Object.fromEntries(Object.entries(records).map(([section,items])=>[section,items.length])),created:{projects:spec.projects.length,scopes:spec.scopes.length,clients:clients.length,assignments:subjects.length},filtersRuntimeVerified:false,zeroBrowserLogoutVerified:false})
     return fixture
   }catch(error){failure=String(error.message);throw error}
@@ -322,7 +343,10 @@ export async function prepareApplicationProjectUi(options) {
 }
 
 export function initialApplicationProjectUiReport() {
-  return {completed:false,ui:applicationProjectUiThemes.flatMap(theme=>applicationProjectUiLocales.map(locale=>({case:'theme-language',theme,locale,passed:false,status:'not_run'}))),zeroGrant:{case:'ui-zero-grant-logout-switch',passed:false,status:'not_run'}}
+  return {completed:false,ui:applicationProjectUiCaseIds.map(name=>{
+    const combination=name.match(/^ui-theme-language-(light|dark-2|dark|system)-(.+)$/)
+    return {name,case:combination?'theme-language':name,...(combination?{theme:combination[1],locale:combination[2]}:{}),passed:false,status:'not_run'}
+  }),zeroGrant:{case:'ui-zero-grant-logout-switch',passed:false,status:'not_run'},target:{completed:false,checks:targetUiCheckIds.map(id=>({id,name:id,case:id,passed:false,status:'not_run',evidence:{}}))}}
 }
 export async function runZeroGrantBrowser(page,base,fixture) {
   const source=()=>page.evaluate(()=>({path:location.pathname,url:location.origin+location.pathname,queryKeys:[...new URL(location.href).searchParams.keys()],timeOrigin:performance.timeOrigin}))
@@ -412,9 +436,19 @@ export async function runPreparedApplicationProjectUi(adapter,base,fixture,recor
 }
 
 /** The caller supplies an EXISTING Ego Page. Does not create a space or own it. */
-export async function runApplicationProjectUiWithEgo(page,base,fixture,{artifactDirectory,record}={}) {
-  const adapter=await createEgoApplicationProjectAdapter(page,{artifactDirectory,secrets:[fixture.admin.password,fixture.zeroAccount.password]})
+export async function runApplicationProjectUiWithEgo(page,base,fixture,{artifactDirectory,record,browserCdp}={}) {
+  assert.equal(typeof browserCdp,'function','full Ego UI requires existing Task-level browserCdp(method,params)')
+  const adapter=await createEgoApplicationProjectAdapter(page,{artifactDirectory,browserCdp,secrets:[fixture.admin.password,fixture.zeroAccount.password]})
   try{return await runPreparedApplicationProjectUi(adapter,base,fixture,record)}finally{await adapter.dispose()}
+}
+
+export async function runFrozenBaselineWithEgo(page,base,prepared,{artifactDirectory,record,browserCdp}={}) {
+  assert(isAbsolute(artifactDirectory),'explicit absolute Ego artifact directory required')
+  const adapter=await createEgoApplicationProjectAdapter(page,{artifactDirectory,browserCdp,secrets:[prepared.admin.password]})
+  try {
+    const {runPreparedFrozenBaselineUi}=await import('./access-control-v3-frozen.mjs')
+    return await runPreparedFrozenBaselineUi(adapter,base,prepared,record)
+  }finally{await adapter.dispose()}
 }
 
 /** Derive only equivalent root checks from actual complete browser evidence. */
@@ -422,19 +456,20 @@ export function uiRootChecks(report) {
   const rows=report?.ui??[]
   const groups={
     'production-ui-login-canonical-path':['production-ui-login-canonical-path'],
-    'ui-role-grant-edit-refresh':['ui-role-grant-edit-refresh'],
-    'ui-client-membership-approval':['ui-client-membership-approval'],
+    'ui-permission-typed-save-refresh':['ui-permission-typed-save-refresh'],
+    'ui-application-register-remove':['ui-application-register-remove'],
     'ui-subject-grant-revoke':['ui-subject-grant-revoke'],
     'ui-zero-grant-logout-switch':['ui-zero-grant-logout-switch'],
-    'ui-application-declaration-crud':['ui-application-declaration-crud'],
-    'ui-subject-revoke':['ui-subject-revoke'],
-    'ui-narrow':['ui-narrow-and-keyboard-focus'],
-    'ui-filter-search-pagination':['projects','scopes','clients','assignments'].flatMap(section=>['ui-search-filter-pagination-'+section,...['equals','contains','and','or'].map(operator=>'ui-filter-'+section+'-'+operator)]),
-    'ui-empty-loading-error-conflict':['ui-empty-grants-no-policy-change','ui-scope-registration-no-runtime-grant','ui-412-conflict-no-policy-change','ui-loading-transition',...['projects','scopes','clients','assignments'].map(section=>'ui-search-filter-pagination-'+section)],
+    'ui-permission-runtime-projection':['ui-permission-runtime-projection'],
+    'ui-subject-runtime-revoke':['ui-subject-runtime-revoke'],
+    'ui-narrow':applicationProjectUiThemes.flatMap(theme=>applicationProjectUiLocales.map(locale=>'ui-theme-language-'+theme+'-'+locale)),
+    'ui-filter-search-pagination':['ui-filter-any-and-deeplink','ui-pagination-total-snapshot','ui-sidebar-search-pagination','ui-card-search-pagination','ui-filter-native-deeplink-coexistence','ui-filter-native-history',...applicationProjectUiCaseIds.filter(name=>name.startsWith('ui-native-filter-'))],
+    'ui-empty-loading-error-conflict':['ui-empty-grants-no-policy-change','ui-scope-create-delete-reference-guard','ui-409-412-no-side-effects','ui-loading-transition','ui-403-no-side-effects','ui-503-retry-no-side-effects'],
   }
+  for(const name of applicationProjectUiCaseIds.filter(name=>!name.startsWith('ui-theme-language-')))groups[name]??=[name]
   for(const theme of applicationProjectUiThemes)groups['ui-'+theme]=applicationProjectUiLocales.map(locale=>'ui-theme-language-'+theme+'-'+locale)
   groups['ui-languages']=applicationProjectUiThemes.flatMap(theme=>groups['ui-'+theme])
-  groups['ui-keyboard-focus']=[...groups['ui-languages'],'ui-narrow-and-keyboard-focus']
+  groups['ui-keyboard-focus']=[...groups['ui-languages'],'ui-four-drawers-focus-discard','ui-four-drawers-draft-discard']
   return Object.entries(groups).map(([id,names])=>{
     const selected=names.map(name=>rows.find(row=>(row.name??row.case)===name))
     const passed=selected.every(row=>row?.passed===true&&row.status==='passed')
@@ -447,9 +482,10 @@ export function uiRootChecks(report) {
  * onReport receives the persisted report path and a credential-free snapshot.
  * The caller remains responsible for starting with a real anonymous UI session.
  */
-export async function runRootApplicationProjectWithEgo(page,argv,{artifactDirectory,onReport}={}) {
+export async function runRootApplicationProjectWithEgo(page,argv,{artifactDirectory,onReport,browserCdp}={}) {
   assert(isAbsolute(artifactDirectory),'explicit absolute Ego artifact directory required')
-  const adapter=await createEgoApplicationProjectAdapter(page,{artifactDirectory})
+  assert.equal(typeof browserCdp,'function','full Ego UI requires existing Task-level browserCdp(method,params)')
+  const adapter=await createEgoApplicationProjectAdapter(page,{artifactDirectory,browserCdp})
   try {
     const {main}=await import('./blackbox-application-projects.mjs')
     return await main(argv,{uiAdapter:adapter,onReport})
@@ -468,6 +504,7 @@ export async function measureCurrentHostReferences(adapter,base,fixture,record=a
   for(const [kind,path,selectors]of definitions) {
     await adapter.goto(new URL(path,base).href)
     await adapter.waitForFunction(({path,selectors})=>location.pathname===path&&Object.values(selectors).every(selector=>{const node=document.querySelector(selector);return node&&node.getClientRects().length>0}),{path,selectors})
+    await waitForNativeStyleSettlement(adapter,selectors,{shadow:false})
     const evidence=await adapter.evaluate(({selectors})=>({path:location.pathname,url:location.href,timeOrigin:performance.timeOrigin,styles:Object.fromEntries(Object.entries(selectors).map(([name,selector])=>{
       const node=document.querySelector(selector),style=getComputedStyle(node),box=node.getBoundingClientRect()
       return [name,{selector,tag:node.tagName,role:node.getAttribute('role'),text:node.textContent.trim(),fontFamily:style.fontFamily,fontSize:style.fontSize,fontWeight:style.fontWeight,color:style.color,background:style.backgroundColor,padding:style.padding,borderRadius:style.borderRadius,borderBottomStyle:style.borderBottomStyle,borderBottomWidth:style.borderBottomWidth,width:box.width,height:box.height}]

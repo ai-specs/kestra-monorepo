@@ -28,12 +28,16 @@
 import {randomUUID} from 'node:crypto'
 import {mkdir, stat} from 'node:fs/promises'
 import {isAbsolute, join} from 'node:path'
+import {setTimeout as delay} from 'node:timers/promises'
+
+export const applicationProjectAdapterHelperVersion='2026-10-27-response-stage-v2-clipboard-restore'
 
 const PROTOCOL_EVENTS = Object.freeze([
   'Page.frameNavigated','Page.navigatedWithinDocument',
   'Runtime.executionContextCreated','Runtime.executionContextDestroyed','Runtime.executionContextsCleared',
   'Runtime.consoleAPICalled','Runtime.exceptionThrown',
   'Log.entryAdded','Network.requestWillBeSent','Network.responseReceived','Network.loadingFailed',
+  'Fetch.requestPaused',
 ])
 const assert = (value,message) => {if (!value) throw new Error(message)}
 const copy = value => JSON.parse(JSON.stringify(value))
@@ -158,8 +162,9 @@ function diagnosticsCollector(redact) {
         const request = requests.get(p.requestId)
         const document = request?.document ?? frameDocuments.get(p.frameId) ?? current
         const response = p.response ?? {}
+        const cacheControl=Object.entries(response.headers??{}).find(([name])=>name.toLowerCase()==='cache-control')?.[1]
         if(request)request.status=response.status
-        add(response.status >= 400 ? 'http-error' : 'http-response',document,{requestId:p.requestId,url:response.url ?? request?.url,status:response.status,method:request?.method,resourceType:p.type,message:'HTTP ' + response.status,fromDiskCache:response.fromDiskCache === true,fromServiceWorker:response.fromServiceWorker === true})
+        add(response.status >= 400 ? 'http-error' : 'http-response',document,{requestId:p.requestId,url:response.url ?? request?.url,status:response.status,method:request?.method,resourceType:p.type,message:'HTTP ' + response.status,cacheControl:typeof cacheControl==='string'?cacheControl:null,fromDiskCache:response.fromDiskCache === true,fromServiceWorker:response.fromServiceWorker === true})
         break
       }
       case 'Network.loadingFailed': {
@@ -172,6 +177,10 @@ function diagnosticsCollector(redact) {
   return {
     consume,issue,add,
     source:() => ({...current}),
+    requestSource:requestId => {
+      const request=requests.get(requestId)
+      return request?{document:{...request.document},url:request.url,method:request.method}:null
+    },
     initialize(frame) {if (frame) consume('Page.frameNavigated',{frame})},
     snapshot() {
       if (integrity.length) throw Object.assign(new Error('diagnostic collection incomplete: ' + integrity.map(event => event.message).join('; ')),{diagnosticEvents:copy(events)})
@@ -203,7 +212,46 @@ async function makeAdapter(raw,tools,options) {
   const artifactRun = randomUUID()
   let artifactSequence = 0
   let disposed = false
+  let detached = false
+  let disposalComplete = false
+  const clipboardBaselines=new Map()
   let failureCapture = false
+  const droppedResponses=new Map()
+  let activeDrop=null
+  let protocolWork=Promise.resolve()
+  const pausedRequests=new Set()
+  async function pausedResponse(params) {
+    const fetchId=params.requestId
+    assert(typeof fetchId==='string'&&fetchId,'paused response missing Fetch request identity')
+    pausedRequests.add(fetchId)
+    try {
+      const operation=activeDrop
+      if(!operation||operation.matched||params.request?.url!==operation.url||params.request?.method!==operation.method) {
+        await tools.send('Fetch.continueRequest',{requestId:fetchId});return
+      }
+      operation.matched=true
+      assert(params.responseStatusCode===200&&!params.responseErrorReason,'response loss requires an actual production HTTP 200')
+      const request=collector.requestSource(params.networkId)
+      assert(request&&request.url===operation.url&&request.method===operation.method,'paused response lacks exact Network request attribution')
+      assert(request.document.id===operation.documentId,'paused response belongs to another document')
+      operation.response={requestId:params.networkId,documentId:request.document.id,url:redact.text(request.url),status:params.responseStatusCode}
+      collector.add('http-response',request.document,{requestId:params.networkId,url:request.url,method:request.method,status:params.responseStatusCode,message:'Actual HTTP response paused before delivery',responseStage:'Fetch.requestPaused'})
+      await tools.send('Fetch.failRequest',{requestId:fetchId,errorReason:'Failed'})
+      operation.failed=true
+      collector.add('response-dropped',request.document,{...operation.response,operationId:operation.operationId,message:'Production response aborted before delivery'})
+    } catch(error) {
+      if(activeDrop)activeDrop.error='response-stage interception failed; inspect exact request diagnostics'
+      collector.issue('response-stage interception failed: '+redact.text(error.message))
+      await tools.send('Fetch.continueRequest',{requestId:fetchId}).catch(()=>{})
+    } finally {pausedRequests.delete(fetchId)}
+  }
+  const receive=(method,params)=>{
+    if(method==='Fetch.requestPaused') {
+      protocolWork=protocolWork.then(()=>pausedResponse(params)).catch(error=>collector.issue('response-stage protocol failure: '+redact.text(error.message)))
+    }else {
+      try {collector.consume(method,params)} catch (error) {collector.issue('CDP normalization failed: ' + redact.text(error.message))}
+    }
+  }
   const drain = async () => {
     for (const envelope of await tools.drain()) {
       const event = envelope?.method ? envelope : envelope?.event?.method ? envelope.event : null
@@ -211,16 +259,44 @@ async function makeAdapter(raw,tools,options) {
         collector.issue('unrecognized CDP event envelope; refusing incomplete diagnostics')
         continue
       }
-      try {collector.consume(event.method,event.params)} catch (error) {collector.issue('CDP normalization failed: ' + redact.text(error.message))}
+      receive(event.method,event.params)
     }
+    await protocolWork
   }
-  await tools.attach((method,params) => {
-    try {collector.consume(method,params)} catch (error) {collector.issue('CDP normalization failed: ' + redact.text(error.message))}
-  })
+  await tools.attach(receive)
   try {await initializeProtocol(tools.send,collector); await drain()} catch (error) {await tools.detach(); throw error}
   async function screenshot(label = 'snapshot') {
-    const path = join(options.artifactDirectory,artifactRun + '-' + String(++artifactSequence).padStart(4,'0') + '-' + label.replace(/[^a-zA-Z0-9_-]/g,'-').slice(0,60) + '.png')
-    await tools.screenshot(path)
+    const maskId=artifactRun+'-'+String(++artifactSequence)
+    const credentialVisible=await raw.evaluate(maskId=>{
+      let found=false
+      const inspect=root=>{
+        for(const element of root.querySelectorAll('[data-sensitive-credential],.rbac-one-time-value')) {
+          const style=getComputedStyle(element),rect=element.getBoundingClientRect()
+          if((element.textContent?.trim()||element.value)&&rect.width>0&&rect.height>0&&style.visibility!=='hidden'&&style.display!=='none')found=true
+        }
+        const children=[...root.querySelectorAll('*')].filter(element=>element.shadowRoot)
+        const mask=document.createElement('style')
+        mask.dataset.credentialArtifactMask=maskId
+        mask.textContent='[data-sensitive-credential],.rbac-one-time-value{visibility:hidden!important}'
+        ;(root===document?document.head:root).append(mask)
+        children.forEach(element=>inspect(element.shadowRoot))
+      }
+      inspect(document)
+      return found
+    },maskId)
+    const path = join(options.artifactDirectory,artifactRun + '-' + String(artifactSequence).padStart(4,'0') + '-' + label.replace(/[^a-zA-Z0-9_-]/g,'-').slice(0,60) + '.png')
+    try {
+      assert(!credentialVisible,'Credential-bearing screenshot blocked; retain sanitized diagnostics instead')
+      await tools.screenshot(path)
+    } finally {
+      await raw.evaluate(maskId=>{
+        const clear=root=>{
+          for(const mask of root.querySelectorAll('style[data-credential-artifact-mask]'))if(mask.dataset.credentialArtifactMask===maskId)mask.remove()
+          for(const element of root.querySelectorAll('*'))if(element.shadowRoot)clear(element.shadowRoot)
+        }
+        clear(document)
+      },maskId)
+    }
     const file = await stat(path)
     assert(file.isFile() && file.size > 0,'screenshot artifact was not retained on disk')
     const artifact = {path,label,document:collector.source(),createdAt:new Date().toISOString()}
@@ -251,10 +327,126 @@ async function makeAdapter(raw,tools,options) {
       throw error
     }
   }
+  async function clearDroppedResponse({operationId}={}) {
+    assert(typeof operationId==='string'&&droppedResponses.has(operationId),'known response-loss operation required')
+    const operation=droppedResponses.get(operationId)
+    if(operation.cleared)return
+    let drainError
+    try {await drain()}catch(error){drainError=error}
+    try {
+      if(activeDrop===operation) {
+        for(const requestId of pausedRequests)await tools.send('Fetch.continueRequest',{requestId}).catch(()=>{})
+        await tools.send('Fetch.disable')
+        activeDrop=null
+      }
+      operation.cleared=true
+    } catch(error) {collector.issue('response-loss cleanup failed; Fetch interception may remain enabled');throw error}
+    if(drainError)throw drainError
+  }
   const adapter = {
+    helperVersion:applicationProjectAdapterHelperVersion,
     goto:url => action('goto',() => tools.goto(url,timeout)),
     reload:() => action('reload',() => tools.reload(timeout)),
+    history:direction=>action('history',async()=>{
+      assert(['back','forward'].includes(direction),'explicit native history direction required')
+      let history,previous,stable=0
+      const started=performance.now()
+      while(performance.now()-started<timeout) {
+        const url=await raw.evaluate(()=>location.href)
+        history=await tools.send('Page.getNavigationHistory',{})
+        const entry=history.entries[history.currentIndex]
+        const signature=JSON.stringify([history.currentIndex,entry?.id,entry?.url])
+        stable=entry?.url===url&&signature===previous?stable+1:0
+        previous=signature
+        if(stable>=2)break
+        await delay(50)
+      }
+      assert(stable>=2,'native history entry has not settled to the visible URL')
+      const index=history.currentIndex+(direction==='back'?-1:1),entry=history.entries[index]
+      assert(entry&&Number.isSafeInteger(entry.id),'native browser history entry unavailable')
+      await tools.send('Page.navigateToHistoryEntry',{entryId:entry.id})
+      return {direction,fromIndex:history.currentIndex,toIndex:index,entryId:entry.id}
+    }),
+    pressFocused:key=>action('pressFocused',async()=>{
+      assert(['Tab','Shift+Tab','Escape'].includes(key),'supported native focus key required')
+      const actual=key==='Escape'?'Escape':'Tab',modifiers=key==='Shift+Tab'?8:0,code=actual==='Tab'?9:27
+      await tools.send('Input.dispatchKeyEvent',{type:'keyDown',key:actual,code:actual,windowsVirtualKeyCode:code,nativeVirtualKeyCode:code,modifiers})
+      await tools.send('Input.dispatchKeyEvent',{type:'keyUp',key:actual,code:actual,windowsVirtualKeyCode:code,nativeVirtualKeyCode:code,modifiers})
+    }),
     click:selector => action('click',() => tools.click(commonSelector(selector),timeout)),
+    clickAt:point=>action('clickAt',async()=>{
+      assert(point&&Object.keys(point).every(key=>['x','y'].includes(key))&&Number.isFinite(point.x)&&Number.isFinite(point.y),'finite CSS viewport point required')
+      const viewport=await raw.evaluate(()=>({width:innerWidth,height:innerHeight}))
+      assert(point.x>=0&&point.y>=0&&point.x<viewport.width&&point.y<viewport.height,'click point is outside the viewport')
+      assert(typeof raw.mouse?.click==='function','native mouse click unavailable')
+      await raw.mouse.click(point.x,point.y)
+    }),
+    setClipboardPermission:state=>action('setClipboardPermission',async()=>{
+      assert(['granted','denied'].includes(state),'clipboard permission must be granted or denied')
+      assert(typeof tools.browserSend==='function','browser-scoped CDP callback required for clipboard permission')
+      const origin=await raw.evaluate(()=>location.origin)
+      assert(/^https?:\/\//.test(origin)&&new URL(origin).origin===origin,'clipboard permission requires an HTTP origin')
+      const result=await tools.browserSend('Target.getTargetInfo',tools.targetId?{targetId:tools.targetId}:{})
+      const target=result?.targetInfo
+      assert(target?.type==='page'&&new URL(target.url).origin===origin,'clipboard permission target does not match this page')
+      if(tools.targetId)assert(target.targetId===tools.targetId,'clipboard permission resolved another browser target')
+      const context=target.browserContextId?{browserContextId:target.browserContextId}:{}
+      const previous=await raw.evaluate(async()=>Promise.all(['clipboard-read','clipboard-write'].map(async name=>({name,state:(await navigator.permissions.query({name})).state}))))
+      assert(Array.isArray(previous)&&previous.length===2&&previous.every((permission,index)=>permission.name===['clipboard-read','clipboard-write'][index]&&['granted','denied','prompt'].includes(permission.state)),'clipboard permission baseline unavailable')
+      const baselineKey=JSON.stringify([target.browserContextId??null,origin])
+      if(!clipboardBaselines.has(baselineKey))clipboardBaselines.set(baselineKey,{origin,context,permissions:previous.map(permission=>({...permission,restored:false}))})
+      try {
+        for(const name of ['clipboard-read','clipboard-write'])await tools.browserSend('Browser.setPermission',{permission:{name},setting:state,origin,...context})
+        const actual=await raw.evaluate(async()=>Promise.all(['clipboard-read','clipboard-write'].map(async name=>(await navigator.permissions.query({name})).state)))
+        assert(actual.every(permission=>permission===state),'clipboard permission did not take effect')
+      }catch(error) {
+        const restored=await Promise.allSettled(previous.map(permission=>tools.browserSend('Browser.setPermission',{permission:{name:permission.name},setting:permission.state,origin,...context})))
+        if(restored.some(result=>result.status==='rejected'))collector.issue('clipboard permission rollback failed for this origin')
+        throw error
+      }
+    }),
+    readClipboard:async()=>{
+      assert(!disposed,'adapter already disposed')
+      try {
+        assert(await raw.evaluate(async()=>(await navigator.permissions.query({name:'clipboard-read'})).state==='granted'),'clipboard read requires an explicit granted permission')
+        const value=await raw.evaluate(()=>navigator.clipboard.readText())
+        assert(typeof value==='string','clipboard read did not return text')
+        redact.add([value])
+        return value
+      }catch {throw new Error('Native clipboard text read failed; clipboard content is not recorded')}
+    },
+    dropNextResponse:input=>action('dropNextResponse',async()=>{
+      assert(input&&typeof input.url==='string'&&input.method==='POST','exact POST response target required')
+      const target=new URL(input.url),origin=await raw.evaluate(()=>location.origin)
+      assert(target.origin===origin&&!target.username&&!target.password&&!target.search&&!target.hash,'response-loss target must be exact and same-origin without credentials or query')
+      assert(/^\/api\/v1\/main\/extensions\/rbac\/application-groups\/[A-Za-z0-9_-]+\/applications\/~[A-Za-z0-9_-]+\/credentials\/rotate$/.test(target.pathname),'only production credential rotation response loss is supported')
+      assert(!activeDrop,'only one response-loss operation may be active')
+      await drain()
+      const operation={operationId:'response-loss-'+randomUUID(),url:target.href,method:input.method,documentId:collector.source().id,matched:false,failed:false,cleared:false}
+      droppedResponses.set(operation.operationId,operation);activeDrop=operation
+      try{await tools.send('Fetch.enable',{patterns:[{urlPattern:target.href,requestStage:'Response'}]})}
+      catch(error){await clearDroppedResponse({operationId:operation.operationId});throw error}
+      return {operationId:operation.operationId}
+    }),
+    waitForDroppedResponse:input=>action('waitForDroppedResponse',async()=>{
+      assert(typeof input?.operationId==='string'&&droppedResponses.has(input.operationId),'known response-loss operation required')
+      const operation=droppedResponses.get(input.operationId),started=performance.now()
+      while(performance.now()-started<timeout) {
+        await drain()
+        assert(!operation.error,operation.error)
+        assert(!operation.cleared,'response-loss operation was cleared before observation')
+        if(operation.failed) {
+          const failed=collector.snapshot().events.find(event=>event.kind==='request-failed'&&event.requestId===operation.response.requestId&&event.documentId===operation.response.documentId&&event.url===operation.response.url)
+          if(failed) {
+            assert(['net::ERR_FAILED','net::ERR_CONNECTION_RESET'].includes(failed.message),'unexpected actual network failure after response loss')
+            return {...operation.response,dropped:true,message:failed.message}
+          }
+        }
+        await delay(25)
+      }
+      throw new Error('Timed out awaiting actual production response loss and matching Network.loadingFailed')
+    }),
+    clearDroppedResponse:input=>action('clearDroppedResponse',()=>clearDroppedResponse(input)),
     fill:(selector,value) => action('fill',() => tools.fill(commonSelector(selector),value,timeout)),
     selectOption:(selector,value) => action('selectOption',() => tools.selectOption(commonSelector(selector),value,timeout)),
     focus:selector => action('focus',() => tools.focus(commonSelector(selector),timeout)),
@@ -273,11 +465,41 @@ async function makeAdapter(raw,tools,options) {
     }),
     screenshot:() => action('screenshot',() => screenshot()),
     diagnostics:() => action('diagnostics',async () => {await drain(); return {...collector.snapshot(),artifacts:copy(artifacts)}}),
+    responseMetadata:({requestId,documentId,url})=>action('responseMetadata',async()=>{
+      await drain()
+      const response=collector.snapshot().events.findLast(event=>['http-response','http-error'].includes(event.kind)&&event.requestId===requestId&&event.documentId===documentId&&event.url===url)
+      assert(response,'Exact response and source document were not observed')
+      return {requestId,documentId,url,status:response.status,cacheControl:response.cacheControl}
+    }),
     captureFailure,
     redactSecrets:values => redact.add(values),
     artifactReferences:() => copy(artifacts),
     diagnosticEvidence:async () => {try {await drain()} catch (error) {collector.issue('final diagnostic drain failed: ' + redact.text(error.message))}; return collector.unsafeSnapshot()},
-    async dispose() {if (!disposed) {try {await drain()} finally {await tools.detach(); disposed = true}}},
+    async dispose() {
+      if(disposalComplete)return
+      disposed=true
+      const failures=[]
+      if(!detached) {
+        try{if(activeDrop)await clearDroppedResponse({operationId:activeDrop.operationId})}catch(error){failures.push(error)}
+        try{await drain()}catch(error){failures.push(error)}
+      }
+      for(const baseline of clipboardBaselines.values())for(const permission of baseline.permissions) {
+        if(permission.restored)continue
+        try {
+          await tools.browserSend('Browser.setPermission',{permission:{name:permission.name},setting:permission.state,origin:baseline.origin,...baseline.context})
+          permission.restored=true
+        }catch(error) {
+          collector.issue('clipboard permission restoration failed',{url:baseline.origin,permission:permission.name,browserContextId:baseline.context.browserContextId??null})
+          failures.push(error)
+        }
+      }
+      const pendingPermissions=[...clipboardBaselines.values()].some(baseline=>baseline.permissions.some(permission=>!permission.restored))
+      if(!detached&&!pendingPermissions) {
+        try{await tools.detach();detached=true}catch(error){failures.push(error)}
+      }
+      if(failures.length)throw new AggregateError(failures,'Adapter disposal failed; inspect retained diagnostics and retry pending cleanup')
+      disposalComplete=true
+    },
   }
   return adapter
 }
@@ -296,6 +518,7 @@ export async function createPlaywrightApplicationProjectAdapter(page,options) {
   }
   return makeAdapter(page,{
     send:(method,params) => session.send(method,params),
+    browserSend:(method,params)=>session.send(method,params),
     async attach(receive) {for (const method of PROTOCOL_EVENTS) {const listener = params => receive(method,params); listeners.push([method,listener]); session.on(method,listener)}},
     drain:async () => [], // CDP listeners consume synchronously and retain all documents.
     async detach() {for (const [method,listener] of listeners) session.off(method,listener); await session.detach()},
@@ -334,8 +557,10 @@ export async function createEgoApplicationProjectAdapter(page,options) {
         return exact ? observed === wanted : observed.includes(wanted)
       })
       if (candidates.length !== 1) throw new Error('Expected one visible intended text target; found ' + candidates.length)
-      const node = candidates[0]
       const roleOf = element => element.getAttribute('role') ?? ({BUTTON:'button',A:'link',INPUT:'textbox',TEXTAREA:'textbox',SELECT:'combobox'})[element.tagName]
+      const target = candidates[0]
+      const node = roleOf(target) ? target : target.closest('button,a[href],[role="button"],[role="option"],[role="tab"]')
+      if (!node || !node.contains(target)) throw new Error('Text target has no actual interactive ancestor')
       const nameOf = element => {
         const labels = element.getAttribute('aria-labelledby')?.split(/\s+/).filter(Boolean)
         if (labels?.length) return normalize(labels.map(id => element.getRootNode().getElementById(id)?.textContent ?? '').join(' '))
@@ -357,6 +582,8 @@ export async function createEgoApplicationProjectAdapter(page,options) {
   }
   return makeAdapter(page,{
     send:(method,params) => page.cdp(method,params,{timeout:options?.timeoutMs ?? 30000}),
+    browserSend:options?.browserCdp,
+    targetId:page.targetId,
     attach:async () => {}, // Ego buffers CDP events; it is NOT an EventEmitter.
     async drain() {
       const result = await page.events()

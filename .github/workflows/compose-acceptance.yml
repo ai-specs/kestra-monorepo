@@ -83,6 +83,7 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p .work/ci
+          python3 scripts/check-access-control-prototype.py > .work/ci/access-control-prototype.json
           python3 - <<'PY'
           import json, pathlib, re, subprocess
           version = subprocess.check_output(['docker', 'compose', 'version', '--short'], text=True).strip()
@@ -160,16 +161,17 @@ jobs:
                   command_failures = report.parent / 'command-failures.log'
                   if command_failures.exists():
                       shutil.copy2(command_failures, destination / 'command-failures.log')
-                  browser = report.parent / 'browser/browser-report.json'
-                  if browser.exists():
-                      shutil.copy2(browser, destination / 'browser-report.json')
-                  screenshots = report.parent / 'browser/screenshots'
-                  if screenshots.exists():
-                      for source in screenshots.rglob('*.png'):
-                          assert source.resolve().is_relative_to(screenshots.resolve()) and not source.is_symlink()
-                          target = destination / 'screenshots' / source.relative_to(screenshots)
-                          target.parent.mkdir(parents=True, exist_ok=True)
-                          shutil.copy2(source, target)
+                  for phase in ['frozen-browser', 'browser']:
+                      browser = report.parent / phase / 'browser-report.json'
+                      if browser.exists():
+                          shutil.copy2(browser, destination / (phase + '-report.json'))
+                      screenshots = report.parent / phase / 'screenshots'
+                      if screenshots.exists():
+                          for source in screenshots.rglob('*.png'):
+                              assert source.resolve().is_relative_to(screenshots.resolve()) and not source.is_symlink()
+                              target = destination / phase / 'screenshots' / source.relative_to(screenshots)
+                              target.parent.mkdir(parents=True, exist_ok=True)
+                              shutil.copy2(source, target)
                   # Never copy private fixture, Compose credentials or receipts.
                   break
           PYREPORT
@@ -179,13 +181,20 @@ jobs:
           set -euo pipefail
           mkdir -p .work/ci
           python3 - <<'PY'
-          import pathlib, re, subprocess
+          import json, pathlib, re, subprocess
           failed = False
+          report_path = pathlib.Path('.work/ci/application-projects/report.json')
+          report = json.loads(report_path.read_text()) if report_path.exists() else {}
+          resources = report.get('resources', {})
+          projects = {value for value in [resources.get('composeProject'), resources.get('missingExtension', {}).get('composeProject')] if value}
+          assert all(re.fullmatch(r'application-projects-bb-[0-9]+-[0-9]+', value) for value in projects), 'Invalid current-run resource registration'
           result = subprocess.run(['docker', 'ps', '-aq'], capture_output=True, text=True, check=True)
           for container in result.stdout.split():
               project = subprocess.check_output(['docker', 'inspect', '-f', '{{index .Config.Labels "com.docker.compose.project"}}', container], text=True).strip()
-              if not re.fullmatch(r'(?:(admin|rbac|namespace|management|application-projects)-bb-[0-9]+-[0-9]+(?:-missing)?|application-projects-migration-[a-f0-9]{20})', project):
+              if project not in projects:
                   continue
+              owner = subprocess.check_output(['docker', 'inspect', '-f', '{{index .Config.Labels "owner"}}', container], text=True).strip()
+              assert owner == project, 'Current-run container ownership mismatch'
               logs = subprocess.run(['docker', 'logs', '--tail', '300', container], capture_output=True, text=True)
               text = logs.stdout + logs.stderr
               pathlib.Path(f'.work/ci/{container}.log').write_text(text)
@@ -194,7 +203,9 @@ jobs:
               listing = subprocess.check_output(['docker', kind, 'ls', '-q'], text=True)
               for resource in listing.split():
                   project = subprocess.check_output(['docker', kind, 'inspect', '-f', '{{index .Labels "com.docker.compose.project"}}', resource], text=True).strip()
-                  if re.fullmatch(r'(?:(admin|rbac|namespace|management|application-projects)-bb-[0-9]+-[0-9]+(?:-missing)?|application-projects-migration-[a-f0-9]{20})', project):
+                  if project in projects:
+                      owner = subprocess.check_output(['docker', kind, 'inspect', '-f', '{{index .Labels "owner"}}', resource], text=True).strip()
+                      assert owner == project, 'Current-run resource ownership mismatch'
                       failed |= subprocess.run(['docker', kind, 'rm', resource]).returncode != 0
           for file in pathlib.Path('.work/ci').glob('*.log'):
               lines = file.read_text(errors='replace').splitlines()
@@ -206,13 +217,25 @@ jobs:
         run: |
           set -euo pipefail
           python3 - <<'PYFINAL'
-          import json, pathlib, subprocess
+          import hashlib, json, pathlib, subprocess
           path = pathlib.Path('.work/ci/application-projects/report.json')
           report = json.loads(path.read_text())
           assert report['finishedAt'] and report['resources']['cleaned'] is True
           assert report['resources']['containersCreated'] is True
-          inputs = report['inputs']
-          assert inputs['rootCommit'] == subprocess.check_output(['git', 'rev-parse', 'HEAD'], text=True).strip()
+          root_commit = subprocess.check_output(['git', 'rev-parse', 'HEAD'], text=True).strip()
+          image = pathlib.Path('.work/ci/image').read_text().strip()
+          release = json.loads(pathlib.Path('.work/ci/release-evidence.json').read_text())
+          jar = pathlib.Path('.work/ci/plugin-artifact/build/libs/kestra-rbac-authorizer.jar')
+          jar_hash = hashlib.sha256(jar.read_bytes()).hexdigest()
+          assert jar_hash == release['jarSha256'], 'Actual downloaded jar differs from selected formal release'
+          inputs = {'image': image, 'jarSha256': jar_hash, 'rootCommit': root_commit}
+          for name, path in [('overlay', 'kestra-overlay'), ('plugin', 'kestra-plugin-rbac')]:
+              tree = subprocess.check_output(['git', 'ls-tree', root_commit, '--', path], text=True).split()
+              assert tree[:2] == ['160000', 'commit'] and tree[3] == path
+              actual = subprocess.check_output(['git', '-C', path, 'rev-parse', 'HEAD'], text=True).strip()
+              assert actual == tree[2], 'Checkout differs from root gitlink'
+              inputs[name + 'Commit'] = actual
+          assert report['inputs'] == inputs, 'Persisted report does not match independently selected final inputs'
           subprocess.run(['node', 'scripts/check-application-project-report.mjs', str(path)] +
                          [inputs[key] for key in ['image','jarSha256','rootCommit','overlayCommit','pluginCommit']], check=True)
           PYFINAL
@@ -225,14 +248,22 @@ jobs:
           import json, pathlib, re
           roots = ['.work/ci', '.work/admin-ui', '.work/namespace', '.work/management', 'kestra-plugin-rbac/build/reports/tests', 'kestra-plugin-rbac/build/test-results']
           sensitive = re.compile(r'token|password|secret|cookie|authorization|Bearer|eyJ[A-Za-z0-9_-]+\.|Passw0rd|ReaderPass|WriterPass|BlockedPass|MultiPass|ExactPass|local-ci-only', re.I)
+          published = pathlib.Path('.work/ci/plugin-artifact').resolve()
+          credential_value = re.compile(r'Bearer\s+[A-Za-z0-9._~-]+|eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+|(?:password|client_secret|access_token|refresh_token)\s*=', re.I)
           for root in roots:
               for file in pathlib.Path(root).rglob('*'):
                   if not file.is_file() or file.suffix.lower() not in {'.log', '.txt', '.xml', '.html', '.json'}:
                       continue
+                  if file.resolve().is_relative_to(published):
+                      # Preserve downloaded formal report bytes and their hashes.
+                      # Test names mentioning passwords are not credentials.
+                      # A secret-shaped published input must fail before upload.
+                      assert not credential_value.search(file.read_text(errors='replace')), f'Credential-shaped content in published input: {file}'
+                      continue
                   if file.suffix.lower() == '.json':
                       def scrub(value):
                           if isinstance(value, dict):
-                              return {key: '[redacted]' if re.fullmatch(r'(?:access[_-]?token|refresh[_-]?token|id[_-]?token|client[_-]?secret|password|cookies?|authorization|private[_-]?key)', key, re.I) else scrub(item) for key, item in value.items()}
+                              return {key: '[redacted]' if re.fullmatch(r'(?:access[_-]?token|refresh[_-]?token|id[_-]?token|client[_-]?secret|temporary[_-]?password|password|cookies?|authorization|private[_-]?key|csrf|interaction|code[_-]?verifier)', key, re.I) else scrub(item) for key, item in value.items()}
                           if isinstance(value, list):
                               return [scrub(item) for item in value]
                           if isinstance(value, str) and re.search(r'Bearer [A-Za-z0-9._~-]+|eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+|(?:password|client_secret|access_token|refresh_token)=', value, re.I):

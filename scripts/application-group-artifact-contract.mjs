@@ -20,6 +20,15 @@ export const applicationGroupPluginClasses=Object.freeze([
   'io/kestra/extensions/rbac/management/ApplicationGroupDirectoryManagement.class',
   'io/kestra/extensions/rbac/store/ApplicationGroupDirectoryStore.class',
   'io/kestra/extensions/rbac/store/ApplicationGroupDirectoryCommand.class',
+  'io/kestra/extensions/rbac/applicationgroup/ApplicationPermission.class',
+  'io/kestra/extensions/rbac/management/ApplicationPermissionController.class',
+  'io/kestra/extensions/rbac/store/ApplicationPermissionUpgrade.class',
+  'io/kestra/extensions/rbac/store/ApplicationPermissionUpgradeCommand.class',
+  'io/kestra/extensions/rbac/management/PublishedIdentityLifecycleParticipant.class',
+  'io/kestra/extensions/rbac/management/ClientCredentialController.class',
+  'io/kestra/extensions/rbac/management/ManagementAuditController.class',
+  'io/kestra/extensions/rbac/store/ManagementAuditStore.class',
+  'io/kestra/extensions/rbac/store/ManagementAuditSchemaCommand.class',
 ])
 
 export function assertApplicationGroupPluginEntries(entries) {
@@ -30,6 +39,8 @@ export function assertApplicationGroupPluginEntries(entries) {
   for(const required of applicationGroupPluginClasses)assert(names.has(required),'Missing application-group plugin class: '+required)
   const obsolete=classes.filter(entry=>/^io\/kestra\/extensions\/rbac\/(?:project\/|ProjectRuntime(?:Policies|Configuration)(?:\$|\.)|ProjectTypedPolicy(?:\$|\.)|store\/ProjectPolicy(?:Store|Command)(?:\$|\.)|management\/ProjectPolicyManagement(?:\$|\.))/.test(entry))
   assert.equal(obsolete.length,0,'Plugin jar retains obsolete project model classes')
+  const legacyMigrationBeans=entries.filter(entry=>entry.startsWith('META-INF/micronaut/')&&entry.includes('ApplicationScopeDeclarationMigration'))
+  assert.deepEqual(legacyMigrationBeans,[],'New-install plugin jar automatically registers legacy declaration migration')
   return {model:'application-group',requiredClasses:applicationGroupPluginClasses.length,obsoleteClasses:obsolete.length}
 }
 
@@ -38,15 +49,14 @@ export const applicationGroupTables=Object.freeze([
   'rbac_application_group_invalidation',
   'rbac_application_group_retired',
   'rbac_application_group_state',
-  'rbac_application_group_policy_head',
-  'rbac_application_group_policy_snapshot',
-  'rbac_application_scope_declaration',
+  'rbac_management_audit',
 ])
 
 export const obsoleteProjectTables=Object.freeze([
   'oidc_project_bootstrap','oidc_project_invalidation','oidc_project_state',
   'rbac_project_policy_head','rbac_project_policy_snapshot','rbac_policy_head','rbac_policy_snapshot',
   'oidc_application_group_bootstrap','oidc_application_group_invalidation','oidc_application_group_retired','oidc_application_group_state',
+  'rbac_application_group_policy_head','rbac_application_group_policy_snapshot','rbac_application_scope_declaration',
 ])
 
 export function assertApplicationGroupSchemaTables(tables) {

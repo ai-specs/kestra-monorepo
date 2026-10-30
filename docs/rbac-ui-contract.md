@@ -1,6 +1,22 @@
 # RBAC UI 授权契约
 
-> UI 行为基线：应用组目标模型优先于本文中与旧应用项目或旧恢复流程有关的描述。实现新页面前必须先核对根仓 `docs/application-group-target-model.md`。
+> UI 行为基线：维护者当前裁决与 `docs/access-control-ui-requirements.md` 工作树正文优先。
+> `docs/application-group-target-model.md` 用于核对摘要；本文旧应用项目或旧恢复流程不得推翻当前需求。
+
+### 管理审计接口与组合验收边界
+
+应用组 v3 的账号生命周期与凭据操作审计归插件，不引入宿主全局审计页面或存储。
+实现仅消费正式 `IdentityLifecycleParticipantV1` 已有的删除、启用、禁用、密码
+重置、client secret 轮换五种操作；在宿主借用连接中追加脱敏提交记录，异常共同回滚。
+历史主体原值不得被账号删除级联修改。公开读取必须经过 IDENTITY.READ，并按当前
+可信 issuer 过滤记录和总数，包含该 issuer 已退役组的历史记录。沿用需求 §4.7 的
+issuer 范围，不新增组级 IDENTITY 权限；MANAGE 不隐含 READ。不得记录凭据、哈希、
+提示片段或请求内容。
+已下载的正式插件产物包含审计控制器与存储，独立 PostgreSQL 和生命周期报告已通过；
+这不证明当前部署组合的生产 HTTP、浏览器或完整事务验收通过。具体模型和 API 由插件
+`docs/application-groups.md` 与 `docs/management-api.md` 定义。最终版本与产物证据见根仓
+README 及差异报告。根仓仍须分别验证真实执行保留和真实审计保留，不伪造
+executionId 关联，不以测试历史表、空记录或普通执行日志替代生产审计。
 
 ## 状态
 

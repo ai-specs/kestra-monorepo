@@ -3,6 +3,7 @@ import {readFileSync} from 'node:fs'
 import assert from 'node:assert/strict'
 import {projectScopeCases, requiredProjectChecks, legacyMigrationChecks, applicationProject} from './application-project-cases.mjs'
 import {applicationGroupPluginClasses,applicationGroupTables} from './application-group-artifact-contract.mjs'
+import {derive as deriveAccessControlGates} from './access-control-v3-gates.mjs'
 
 const [file, image, jarSha256, rootCommit, overlayCommit, pluginCommit] = process.argv.slice(2)
 assert(file && /^ghcr\.io\/ai-specs\/kestra-overlay@sha256:[0-9a-f]{64}$/.test(image ?? ''), 'Explicit immutable image required')
@@ -26,7 +27,49 @@ assert.equal(report.nonFinal, false, 'Development evidence cannot satisfy final 
 assert.equal(report.development?.allowDirtyRoot, false, 'Final acceptance requires committed sources')
 assert.equal(report.notRun, 0, 'Required checks remain unexecuted')
 assert.equal(report.mode, 'run', 'Static and configuration checks are not acceptance')
+assert.equal(report.resources?.cleaned,true,'Final report cannot pass before the owned deployment is cleaned')
+assert.equal(report.resources.cleanupInventory?.owner,report.resources.composeProject)
+assert.equal(report.resources.cleanupInventory.ownerVerified,true)
+for(const derived of deriveAccessControlGates(report)) {
+  assert.equal(derived.status,'passed','Final underlying access-control evidence did not pass: '+derived.id)
+  assert.equal(derived.passed,true)
+  const summaries=report.checks.filter(row=>row.id===derived.id)
+  assert.equal(summaries.length,1,'Final access-control gate summary missing or duplicated: '+derived.id)
+  assert.deepEqual(summaries[0],derived,'Final access-control gate summary differs from underlying evidence: '+derived.id)
+}
+for(const resource of ['containers','networks','volumes'])assert.equal(report.resources.cleanupInventory[resource],0,'Owned acceptance '+resource+' remain')
 assert(report.stages?.some(stage => stage.id === 'publication-gate' && stage.status === 'passed'), 'Formal artifact publication gate missing')
+const sdkGate=report.sources?.overlay?.downloadedSdkBrowserGate
+assert.equal(sdkGate?.commit,overlayCommit,'Downloaded host SDK report does not match final commit')
+assert.equal(sdkGate.image,image,'Downloaded host SDK report does not match selected image')
+assert.equal(sdkGate.passed,949);assert.equal(sdkGate.failures,0);assert.equal(sdkGate.notRun,0)
+for(const field of ['sha256','matrixSha256','buildId'])assert(/^[a-f0-9]{64}$/.test(sdkGate[field]),'Downloaded host SDK '+field+' missing')
+for(const field of ['runId','artifactId','jobId'])assert(Number.isSafeInteger(sdkGate[field])&&sdkGate[field]>0,'Downloaded host SDK '+field+' missing')
+const geometryGate=report.sources?.overlay?.downloadedFilterGeometryGate
+assert.equal(geometryGate?.commit,overlayCommit,'Downloaded native filter geometry report does not match final commit')
+assert.equal(geometryGate.image,image,'Downloaded native filter geometry report does not match selected image')
+assert.equal(geometryGate.runId,sdkGate.runId,'Geometry and SDK reports must come from the same final run')
+assert.equal(geometryGate.artifactId,sdkGate.artifactId,'Geometry and SDK reports must come from the same downloaded artifact')
+assert.equal(geometryGate.buildId,sdkGate.buildId,'Geometry and SDK frozen builds differ')
+assert.equal(geometryGate.checks,60,'Complete native geometry matrix required')
+assert(/^[a-f0-9]{64}$/.test(geometryGate.sha256),'Downloaded native geometry report hash missing')
+const pluginUi=report.sources?.plugin?.downloadedUiTests
+assert.equal(pluginUi?.commit,pluginCommit,'Downloaded plugin UI report does not match final commit')
+assert(Number.isSafeInteger(pluginUi.tests)&&pluginUi.tests>=156,'Complete downloaded plugin UI regressions required')
+assert.equal(pluginUi.cases?.length,pluginUi.tests,'Plugin UI case count differs from downloaded JUnit')
+assert(pluginUi.cases.every(test=>test.status==='passed'),'Downloaded plugin UI cases contain failure or skip')
+for(const name of [
+  ...['revoked','partial','missing','disabled','invalid'].map(mode=>'App subject deep link revalidates '+mode+' without broadening rows'),
+  ...['group','scope','application'].map(kind=>'App native box tab cancel and same-target retry preserves '+kind+' draft and controlled active'),
+  'App native box tabs retain active and host URL during real editor save and one-time credential',
+  'App slow subject query retains real credential-write and oneTime navigation locks',
+])assert.equal(pluginUi.cases.filter(test=>test.name===name&&test.status==='passed').length,1,'Required final subject/tab regression missing or duplicated: '+name)
+for(const field of ['failures','errors','skipped'])assert.equal(pluginUi[field],0)
+assert(/^[a-f0-9]{64}$/.test(pluginUi.sha256),'Downloaded plugin UI report hash missing')
+for(const field of ['runId','artifactId'])assert(Number.isSafeInteger(pluginUi[field])&&pluginUi[field]>0,'Downloaded plugin UI '+field+' missing')
+for(const field of ['runId','artifactId'])assert.equal(pluginUi[field],report.sources.plugin.downloadedTestResultsByPhase?.unit?.[field],'Plugin UI and backend reports must come from the same final artifact')
+assert(report.stages?.some(stage => stage.id === 'access-control-prototype' && stage.status === 'passed'
+  && stage.evidence?.scope === 'frozen-prototype-only' && stage.evidence.businessAcceptance === false), 'Reviewed prototype input gate missing')
 const artifactContract=report.stages?.find(stage=>stage.id==='artifact-inputs'&&stage.status==='passed')?.evidence?.applicationGroupContract
 assert.deepEqual(artifactContract,{model:'application-group',requiredClasses:applicationGroupPluginClasses.length,obsoleteClasses:0},'Actual application-group plugin artifact contract missing')
 const storageContract=report.stages?.find(stage=>stage.id==='new-install-storage-contract'&&stage.status==='passed')?.evidence
@@ -41,8 +84,32 @@ for (const [name, commit] of [['overlay', overlayCommit], ['plugin', pluginCommi
 assert.deepEqual(report.inputs, {image, jarSha256, rootCommit, overlayCommit, pluginCommit}, 'Report inputs differ from the final composition')
 assert.equal(report.failures, 0)
 assert(report.sources.plugin.downloadedReportGates?.unit?.includes('zero failure/skip'),'Downloaded plugin unit suite gate missing')
-assert(report.sources.plugin.downloadedReportGates?.postgres?.includes('ApplicationGroupDirectoryServiceTest 13 PostgreSQL cases executed'),'Downloaded plugin PostgreSQL business service gate missing')
+assert(/ApplicationGroupDirectoryServiceTest [1-9][0-9]* PostgreSQL cases executed/.test(report.sources.plugin.downloadedReportGates?.postgres??''),'Downloaded plugin PostgreSQL business service gate missing')
 assert.equal(report.skipped, 0)
+const upgradeCheck=report.checks?.find(row=>row.id==='declaration-upgrade')
+assert(upgradeCheck?.passed&&upgradeCheck.status==='passed','Schema2 declaration-upgrade gate missing')
+assert.equal(upgradeCheck.evidence?.source,'plugin-ci-postgres')
+assert.equal(upgradeCheck.evidence?.commit,pluginCommit)
+assert.equal(upgradeCheck.evidence?.backend,'PostgreSQL')
+assert(Number.isSafeInteger(upgradeCheck.evidence?.tests)&&upgradeCheck.evidence.tests>0)
+for(const field of ['failures','errors','skipped'])assert.equal(upgradeCheck.evidence[field],0)
+assert(report.sources.plugin.downloadedReportGates?.declarationUpgrade,'Downloaded schema2 upgrade report was not checked')
+const lifecycleGate=report.sources.plugin.downloadedReportGates?.lifecycle
+assert.equal(lifecycleGate?.backend,'PostgreSQL');assert.equal(lifecycleGate?.hostAdapter,'published-adapter-participant')
+assert.equal(lifecycleGate.hostImage,image)
+assert.equal(lifecycleGate.hostExecutableSha256,report.resources.hostExecutableSha256)
+assert(Number.isSafeInteger(lifecycleGate.tests)&&lifecycleGate.tests>=6)
+assert(Number.isSafeInteger(lifecycleGate.additionalTests)&&lifecycleGate.additionalTests>0)
+for(const field of ['failures','errors','skipped'])assert.equal(lifecycleGate[field],0)
+for(const phase of ['unit','postgres','lifecycle']) {
+  const actual=report.sources.plugin.downloadedTestResultsByPhase?.[phase]
+  assert(actual&&actual.commit===pluginCommit,'Final downloaded plugin phase missing: '+phase)
+  assert(/^[1-9][0-9]*$/.test(String(actual.runId))&&/^[1-9][0-9]*$/.test(String(actual.artifactId)))
+  assert(typeof actual.path==='string'&&actual.path.length>0&&actual.suites?.length>0)
+  for(const field of ['tests','failures','errors','skipped'])assert.equal(actual.totals[field],actual.suites.reduce((total,suite)=>total+suite[field],0),'Plugin phase totals differ: '+phase)
+  assert(Number.isSafeInteger(actual.totals.tests)&&actual.totals.tests>0)
+  for(const field of ['failures','errors','skipped'])assert.equal(actual.totals[field],0,'Plugin phase is not fully passed: '+phase)
+}
 assert.equal(report.resources?.missingExtension?.sharedPostgres,true,'Auxiliary acceptance must reuse the primary PostgreSQL service')
 assert.equal(report.resources.missingExtension.postgresContainer,report.resources.containerIds.postgres,'Auxiliary observer selected another PostgreSQL container')
 assert.equal(report.resources.missingExtension.postgresComposeProject,report.resources.composeProject,'Auxiliary database owner differs from the primary acceptance project')
