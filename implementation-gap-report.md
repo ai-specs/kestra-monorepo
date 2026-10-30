@@ -1,5 +1,33 @@
 # 应用组目标模型实施差异报告
 
+## 当前适用门状态（2026-10-31）
+
+正式组合为overlay `ff707dd` / CI`41129076310` / image`15c7cace…472bac`，plugin
+`0d97555` / CI`41135257271` / artifact`13017281224` / jar`402a1388…39cbadf`；
+完整hash、来源与下载审计见下文正式输入及README。两个独立仓最终成功CI报告和正式产物
+均已实际下载。根代码提交`9c97bc0`完整空库`new-install`本地验收通过：REST56、检查192、
+UI137，失败/跳过/未运行均0；最终检查器重新执行通过，owner容器/网络/卷均0。
+证据位于`.work/access-control-v3-20261027/resumed/root-final-origin-composition-local/`，
+含`main-final-local-audit.json`、完整`report.json`和主控复算日志；此前失败报告不覆盖、不追认。
+
+| 当前需求映射 | 所属与正式输入 | 已验证门与状态 |
+| --- | --- | --- |
+| N1–N6 / T1 | plugin目录/API/UI；正式宿主SDK | 卡片、只读详情、显式编辑、统计链接、内置拒删、退役key及真实保存；本地组合通过 |
+| N7–N9 / T2 | plugin scope key/name/description | key不可变、重名、应用/用户/typed引用删除保护及拒绝无副作用；本地组合通过 |
+| N10–N14 / T3 | plugin统一permissions，公开ProjectionV2 | 主动登记、支持并集、机器key/人类名称、Kestra typed/external边界；REST/UI/MCP本地组合通过 |
+| N15–N18 / T4 | plugin用户scope授予与交集 | subject筛选、scope交集、授权投影、旧会话撤权和refresh；本地组合通过 |
+| N4/N5/N19 / T5/T6 | overlay目录V2/借用事务；plugin参与者 | 首改密、账号删除/停用、全组清理、历史保留、双等待者互删/互停及回滚；本地组合通过 |
+| N11/N19 / T7/T8 | overlay凭据V1/维护CLI；plugin管理API/UI | 掩码提示、一次性明文、CSRF、复制重试、响应丢失、维护取消/激活/回退；本地组合通过 |
+| N19 / T9–T11 | plugin管理域；正式宿主原生组件 | READ/MANAGE分离、零授权换号、原生筛选/抽屉、计数间隔、中英文四主题三宽度；本地组合通过 |
+| N20 / T12 | plugin schema2 PostgreSQL升级；root发布组合 | declaration-upgrade8必需门及全部正式来源检查通过；schema1历史迁移14项明确范围外，不计通过 |
+
+其余11语言的重复业务浏览器操作按维护者裁决范围外；13语言各110 key、非空值与插值参数
+均检查通过，不声称这些语言实际排版/交互通过。历史T6锁前拒绝与请求来源反例同源未证明；
+本次新正式组合的T6已实际4/4且清理通过，不删除此前失败或降低双等待者标准。
+本次后续变更仅同步验收文档，不修改9c97bc0的运行输入和断言。根最终提交仍须通过其自身
+完整CI并实际下载核对；该最终门的状态以匹配HEAD的Actions及下载报告为准，不以本节代替。
+以下各日期段落和“初查状态”表保留为历史调查与失败输入，由本节当前已执行状态覆盖。
+
 2026-10-31 正式发布顺序已重新执行：overlay ff707dd/CI41129076310五job成功且推广，
 7件artifact实际下载、412后端（2镜像前置由实际4份镜像XML另核）、UI95、20认证JSON、
 SDK949、几何60全核，新增5具名来源门全过。正式digest15c7cace895531459fa1ef03446ec3945cd9ec1440c36a165c62b52e21472bac，
