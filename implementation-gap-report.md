@@ -1,5 +1,13 @@
 # 应用组目标模型实施差异报告
 
+2026-10-31 1525843精确本地门：全部137项真实UI业务、主体错误来源审计、零授权退出换号、
+REST56、安全26、MCP11、聚合2、T6并发4均通过；测试数据和Compose资源均清理通过。
+组合汇总仍失败：最后runtime target模块调用强制改密助手时未接收新onDenial回调，
+其预期401及同requestId的console两条进入未知错误，target.completed=false。
+主控已定位精确request8840.82230，现将助手返回的requestId、源文档、状态和预期写入
+target自身清单，匹配时核对已记录requestId；不删除诊断断言。原失败报告保留在
+resumed/root-final-response-drain-local，全部137项通过不代替最终组合和最终根CI。
+
 2026-10-31 请求标记轮437db53：REST56、安全26、MCP11、聚合2、T6并发4及UI133通过，
 最终诊断仍18条未分类而失败，后续3项UI未运行；业务清理和Compose清理均通过。
 新导航page-error未再出现。主控逐项核实：8条为测试读取预期401后主动cancel响应正文，
