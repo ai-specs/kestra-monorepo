@@ -17,7 +17,7 @@ concurrency:
 jobs:
   compose:
     runs-on: ubuntu-24.04
-    # Full 4-theme/13-locale/3-width native drawer and authentication matrix,
+    # Full 4-theme/English-Chinese/3-width business matrix; all 13 locales have key checks.
     # plus REST/MCP and timed no-side-effect checks, must finish without truncation.
     timeout-minutes: 360
     env:

@@ -4,6 +4,8 @@ import assert from 'node:assert/strict'
 import {projectScopeCases, requiredProjectChecks, legacyMigrationChecks, applicationProject} from './application-project-cases.mjs'
 import {applicationGroupPluginClasses,applicationGroupTables} from './application-group-artifact-contract.mjs'
 import {derive as deriveAccessControlGates} from './access-control-v3-gates.mjs'
+import {accessControlLocales,accessControlSupportedLocales} from './access-control-v3-ui.mjs'
+import {checkPublishedTranslationSources} from './access-control-translation-coverage.mjs'
 
 const [file, image, jarSha256, rootCommit, overlayCommit, pluginCommit] = process.argv.slice(2)
 assert(file && /^ghcr\.io\/ai-specs\/kestra-overlay@sha256:[0-9a-f]{64}$/.test(image ?? ''), 'Explicit immutable image required')
@@ -216,17 +218,28 @@ assert.equal(missingProvider.authorizationDenied.codeIssued,false)
 assert.equal(missingProvider.authorizationDenied.protocolStateUnchanged,true,'Missing provider authorization changed code/token storage')
 assert.equal(missingProvider.oldSessionRejected,true,'Previously allowed MCP session must fail closed without provider')
 const combinations = new Set()
+const translations=report.stages.find(stage=>stage.id==='translation-key-coverage'&&stage.status==='passed')?.evidence
+assert(translations,'Final translation-key coverage missing')
+assert.deepEqual(translations,checkPublishedTranslationSources({pluginRoot:report.sources.plugin.path,pluginCommit,jarSha256}),'Translation evidence differs from final committed plugin sources')
+assert.equal(translations.pluginCommit,pluginCommit)
+assert.equal(translations.jarSha256,jarSha256)
+assert.deepEqual(translations.browserLocales,[...accessControlLocales])
+assert.deepEqual(translations.locales.map(row=>row.locale),[...accessControlSupportedLocales])
+assert.deepEqual(translations.excludedBrowserLocales.map(row=>row.locale),accessControlSupportedLocales.filter(locale=>!accessControlLocales.includes(locale)))
+for(const row of translations.locales){assert(row.keys>0);for(const key of ['missing','extra','empty','placeholderMismatches'])assert.equal(row[key],0);assert.equal(row.fallbackRequired,false)}
+assert(Object.values(translations.sourceHashes).length>=13)
+for(const hash of Object.values(translations.sourceHashes))assert(/^[a-f0-9]{64}$/.test(hash))
 for (const row of report.ui) {
   assert.equal(row.passed, true, row.case)
   assert.equal(row.skipped, undefined, row.case)
   if (row.case === 'theme-language') {
     assert(['light', 'dark', 'dark-2', 'system'].includes(row.theme), 'Unknown theme')
-    assert(['en', 'de', 'es', 'fr', 'hi', 'it', 'ja', 'ko', 'pl', 'pt', 'pt_BR', 'ru', 'zh_CN'].includes(row.locale), 'Unknown locale')
+    assert(accessControlLocales.includes(row.locale), 'Locale outside full business browser policy')
     const key = `${row.theme}:${row.locale}`
     assert(!combinations.has(key), `Duplicate theme/language ${key}`)
     combinations.add(key)
     assert(row.computedStyles && row.translation && row.keyboardFocus && row.noHorizontalOverflow, `Incomplete actual browser evidence ${key}`)
   }
 }
-assert.equal(combinations.size, 52, 'Full four-theme, thirteen-language browser matrix missing')
-console.log(`PASS final composition (${report.profile}): REST ${expectedRows}, required integration ${profileRequiredChecks.length}, browser theme/language 52; zero failure/skip`)
+assert.equal(combinations.size, 4*accessControlLocales.length, 'Full four-theme English/Chinese browser matrix missing')
+console.log(`PASS final composition (${report.profile}): REST ${expectedRows}, required integration ${profileRequiredChecks.length}, browser theme/language ${combinations.size}, translation catalogues ${translations.locales.length}; zero failure/skip`)

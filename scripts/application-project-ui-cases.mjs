@@ -1,5 +1,6 @@
 export {
   accessControlLocales as applicationProjectUiLocales,
+  accessControlSupportedLocales as applicationProjectUiSupportedLocales,
   accessControlThemes as applicationProjectUiThemes,
   accessControlCaseIds as applicationProjectUiCaseIds,
   accessControlCoverage as applicationProjectUiCoverage,

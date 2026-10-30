@@ -21,7 +21,8 @@ import {dirname,resolve,join} from 'node:path'
 import {fileURLToPath,pathToFileURL} from 'node:url'
 import {prepareApplicationProjectUi,runPreparedApplicationProjectUi,planApplicationProjectUi} from './application-project-ui-fixture.mjs'
 import {applicationProject,namespaceDomains,scopeNames} from './application-project-cases.mjs'
-import {applicationProjectUiLocales} from './application-project-ui-cases.mjs'
+import {applicationProjectUiLocales,applicationProjectUiSupportedLocales} from './application-project-ui-cases.mjs'
+import {checkPublishedTranslationSources} from './access-control-translation-coverage.mjs'
 import {initialEvidence,runIntegration} from './application-project-integration-cases.mjs'
 import {ProductionOAuthClient} from './production-oauth-client.mjs'
 import {ProjectSideEffects} from './application-project-effects.mjs'
@@ -130,7 +131,7 @@ export async function main(argv=process.argv.slice(2),runtime={}) {
       assert.equal(realpathSync(roots.root),realpathSync(repository),'root commit must bind the repository containing the running entry point')
       if(mode==='run')assertApplicationProjectSources(report.sources,{allowDirtyRoot:options['--allow-dirty-root']===true})
       report.executionSources=Object.fromEntries(['application-group-artifact-contract.mjs','blackbox-application-projects.sh','blackbox-application-projects.mjs','application-project-fixture.mjs','application-project-integration-cases.mjs','application-project-ui-fixture.mjs','application-project-browser-ci.cjs','application-project-migration-cases.mjs','application-project-security-cases.mjs','application-project-oauth-cases.mjs','application-project-aggregate-cases.mjs','application-project-target-ui.mjs'].map(name=>[name,hash(readFileSync(join(repository,'scripts',name)))]))
-      for(const name of ['check-access-control-prototype.py','access-control-v3-ui.mjs','access-control-v3-rest-cases.mjs','access-control-v3-maintenance.mjs','access-control-v3-frozen.mjs','access-control-v3-dependency.mjs','access-control-v3-gates.mjs','access-control-v3-transactions.mjs','access-control-v3-ui-controls.mjs','access-control-v3-browser-runtime.mjs','application-project-policy.mjs','application-project-browser-adapters.mjs','production-oauth-client.mjs'])report.executionSources[name]=hash(readFileSync(join(repository,'scripts',name)))
+      for(const name of ['access-control-translation-coverage.mjs','check-access-control-prototype.py','access-control-v3-ui.mjs','access-control-v3-rest-cases.mjs','access-control-v3-maintenance.mjs','access-control-v3-frozen.mjs','access-control-v3-dependency.mjs','access-control-v3-gates.mjs','access-control-v3-transactions.mjs','access-control-v3-ui-controls.mjs','access-control-v3-browser-runtime.mjs','application-project-policy.mjs','application-project-browser-adapters.mjs','production-oauth-client.mjs'])report.executionSources[name]=hash(readFileSync(join(repository,'scripts',name)))
       return {actualPlatform:process.platform,node:process.version,commits:structuredClone(report.inputs)}
     })
     await stage('access-control-prototype',async()=>JSON.parse(command('python3',[join(repository,'scripts/check-access-control-prototype.py')])) )
@@ -144,7 +145,7 @@ export async function main(argv=process.argv.slice(2),runtime={}) {
         report.staticChecks.push({file,sha256:hash(readFileSync(join(repository,'scripts',file))),syntax:true})
       }
       assert.equal(report.matrix.length,56,'shared REST matrix changed; review integration')
-      assert.equal(report.ui.filter(row=>row.case==='theme-language').length,52,'full theme/language matrix required')
+      assert.equal(report.ui.filter(row=>row.case==='theme-language').length,4*applicationProjectUiLocales.length,'full English/Chinese theme matrix required')
       const planned=planFixture('http://localhost:18128')
       const observerTriggers=planned.policy.applicationGroups[applicationProject].scopes[planned.observerScope].grants.filter(grant=>grant.resource==='TRIGGER')
       assert.deepEqual(observerTriggers,[namespaceDomains.a,namespaceDomains.b,namespaceDomains.outside,namespaceDomains.a+'2'].map(namespace=>({
@@ -166,6 +167,7 @@ export async function main(argv=process.argv.slice(2),runtime={}) {
       const contract=assertApplicationGroupPluginEntries(command('jar',['tf',jar]).split('\n'))
       options.jar=jar;return {jarSha256:report.inputs.jarSha256,applicationGroupContract:contract}
     })
+    await stage('translation-key-coverage',async()=>checkPublishedTranslationSources({pluginRoot:report.sources.plugin.path,pluginCommit:report.inputs.pluginCommit,jarSha256:report.inputs.jarSha256}))
     await stage('compose-config',async()=>{
       const port=Number(options['--port']??18128);assert(Number.isInteger(port)&&port>1024&&port<65536)
       const base='http://localhost:'+port
@@ -252,7 +254,7 @@ export async function main(argv=process.argv.slice(2),runtime={}) {
       assert.equal(sdkReport.candidateImage,report.inputs.image,'Downloaded SDK browser used a different candidate image')
       assert.equal(sdkReport.rows.length,949);assert.equal(new Set(sdkReport.rows.map(row=>row.id)).size,949)
       const sdkExpectedIds=['canonical-query-refresh','host-menu-dirty','keyboard-host-dirty','history-back-forward-dirty','concurrent-navigation','save-confinement','focus-tab-loop','maximize-reset','focus-fallback','dispose-pending-dirty','dispose-uncooperative-guard','public-safety-abort','unmount-open-popup'].map(name=>'behavior/'+name)
-      for(const theme of ['light','dark','dark-2','system'])for(const locale of applicationProjectUiLocales)for(const width of [1280,768,390])for(const kind of ['drawer-0','drawer-1','drawer-2','drawer-3','native-filter','refresh-and-system'])sdkExpectedIds.push('preferences/'+theme+'/'+locale+'/'+width+'/'+kind)
+      for(const theme of ['light','dark','dark-2','system'])for(const locale of applicationProjectUiSupportedLocales)for(const width of [1280,768,390])for(const kind of ['drawer-0','drawer-1','drawer-2','drawer-3','native-filter','refresh-and-system'])sdkExpectedIds.push('preferences/'+theme+'/'+locale+'/'+width+'/'+kind)
       assert.deepEqual(sdkReport.rows.map(row=>row.id),sdkExpectedIds,'Downloaded host SDK case IDs or order differ from the complete required plan')
       assert(sdkReport.rows.every(row=>row.status==='passed'&&Array.isArray(row.diagnostics?.errorIds)&&row.diagnostics.errorIds.length===0),'Downloaded SDK browser rows are failed or incomplete')
       const sdkMatrixSha256=hash(readFileSync(join(report.sources.overlay.path,'scripts/rbac-ui-probe/sdk-browser-matrix.mjs')))

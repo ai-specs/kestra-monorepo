@@ -225,7 +225,7 @@ export async function observeSecurityLockCompetition({owner,assertOwner,query,sp
       ...(observation?{observation}:{}),releaseVerified:!cleanupFailure,requestsStarted:started,
       failurePhase:phase,errorKind:error.name,waitTimeoutMs,samples,requestTimings,
       elapsedToFailureMs:failureElapsed??null,settledAtFailure:failureSettled??[...settled],
-      earlyRequestSettledBeforeTwoWaiters:phase==='observe-waiters'&&Boolean(failureSettled?.some(Boolean))}
+      earlyRequestSettledBeforeTwoWaiters:!observation&&['observe-waiters','validate-two-waiters'].includes(phase)&&Boolean(failureSettled?.some(Boolean))}
     throw error
   }
   return {results,evidence:observation}

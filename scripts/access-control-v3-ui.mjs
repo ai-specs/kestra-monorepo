@@ -3,7 +3,10 @@ import {randomBytes} from 'node:crypto'
 import {ProductionOAuthClient} from './production-oauth-client.mjs'
 import {ApplicationGroupManagement} from './application-project-fixture.mjs'
 
-export const accessControlLocales=Object.freeze(['en','de','es','fr','hi','it','ja','ko','pl','pt','pt_BR','ru','zh_CN'])
+// All published locales remain required for static translations and host SDK audit.
+export const accessControlSupportedLocales=Object.freeze(['en','de','es','fr','hi','it','ja','ko','pl','pt','pt_BR','ru','zh_CN'])
+// Maintainer ruling 2026-10-30: full business browser coverage in English/Chinese.
+export const accessControlLocales=Object.freeze(['en','zh_CN'])
 export const accessControlThemes=Object.freeze(['light','dark','dark-2','system'])
 export const accessControlWidths=Object.freeze([1280,768,390])
 export const accessControlNativeSelectNoMatch=Object.freeze({
