@@ -6,6 +6,8 @@ import {projectScopeCases, requiredProjectChecks, legacyMigrationChecks, applica
 import {applicationGroupPluginClasses,applicationGroupTables} from './application-group-artifact-contract.mjs'
 import {derive as deriveAccessControlGates,assertHostHttpOriginReport} from './access-control-v3-gates.mjs'
 import {createHash} from 'node:crypto'
+import {dirname,resolve,sep} from 'node:path'
+import {readBrowserDiagnosticEvidence} from './browser-diagnostic-evidence.mjs'
 import {accessControlLocales,accessControlSupportedLocales} from './access-control-v3-ui.mjs'
 import {checkPublishedTranslationSources} from './access-control-translation-coverage.mjs'
 import {classifyAccessControlDiagnostics} from './access-control-browser-diagnostics.mjs'
@@ -235,6 +237,17 @@ assert.equal(missingProvider.authorizationDenied.protocolStateUnchanged,true,'Mi
 assert.equal(missingProvider.oldSessionRejected,true,'Previously allowed MCP session must fail closed without provider')
 const combinations = new Set()
 const browser=report.fragments?.ui?.shared
+const references=[report.fragments?.ui?.adapterDiagnostics,browser?.adapterDiagnostics].filter(Boolean)
+assert(references.length>=1,'Immutable final adapter diagnostics missing')
+for(const reference of references) {
+  const directories=[resolve(dirname(file),'browser/diagnostics'),resolve(dirname(report.resources.composeFile),'browser/diagnostics')]
+  const localEvidenceRoot=fileURLToPath(new URL('../.work/',import.meta.url))
+  if(typeof reference.path==='string'&&resolve(reference.path).startsWith(localEvidenceRoot)&&dirname(reference.path).endsWith(sep+'diagnostics'))directories.push(dirname(reference.path))
+  const evidence=readBrowserDiagnosticEvidence(reference,directories)
+  assert.equal(evidence.integrity.length,0,'Final adapter diagnostic integrity errors remain')
+  const events=new Map(evidence.events.map(event=>[event.id,event]))
+  for(const event of browser?.diagnostics??[])assert.deepEqual(events.get(event.id),event,'Immutable adapter snapshot omits or changes primary browser evidence')
+}
 assert(browser?.completed&&Array.isArray(browser.diagnostics)&&browser.diagnostics.length>0,'Complete source-attributed browser diagnostics missing')
 const diagnosticReview=classifyAccessControlDiagnostics({events:browser.diagnostics,base:report.resources.base,requests:browser.requests,expectedTransportFailures:browser.expectedTransportFailures,identityWindows:browser.identityWindows})
 assert.equal(diagnosticReview.errors.length,0,'Final browser report retains unknown errors')

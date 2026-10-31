@@ -172,6 +172,13 @@ jobs:
                       browser = report.parent / phase / 'browser-report.json'
                       if browser.exists():
                           shutil.copy2(browser, destination / (phase + '-report.json'))
+                      diagnostics = report.parent / phase / 'diagnostics'
+                      if diagnostics.exists():
+                          for source in diagnostics.glob('*.json'):
+                              assert source.resolve().is_relative_to(diagnostics.resolve()) and not source.is_symlink()
+                              target = destination / phase / 'diagnostics' / source.name
+                              target.parent.mkdir(parents=True, exist_ok=True)
+                              shutil.copy2(source, target)
                       screenshots = report.parent / phase / 'screenshots'
                       if screenshots.exists():
                           for source in screenshots.rglob('*.png'):
@@ -266,6 +273,10 @@ jobs:
                       # Test names mentioning passwords are not credentials.
                       # A secret-shaped published input must fail before upload.
                       assert not credential_value.search(file.read_text(errors='replace')), f'Credential-shaped content in published input: {file}'
+                      continue
+                  if file.parent.name == 'diagnostics' and file.resolve().is_relative_to(pathlib.Path('.work/ci/application-projects').resolve()):
+                      # Already redacted by the collector; retain exact snapshot bytes and hash.
+                      assert not credential_value.search(file.read_text(errors='replace')), f'Credential-shaped content in diagnostic evidence: {file}'
                       continue
                   if file.suffix.lower() == '.json':
                       def scrub(value):

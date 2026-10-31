@@ -426,8 +426,8 @@ export async function runPreparedApplicationProjectUi(adapter,base,fixture,recor
     }else report.target={completed:false,checks:targetUiCheckIds.map(id=>({id,passed:false,status:'not_run',evidence:{reason:'caller must provide real root targetRuntime management/planned context'}}))}
     report.ui.push(...report.target.checks.map(row=>({...row,case:row.id,name:row.id})))
     report.completed=report.target.completed===true&&report.shared?.completed===true&&report.zeroGrant.passed===true&&!failure
-    report.adapterDiagnostics=await adapter.diagnosticEvidence().catch(error=>({captureFailure:String(error.message)}))
-    if(report.adapterDiagnostics.captureFailure)report.completed=false
+    report.adapterDiagnostics=await adapter.diagnosticEvidenceReference().catch(error=>({captureFailure:String(error.message)}))
+    if(report.adapterDiagnostics.captureFailure||report.adapterDiagnostics.integrity!==0)report.completed=false
     report.adapterArtifacts=adapter.artifactReferences();await record(copy(report))
   }
   if(failure)throw new Error(safe(failure))

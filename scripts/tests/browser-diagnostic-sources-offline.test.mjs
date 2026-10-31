@@ -107,3 +107,19 @@ test('once-only deliberately dropped response console cannot excuse any other ne
   assert.equal(run([request,failed,consoleEvent],{expectedTransportFailures}).errors.length,0)
   assert.equal(run([request,failed,consoleEvent]).errors.length,2)
 })
+function canonicalCapabilities() {
+  const documentUrl=base+'/ui/main/extensions/rbac/application-groups/kestra/applications'
+  const initiatorStack=[{url:base+'/ui/assets/app-frozen.js',functionName:'fetchIdentity',line:1,column:12}]
+  return [event('request','request',{documentUrl,frameId:'frame',resourceType:'Fetch',initiatorStack,observedAt:time(0)}),event('abort','request-failed',{documentUrl,resourceType:'Fetch',message:'net::ERR_ABORTED',cancelled:true}),event('replacement-request','request',{documentUrl,frameId:'frame',requestId:'replacement',resourceType:'Fetch',initiatorStack,observedAt:time(120)}),event('replacement-response','http-response',{documentUrl,requestId:'replacement',method:'GET',status:200,observedAt:time(140)}),event('canonical','document-route',{url:documentUrl+'/~a2VzdHJhLXVp',observedAt:time(160)})]
+}
+test('host capability cancellation requires exact canonical selection and replacement host fetch',()=>assert.equal(run(canonicalCapabilities()).errors.length,0))
+for(const [name,mutate]of [
+  ['no replacement',events=>{events.splice(2,2)}],
+  ['failed replacement',events=>{events[3].status=403}],
+  ['different document',events=>{events[3].documentId='other'}],
+  ['different initiator',events=>{events[2].initiatorStack=[{url:base+'/ui/assets/other.js',functionName:'other',line:1,column:12}]}],
+  ['unrelated route',events=>{events[4].url=base+'/ui/main/kv'}],
+  ['no canonical route',events=>{events.pop()}],
+  ['wrong canonical group',events=>{events[4].url=base+'/ui/main/extensions/rbac/application-groups/other/applications/~YQ'}],
+  ['late replacement',events=>{events[3].observedAt=time(5000)}],
+])test(name+' cannot excuse cancelled capabilities',()=>{const events=canonicalCapabilities();mutate(events);assert(run(events).errors.some(event=>event.id==='abort'))})

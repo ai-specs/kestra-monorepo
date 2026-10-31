@@ -48,7 +48,7 @@ async function runApplicationProjectBrowserCi({base,fixture,inputs,nonFinal=fals
     const {chromium}=require('playwright');
     browser=await chromium.launch({headless:true});context=await browser.newContext({locale:'en-US',viewport:{width:1440,height:1000}});
     const page=await context.newPage();
-    adapter=await createPlaywrightApplicationProjectAdapter(page,{artifactDirectory:path.join(reportDirectory,'screenshots'),secrets:[fixture.admin.password,fixture.zeroAccount?.password,...runtimeSecrets].filter(Boolean)});
+    adapter=await createPlaywrightApplicationProjectAdapter(page,{artifactDirectory:path.join(reportDirectory,'screenshots'),diagnosticDirectory:path.join(reportDirectory,'diagnostics'),secrets:[fixture.admin.password,fixture.zeroAccount?.password,...runtimeSecrets].filter(Boolean)});
     const run=phase==='frozen'?ui.runPreparedFrozenBaselineUi:ui.runPreparedApplicationProjectUi;
     await run(adapter,base,fixture,async fragment=>{result.phase=phase;result.fragment=fragment;result.ui=fragment.ui??[];result.uiCompleted=fragment.completed;result.completed=fragment.completed&&!nonFinal;await persist();});
     assert.equal(result.uiCompleted,true,'browser matrix incomplete');

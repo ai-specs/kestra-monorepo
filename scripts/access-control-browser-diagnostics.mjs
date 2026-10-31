@@ -26,6 +26,17 @@ export function classifyAccessControlDiagnostics({events,base,requests=[],expect
         const replacement=(byDocument.get(event.documentId)??[]).find(response=>response.kind==='http-response'&&response.url===event.url&&response.status===200&&response.requestId!==event.requestId&&order.get(response.id)>order.get(event.id)&&at(response)-at(event)<=1000)
         if(route&&replacement){add(event,'superseded-host-manifest-during-canonical-route',{requestId:event.requestId,documentId:event.documentId,routeEventId:route.id,replacementRequestId:replacement.requestId,replacementEventId:replacement.id});continue}
       }
+      if(event.method==='GET'&&event.resourceType==='Fetch'&&event.url===base+'/api/v1/main/extensions/rbac/capabilities'&&original.frameId&&original.initiatorStack?.[0]?.functionName&&Number.isInteger(original.initiatorStack[0].line)&&Number.isInteger(original.initiatorStack[0].column)&&original.initiatorStack[0].url.startsWith(base+'/ui/assets/app-')) {
+        const source=new URL(original.documentUrl)
+        const canonical=source.origin===base&&/^\/ui\/main\/extensions\/rbac\/application-groups\/[^/]+\/applications$/.test(source.pathname)
+        const route=canonical&&(byDocument.get(event.documentId)??[]).find(route=>{
+          if(route.kind!=='document-route'||order.get(route.id)<=order.get(event.id)||at(route)-at(event)>1000)return false
+          const target=new URL(route.url)
+          return target.origin===source.origin&&target.search===source.search&&target.pathname.startsWith(source.pathname+'/')&&/^~[A-Za-z0-9_-]+$/.test(target.pathname.slice(source.pathname.length+1))
+        })
+        const replacement=(byDocument.get(event.documentId)??[]).find(response=>response.kind==='http-response'&&response.url===event.url&&response.status===200&&response.requestId!==event.requestId&&order.get(response.id)>order.get(event.id)&&at(response)-at(event)<=1000&&(byRequest.get(response.requestId)??[]).some(request=>request.kind==='request'&&request.method==='GET'&&request.documentId===event.documentId&&request.frameId===original.frameId&&order.get(request.id)>order.get(event.id)&&JSON.stringify(request.initiatorStack?.[0])===JSON.stringify(original.initiatorStack[0])))
+        if(route&&replacement){add(event,'superseded-host-capability-during-canonical-selection',{requestId:event.requestId,documentId:event.documentId,routeEventId:route.id,replacementRequestId:replacement.requestId,replacementEventId:replacement.id,initiator:original.initiatorStack[0]});continue}
+      }
     }
     if(event.kind!=='http-error'||!original||event.method!=='GET')continue
     const url=new URL(event.url)

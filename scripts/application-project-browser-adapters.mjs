@@ -29,6 +29,7 @@ import {randomUUID} from 'node:crypto'
 import {mkdir, stat} from 'node:fs/promises'
 import {isAbsolute, join} from 'node:path'
 import {setTimeout as delay} from 'node:timers/promises'
+import {writeBrowserDiagnosticEvidence} from './browser-diagnostic-evidence.mjs'
 
 export const applicationProjectAdapterHelperVersion='2026-10-27-response-stage-v2-clipboard-restore'
 
@@ -500,6 +501,7 @@ async function makeAdapter(raw,tools,options) {
     redactSecrets:values => redact.add(values),
     artifactReferences:() => copy(artifacts),
     diagnosticEvidence:async () => {try {await drain()} catch (error) {collector.issue('final diagnostic drain failed: ' + redact.text(error.message))}; return collector.unsafeSnapshot()},
+    diagnosticEvidenceReference:async () => {try {await drain()} catch (error) {collector.issue('final diagnostic drain failed: ' + redact.text(error.message))}; return writeBrowserDiagnosticEvidence(collector.unsafeSnapshot(),options.diagnosticDirectory??join(options.artifactDirectory,'diagnostics'))},
     async dispose() {
       if(disposalComplete)return
       disposed=true
@@ -644,7 +646,7 @@ export async function runApplicationProjectBrowser(adapter,base,fixture,record) 
     return await runApplicationProjectUi(adapter,base,fixture,persist)
   } catch (error) {
     await adapter.captureFailure(error,'business-assertion-failure')
-    const evidence = await adapter.diagnosticEvidence().catch(captureError => ({captureFailure:String(captureError.message)}))
+    const evidence = await adapter.diagnosticEvidenceReference().catch(captureError => ({captureFailure:String(captureError.message)}))
     const report = lastReport ?? {completed:false,rows:[],ui:[],failure:{message:String(error.message)}}
     report.completed = false
     report.adapterArtifacts = adapter.artifactReferences()
