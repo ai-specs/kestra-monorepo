@@ -231,8 +231,8 @@ jobs:
           set -euo pipefail
           python3 - <<'PYFINAL'
           import hashlib, json, pathlib, subprocess
-          path = pathlib.Path('.work/ci/application-projects/report.json')
-          report = json.loads(path.read_text())
+          report_path = pathlib.Path('.work/ci/application-projects/report.json')
+          report = json.loads(report_path.read_text())
           assert report['finishedAt'] and report['resources']['cleaned'] is True
           assert report['resources']['containersCreated'] is True
           root_commit = subprocess.check_output(['git', 'rev-parse', 'HEAD'], text=True).strip()
@@ -249,7 +249,7 @@ jobs:
               assert actual == tree[2], 'Checkout differs from root gitlink'
               inputs[name + 'Commit'] = actual
           assert report['inputs'] == inputs, 'Persisted report does not match independently selected final inputs'
-          subprocess.run(['node', 'scripts/check-application-project-report.mjs', str(path)] +
+          subprocess.run(['node', 'scripts/check-application-project-report.mjs', str(report_path)] +
                          [inputs[key] for key in ['image','jarSha256','rootCommit','overlayCommit','pluginCommit']], check=True)
           PYFINAL
       - name: Sanitize artifact text even after diagnostic cleanup failure
