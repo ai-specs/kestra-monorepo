@@ -294,14 +294,20 @@ export const accessControlUiGateInputs=Object.freeze({
 })
 
 export function sanitizeUiEvidence(value,secrets=[]) {
-  if(typeof value==='string') {
-    let text=value
-    for(const secret of secrets)if(typeof secret==='string'&&secret)text=text.replaceAll(secret,'[redacted]')
-    return text.replace(/eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+/g,'[redacted-jwt]').replace(/Bearer\s+[^\s,;]+/gi,'Bearer [redacted]').replace(/((?:[?&#]|%3[fF]|%26)(?:from|code|state|access_token|id_token|refresh_token|password|client_secret)(?:=|%3[dD]))[^\s&#"'<>]*/gi,'$1[redacted]')
+  // Login repeatedly remembers the same password. Deduplicate once per tree,
+  // rather than rescanning an ever-growing list for every evidence string.
+  const uniqueSecrets=[...new Set(secrets.filter(secret=>typeof secret==='string'&&secret))]
+  const visit=value=>{
+    if(typeof value==='string') {
+      let text=value
+      for(const secret of uniqueSecrets)text=text.replaceAll(secret,'[redacted]')
+      return text.replace(/eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+/g,'[redacted-jwt]').replace(/Bearer\s+[^\s,;]+/gi,'Bearer [redacted]').replace(/((?:[?&#]|%3[fF]|%26)(?:from|code|state|access_token|id_token|refresh_token|password|client_secret)(?:=|%3[dD]))[^\s&#"'<>]*/gi,'$1[redacted]')
+    }
+    if(Array.isArray(value))return value.map(visit)
+    if(value&&typeof value==='object')return Object.fromEntries(Object.entries(value).map(([name,item])=>[name,/^(?:interaction|nonce|csrf|code_verifier|password|temporaryPassword|clientSecret|client_secret|access_token|id_token|refresh_token|authorization)$/i.test(name)?'[redacted]':visit(item)]))
+    return value
   }
-  if(Array.isArray(value))return value.map(item=>sanitizeUiEvidence(item,secrets))
-  if(value&&typeof value==='object')return Object.fromEntries(Object.entries(value).map(([name,item])=>[name,/^(?:interaction|nonce|csrf|code_verifier|password|temporaryPassword|clientSecret|client_secret|access_token|id_token|refresh_token|authorization)$/i.test(name)?'[redacted]':sanitizeUiEvidence(item,secrets)]))
-  return value
+  return visit(value)
 }
 
 export function permissionInput(permission) {
@@ -423,12 +429,12 @@ export async function runAccessControlV3Ui(page,base,fixture,record) {
   async function run(name,operation) {
     currentCase=name
     const combination=name.match(/^ui-theme-language-(light|dark-2|dark|system)-(.+)$/)
-    const row={name,case:combination?'theme-language':name,...(combination?{theme:combination[1],locale:combination[2]}:{}),passed:false,status:'running',evidence:{}}
+    const row={name,case:combination?'theme-language':name,...(combination?{theme:combination[1],locale:combination[2]}:{}),startedAt:new Date().toISOString(),passed:false,status:'running',evidence:{}}
     const managementOffset=fixture.targetRuntime?.management?.requests?.length??0
     report.rows.push(row);await persist()
     try {await page.setViewport({width:1280,height:900});row.source=await source();Object.assign(row.evidence,await operation());if(combination)Object.assign(row,{computedStyles:row.evidence.computedStyles,translation:row.evidence.translation,keyboardFocus:row.evidence.keyboardFocus,noHorizontalOverflow:row.evidence.noHorizontalOverflow});row.passed=true;row.status='passed'}
     catch(error){row.status=error.code==='acceptance_contract_missing'?'not_run':'failed';row.error=String(error.message);if(error.nativeStyleSettlement)row.evidence.nativeStyleSettlement=error.nativeStyleSettlement;report.failure??={case:name,message:row.error};if(typeof page.captureFailure==='function'){row.failureArtifact=await page.captureFailure(error,name);if(error.artifactCaptureError)row.artifactCaptureError=error.artifactCaptureError}if(['preconditions','production-ui-login-canonical-path','menu-access-management','ui-initial-english-preference'].includes(name))throw error}
-    finally{if(!row.passed)try{await clearTransientUi();row.failureCleanup={passed:true}}catch(error){row.failureCleanup={passed:false,error:String(error.message)};row.status='failed'}row.requests=report.requests.filter(request=>request.case===name);row.managementRequests=fixture.targetRuntime?.management?.requests?.slice(managementOffset)??[];await persist()}
+    finally{if(!row.passed)try{await clearTransientUi();row.failureCleanup={passed:true}}catch(error){row.failureCleanup={passed:false,error:String(error.message)};row.status='failed'}row.finishedAt=new Date().toISOString();row.requests=report.requests.filter(request=>request.case===name);row.managementRequests=fixture.targetRuntime?.management?.requests?.slice(managementOffset)??[];await persist()}
   }
   async function note(value) {Object.assign(report.rows.at(-1).evidence,value);await persist()}
   function requireMethods(object,names,label) {for(const name of names)if(typeof object?.[name]!=='function')throw Object.assign(new Error(label+'.'+name+' real capability required'),{code:'acceptance_contract_missing'})}

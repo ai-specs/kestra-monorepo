@@ -24,6 +24,25 @@ async function setup({sensitive=true,imageError=false,clipboard=false,missingPer
 test('focused keyboard delegates Tab/ShiftTab/Escape to the native Page API, not fabricated platform keycodes',async()=>{
   const {state,adapter}=await setup();try{for(const key of ['Tab','Shift+Tab','Escape'])await adapter.pressFocused(key);assert.deepEqual(state.keys,['Tab','Shift+Tab','Escape']);assert(!state.commands.some(x=>x.method==='Input.dispatchKeyEvent'))}finally{await adapter.dispose()}
 })
+test('diagnostic reads share immutable events while retaining independent complete history arrays',async()=>{
+  const {state,adapter}=await setup()
+  try {
+    state.events.push({method:'Network.requestWillBeSent',params:{requestId:'old-request',frameId:'frame',loaderId:'loader',type:'Fetch',request:{url:'http://localhost:18128/api/test',method:'GET'},initiator:{stack:{callFrames:[{url:'http://localhost:18128/ui/assets/app.js',functionName:'load',lineNumber:10}]}}}})
+    const first=await adapter.diagnostics(),event=first.events.find(item=>item.requestId==='old-request')
+    assert(event);assert(Object.isFrozen(event));assert(Object.isFrozen(event.initiatorStack[0]))
+    assert.throws(()=>{event.initiatorStack[0].line=99},TypeError)
+    first.events.pop()
+    const second=await adapter.diagnostics()
+    assert.equal(second.events.find(item=>item.requestId==='old-request'),event)
+    const count=second.events.length
+    state.events.push({method:'Network.loadingFailed',params:{requestId:'old-request',errorText:'net::ERR_FAILED',type:'Fetch'}})
+    const third=await adapter.diagnostics()
+    assert.equal(second.events.length,count)
+    assert.equal(third.events.length,count+1)
+    assert.equal(third.events.at(-1).documentId,event.documentId)
+    assert.equal(third.events.at(-1).kind,'request-failed')
+  }finally{await adapter.dispose()}
+})
 test('measured header pointer delegates only viewport x/y to native mouse and rejects metadata or outside coordinates',async()=>{
  const {state,adapter}=await setup({sensitive:false});try{await adapter.clickAt({x:737,y:27});assert.deepEqual(state.clicks,[{x:737,y:27}]);await assert.rejects(adapter.clickAt({x:737,y:27,rect:{}}),/finite CSS viewport point/);await assert.rejects(adapter.clickAt({x:800,y:27}),/outside the viewport/);assert.equal(state.clicks.length,1)}finally{await adapter.dispose()}
 })

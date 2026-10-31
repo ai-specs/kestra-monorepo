@@ -79,7 +79,6 @@ jobs:
           set -euo pipefail
           mkdir -p .work/ci
           node --test scripts/tests/*.test.mjs > .work/ci/root-observer-adapter-tests.log 2>&1
-      - uses: gradle/actions/setup-gradle@v4
       - name: Authenticate private published images
         env:
           READ_TOKEN: ${{ secrets.GITHUB_TOKEN }}

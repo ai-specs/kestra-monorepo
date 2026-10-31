@@ -42,6 +42,15 @@ const PROTOCOL_EVENTS = Object.freeze([
 ])
 const assert = (value,message) => {if (!value) throw new Error(message)}
 const copy = value => JSON.parse(JSON.stringify(value))
+// Protocol events are append-only evidence. Freeze each event once, including
+// nested stacks, rather than JSON-copying the complete history at every read.
+function freezeEvidence(value) {
+  if(value&&typeof value==='object'&&!Object.isFrozen(value)) {
+    for(const child of Object.values(value))freezeEvidence(child)
+    Object.freeze(value)
+  }
+  return value
+}
 
 function redactor(initialSecrets = []) {
   const secrets = new Set(initialSecrets.filter(value => typeof value === 'string' && value.length))
@@ -90,7 +99,7 @@ function diagnosticsCollector(redact) {
     value.url = redact.text(value.url)
     value.message = redact.text(value.message)
     if (value.scriptUrl) value.scriptUrl = redact.text(value.scriptUrl)
-    events.push(value)
+    events.push(freezeEvidence(value))
     return value
   }
   function issue(message,detail = {}) {integrity.push(add('diagnostic-integrity-error',current,{message,...detail}))}
@@ -185,8 +194,8 @@ function diagnosticsCollector(redact) {
     },
     initialize(frame) {if (frame) consume('Page.frameNavigated',{frame})},
     snapshot() {
-      if (integrity.length) throw Object.assign(new Error('diagnostic collection incomplete: ' + integrity.map(event => event.message).join('; ')),{diagnosticEvents:copy(events)})
-      return {events:copy(events),documents:[...documents.values()].map(document => ({...document,url:redact.text(document.url)})),topFrame}
+      if (integrity.length) throw Object.assign(new Error('diagnostic collection incomplete: ' + integrity.map(event => event.message).join('; ')),{diagnosticEvents:events.slice()})
+      return {events:events.slice(),documents:[...documents.values()].map(document => ({...document,url:redact.text(document.url)})),topFrame}
     },
     unsafeSnapshot:() => ({events:copy(events),integrity:copy(integrity)}),
   }
