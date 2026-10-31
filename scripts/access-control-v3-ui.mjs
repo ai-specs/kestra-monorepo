@@ -3,10 +3,11 @@ import {randomBytes,createHash} from 'node:crypto'
 import {ProductionOAuthClient} from './production-oauth-client.mjs'
 import {ApplicationGroupManagement} from './application-project-fixture.mjs'
 import {classifyAccessControlDiagnostics} from './access-control-browser-diagnostics.mjs'
+import {rootUiPlan,transferredUiPlan} from './access-control-ci-ownership.mjs'
 
 // All published locales remain required for static translations and host SDK audit.
 export const accessControlSupportedLocales=Object.freeze(['en','de','es','fr','hi','it','ja','ko','pl','pt','pt_BR','ru','zh_CN'])
-// Maintainer ruling 2026-10-30: full business browser coverage in English/Chinese.
+// Locale/theme constants describe public inputs, not a root visual matrix.
 export const accessControlLocales=Object.freeze(['en','zh_CN'])
 export const accessControlThemes=Object.freeze(['light','dark','dark-2','system'])
 export const accessControlWidths=Object.freeze([1280,768,390])
@@ -259,7 +260,7 @@ export const accessControlCoverage=Object.freeze([
   {old:[],next:['ui-account-temporary-password-lifecycle','ui-read-write-separation','ui-secret-one-time-rotation','ui-secret-maintenance'],requirements:['N4','N5','N11','N19','T5','T7','T8-UI-subset','T9-UI-subset']},
 ])
 
-export const accessControlCaseIds=Object.freeze([
+export const accessControlAllUiCaseIds=Object.freeze([
   'preconditions','production-ui-login-canonical-path','menu-access-management','ui-initial-english-preference',
   'ui-frozen-baseline-key-equality',
   'ui-four-tabs-cards-counts','ui-group-create-edit-delete','ui-scope-readonly-edit','ui-scope-create-delete-reference-guard',
@@ -278,6 +279,9 @@ export const accessControlCaseIds=Object.freeze([
   'ui-theme-colors-are-distinct','console-page-request-errors-have-explicit-sources',
 ])
 
+export const accessControlCaseIds=rootUiPlan(accessControlAllUiCaseIds)
+export const accessControlTransferredUiCases=Object.freeze(transferredUiPlan(accessControlAllUiCaseIds))
+
 export const accessControlUiGateInputs=Object.freeze({
   T1:['ui-frozen-baseline-key-equality','ui-four-tabs-cards-counts','ui-group-create-edit-delete','ui-card-badges-and-built-in-guard','ui-card-search-pagination',...accessControlAdditionalCases.filter(item=>item.gate==='T1').map(item=>item.id)],
   T2:['ui-scope-readonly-edit','ui-scope-create-delete-reference-guard','ui-scope-key-name-conflict',...accessControlAdditionalCases.filter(item=>item.gate==='T2').map(item=>item.id)],
@@ -289,7 +293,7 @@ export const accessControlUiGateInputs=Object.freeze({
   T8:['ui-secret-maintenance'],
   T9:['ui-read-write-separation','ui-403-no-side-effects','ui-zero-grant-logout-switch'],
   T10:['ui-four-drawers-focus-discard','ui-four-drawers-draft-discard','ui-409-412-no-side-effects','ui-loading-transition','ui-403-no-side-effects','ui-503-retry-no-side-effects',...accessControlAdditionalCases.filter(item=>item.gate==='T10').map(item=>item.id)],
-  T11:[...accessControlCaseIds.filter(name=>name.startsWith('ui-theme-language-')),'ui-native-filter-popup-geometry','ui-theme-colors-are-distinct','console-page-request-errors-have-explicit-sources',...accessControlAdditionalCases.filter(item=>item.gate==='T11').map(item=>item.id)],
+  T11:[...accessControlAllUiCaseIds.filter(name=>name.startsWith('ui-theme-language-')),'ui-native-filter-popup-geometry','ui-theme-colors-are-distinct','console-page-request-errors-have-explicit-sources',...accessControlAdditionalCases.filter(item=>item.gate==='T11').map(item=>item.id)],
   T12:[],
 })
 
@@ -407,7 +411,7 @@ export async function completeFirstPasswordChange(page,account,contract,onDenial
 }
 
 export async function runAccessControlV3Ui(page,base,fixture,record) {
-  const report={version:3,completed:false,planned:[...accessControlCaseIds],coverage:accessControlCoverage,rows:[],requests:[],diagnostics:[],failure:null}
+  const report={version:3,profile:'integration',completed:false,planned:[...accessControlCaseIds],transferredChecks:accessControlTransferredUiCases,coverage:accessControlCoverage,rows:[],requests:[],diagnostics:[],failure:null}
   report.ui=report.rows
   const secrets=[fixture?.admin?.password,fixture?.zeroAccount?.password]
   const persist=()=>record(sanitizeUiEvidence(structuredClone(report),secrets))
@@ -418,7 +422,7 @@ export async function runAccessControlV3Ui(page,base,fixture,record) {
   const external=group+'/applications/'+encoded(fixture.clientId)
   const permissionApi='/'+app+'/permissions'
   const externalApi='/'+external+'/permissions'
-  const snapshots=new Map(),restores=[]
+  const restores=[]
   let currentCase='preconditions'
   async function source() {
     const state=await page.evaluate(()=>({path:location.pathname,url:location.origin+location.pathname,query:location.search,timeOrigin:performance.timeOrigin}))
@@ -427,6 +431,12 @@ export async function runAccessControlV3Ui(page,base,fixture,record) {
     return {...state,documentId:document.id}
   }
   async function run(name,operation) {
+    // A transferred case is not executed, reported passed, or counted skipped
+    // here. Final gates separately require its owner's published browser report.
+    if(!accessControlCaseIds.includes(name)) {
+      assert(accessControlTransferredUiCases.some(row=>row.id===name),'Unknown UI case cannot silently disappear from the integration plan: '+name)
+      return
+    }
     currentCase=name
     const combination=name.match(/^ui-theme-language-(light|dark-2|dark|system)-(.+)$/)
     const row={name,case:combination?'theme-language':name,...(combination?{theme:combination[1],locale:combination[2]}:{}),startedAt:new Date().toISOString(),passed:false,status:'running',evidence:{}}
@@ -701,7 +711,6 @@ export async function runAccessControlV3Ui(page,base,fixture,record) {
       }else throw new Error('unsupported native filter action: '+step.action)
     }
   }
-  async function styles(selectors,shadow=true) {await waitForNativeStyleSettlement(page,selectors,{shadow});return page.evaluate(({selectors,shadow})=>{const root=shadow?document.querySelector('[data-test="extension-container"]').shadowRoot:document;return Object.fromEntries(Object.entries(selectors).map(([name,selector])=>{const node=root.querySelector(selector);if(!node||!node.getClientRects().length)throw new Error('visible style reference missing: '+name);const style=getComputedStyle(node);return [name,{fontFamily:style.fontFamily,fontSize:style.fontSize,fontWeight:style.fontWeight,color:style.color,background:style.backgroundColor,padding:style.padding,radius:style.borderRadius,borderBottomStyle:style.borderBottomStyle,borderBottomWidth:style.borderBottomWidth}]}))},{selectors,shadow})}
   async function drawer(kind,trigger) {
     if(await page.evaluate(()=>{const root=document.querySelector('[data-test="extension-container"]')?.shadowRoot;const modal=[...root?.querySelectorAll('[aria-modal="true"]')??[]].some(node=>node.getClientRects().length&&getComputedStyle(node).visibility!=='hidden');return !modal&&Boolean(document.querySelector('.pwa-install-prompt')?.getClientRects().length)})) {
       await page.click('.pwa-install-actions button:last-child')
@@ -1147,133 +1156,9 @@ export async function runAccessControlV3Ui(page,base,fixture,record) {
     })
   }
   async function runAdditionalInteractionCases() {
-    for(const plan of drawerPlans()) {
-      await run('ui-drawer-'+plan.kind+'-backdrop',async()=>{
-        requireMethods(page,['clickAt'],'shared adapter')
-        await page.setViewport({width:1280,height:900});const before=await effectsBefore(),draft='backdrop-'+randomBytes(5).toString('hex')
-        await dirtyDrawer(plan,draft);const entered=await drawerDraft(plan),point=await clickBackdrop(plan.kind)
-        await page.waitForFunction(discardConfirmationVisible)
-        await cancelConfirmation('discard-confirm');assert.equal(await drawerDraft(plan),entered,'backdrop cancellation lost draft')
-        await clickBackdrop(plan.kind);await confirmDiscard()
-        await page.waitForFunction(kind=>!document.querySelector('[data-test="extension-container"]').shadowRoot.querySelector('[data-test="drawer-'+kind+'"]'),plan.kind)
-        await effectsUnchanged(before);return {kind:plan.kind,point,cancelRetainedDraft:true,confirmedDiscard:true}
-      })
-      await run('ui-drawer-'+plan.kind+'-maximize',async()=>{
-        await page.setViewport({width:1280,height:900})
-        await page.goto(base+fixture.references.kvPath);await page.waitForFunction(()=>Boolean(document.querySelector('[data-test="kv-add"]')?.getClientRects().length))
-        await page.click('[data-test="kv-add"]');await waitForNativeStyleSettlement(page,{drawer:'.kel-drawer.open'},{shadow:false})
-        await page.focus('.kel-drawer.open .kel-drawer__header button.is-link');await page.press('.kel-drawer.open .kel-drawer__header button.is-link','Enter')
-        await page.waitForFunction(()=>document.querySelector('.kel-drawer.open')?.classList.contains('full-screen'))
-        await waitForNativeStyleSettlement(page,{drawer:'.kel-drawer.open'},{shadow:false})
-        const nativeMaximized=await page.evaluate(()=>{const n=document.querySelector('.kel-drawer.open'),b=n.getBoundingClientRect();return {width:b.width,left:b.left,right:b.right,viewport:innerWidth}})
-        await clickDrawerHeader({shadow:false});await page.waitForFunction(()=>!document.querySelector('.kel-drawer.open'))
-        await open(plan.path);await drawer(plan.kind,plan.trigger)
-        const geometry=()=>page.evaluate(kind=>{const box=document.querySelector('[data-test="extension-container"]').shadowRoot.querySelector('[data-test="drawer-'+kind+'"]').getBoundingClientRect();return {width:box.width,left:box.left,right:box.right,viewport:innerWidth}},plan.kind)
-        const initial=await geometry();assert(initial.width>0&&initial.width<=initial.viewport)
-        await toggleDrawerMaximize();await page.waitForFunction(({kind,width})=>{const n=document.querySelector('[data-test="extension-container"]').shadowRoot.querySelector('[data-test="drawer-'+kind+'"]');return n.classList.contains('full-screen')&&Math.abs(n.getBoundingClientRect().width-width)<=2},{kind:plan.kind,width:nativeMaximized.width})
-        const maximized=await geometry();await toggleDrawerMaximize()
-        await page.waitForFunction(({kind,width})=>Math.abs(document.querySelector('[data-test="extension-container"]').shadowRoot.querySelector('[data-test="drawer-'+kind+'"]').getBoundingClientRect().width-width)<=2,{kind:plan.kind,width:initial.width})
-        const restored=await geometry();await closeDrawer(plan.kind);return {kind:plan.kind,initial,maximized,restored,nativeMaximized,source:'actual-native-drawer-geometry'}
-      })
-      await run('ui-drawer-'+plan.kind+'-history-discard',async()=>{
-        await login()
-        if(plan.kind==='group'){await open(group);await page.click('.rbac-detail-title button')}
-        else if(plan.kind==='user') {
-          await open('application-groups')
-          const tabs=await page.evaluate(()=>[...document.querySelector('[data-test="extension-container"]').shadowRoot.querySelectorAll('[role="tab"]')].map(node=>node.textContent.trim()));assert.equal(tabs.length,2)
-          await page.click('[role="tab"]:text-is('+JSON.stringify(tabs[1])+')')
-        }else {
-          await open(group);await page.click('.rbac-statistics button:nth-child('+(plan.kind==='subject'?3:2)+')')
-          if(plan.kind==='permission') {
-            await page.waitForFunction(()=>Boolean(document.querySelector('[data-test="extension-container"]')?.shadowRoot?.querySelector('[data-test="application-sidebar"]')))
-            await page.fill('[data-test="application-sidebar"] input',fixture.currentApplicationClientId);await page.click(selector('application-item','data-client-key',fixture.currentApplicationClientId))
-          }
-        }
-        await page.waitForFunction(path=>location.pathname===path&&document.querySelector('[data-test="extension-container"]')?.shadowRoot?.querySelector('main')?.getAttribute('aria-busy')==='false','/ui/main/extensions/rbac/'+plan.path)
-        const before=await effectsBefore(),current=await source(),draft='history-'+randomBytes(5).toString('hex')
-        await dirtyDrawer(plan,draft,{navigate:false});const entered=await drawerDraft(plan),mac=await page.evaluate(()=>/Mac/.test(navigator.platform))
-        await page.history('back')
-        await page.waitForFunction(()=>Boolean(document.querySelector('[data-test="extension-container"]')?.shadowRoot?.querySelector('[data-test="discard-confirm"]')))
-        await cancelConfirmation('discard-confirm');assert.equal((await source()).path,current.path);assert.equal(await drawerDraft(plan),entered)
-        await page.history('back');await page.waitForFunction(()=>Boolean(document.querySelector('[data-test="extension-container"]')?.shadowRoot?.querySelector('[data-test="discard-confirm"]')))
-        await confirmDiscard();await page.waitForFunction(path=>location.pathname!==path,current.path)
-        const destination=await source();await note({origin:current,destination});await effectsUnchanged(before)
-        return {kind:plan.kind,cancelRetainedDraft:true,realBrowserHistory:true,discardNavigated:true}
-      })
-    }
-    for(const kind of ['group','scope','application'])await run('ui-inline-'+kind+'-tab-discard',async()=>{
-      await login()
-      const path=kind==='group'?group:kind==='scope'?group+'/scopes/'+fixture.scope:app,detail='[data-test="'+(kind==='group'?'group':kind==='scope'?'scope':'application')+'-detail"]'
-      await open(path);await page.click(kind==='group'?'[data-test="group-edit"]':detail+' > button')
-      const input=detail+' textarea',value='inline-tab-'+randomBytes(5).toString('hex'),before=await effectsBefore()
-      await page.fill(input,value)
-      const tabs=await page.evaluate(()=>[...document.querySelector('[data-test="extension-container"]').shadowRoot.querySelectorAll('[role="tab"]')].map(node=>({text:node.textContent.trim(),selected:node.getAttribute('aria-selected')==='true'})))
-      const target=tabs.find(tab=>!tab.selected);assert(target)
-      await page.click('[role="tab"]:text-is('+JSON.stringify(target.text)+')')
-      await page.waitForFunction(discardConfirmationVisible)
-      await cancelConfirmation('discard-confirm');assert.equal(await page.evaluate(input=>document.querySelector('[data-test="extension-container"]').shadowRoot.querySelector(input)?.value,input),value)
-      assert.equal((await source()).path,'/ui/main/extensions/rbac/'+path,'cancel changed the host route')
-      const selected=await page.evaluate(()=>document.querySelector('[data-test="extension-container"]').shadowRoot.querySelector('[role="tab"][aria-selected="true"]')?.textContent.trim())
-      assert.equal(selected,tabs.find(tab=>tab.selected)?.text,'cancel changed the native controlled active tab')
-      await page.click('[role="tab"]:text-is('+JSON.stringify(target.text)+')');await confirmDiscard()
-      await page.waitForFunction(path=>location.pathname!==path,'/ui/main/extensions/rbac/'+path)
-      await effectsUnchanged(before);return {kind,targetTab:target.text,draftDiscarded:true}
-    })
-    await run('ui-inline-sidebar-draft-discard',async()=>{
-      const scopes=await all(groupApi+'/scopes');assert(scopes.length>1);const current=scopes[0],other=scopes[1]
-      const original=await read(groupApi+'/scopes/'+current.key);await note({beforeScope:original})
-      await open(group+'/scopes/'+current.key);await page.click('[data-test="scope-detail"] > button')
-      const value='sidebar-'+randomBytes(5).toString('hex'),before=await effectsBefore();await page.fill('[data-test="scope-detail"] textarea',value)
-      await page.fill('[data-test="scope-sidebar"] input',other.key);await page.click(selector('scope-item','data-scope-key',other.key))
-      await page.waitForFunction(discardConfirmationVisible)
-      await cancelConfirmation('discard-confirm');assert.equal(await page.evaluate(()=>document.querySelector('[data-test="extension-container"]').shadowRoot.querySelector('[data-test="scope-detail"] textarea')?.value),value)
-      await page.click(selector('scope-item','data-scope-key',other.key));await confirmDiscard()
-      await page.waitForFunction(key=>location.pathname.endsWith('/scopes/'+key),other.key)
-      equal(await read(groupApi+'/scopes/'+current.key),original);await effectsUnchanged(before);return {from:current.key,to:other.key,cancelPreservedDraft:true}
-    })
-    await run('ui-saving-drawer-interaction-lock',async()=>{
-      const barrier=fixture.targetRuntime?.uiWriteBarrier;requireMethods(barrier,['acquire','waitForBlocked','release'],'targetRuntime.uiWriteBarrier');requireMethods(page,['clickAt'],'shared adapter')
-      await login();await page.setViewport({width:1280,height:900})
-      const permission=(await all(permissionApi)).find(item=>item.scopeKeys.includes(fixture.scope)),path=permissionApi+'/'+permission.key,original=permissionInput(permission)
-      const restore=async()=>{const current=(await privateList(permissionApi)).find(item=>item.key===permission.key);await privateRequest(path,'PUT',original,current.revision)}
-      restores.push({id:'cleanup-saving-interaction-permission',run:restore})
-      await editPermission(permission.key);const draft='Saving interaction '+randomBytes(5).toString('hex');await page.fill('[name="permission-description"]',draft)
-      await page.waitForFunction(()=>{const button=document.querySelector('[data-test="extension-container"]')?.shadowRoot?.querySelector('[data-test="drawer-save"]');return button?.getClientRects().length&&!button.disabled})
-      const point=await backdropPoint('permission')
-      const origin=await source(),events=new Set((await page.diagnostics()).events.map(event=>event.id)),before=await effectsBefore()
-      const lease=await barrier.acquire({path:api+path,method:'PUT'});assert(lease?.operationId)
-      let blocked,locked,released,interactionFailure,responseFailure
-      try {
-        try {
-          await page.click('[data-test="drawer-save"]')
-          blocked=await barrier.waitForBlocked({operationId:lease.operationId})
-          await page.pressFocused('Escape');await page.clickAt(point)
-          locked=await page.evaluate(()=>{const root=document.querySelector('[data-test="extension-container"]').shadowRoot,close=root.querySelector('.rbac-editor-drawer .kel-drawer__close-btn');return {path:location.pathname,timeOrigin:performance.timeOrigin,busy:root.querySelector('[data-test="drawer-permission"]')?.getAttribute('aria-busy'),closeDisabled:!close||close.disabled===true,saveDisabled:root.querySelector('[data-test="drawer-save"]')?.disabled,fieldsetDisabled:root.querySelector('[data-test="drawer-permission"] fieldset')?.disabled,discardOpen:[...root.querySelectorAll('[data-test="discard-confirm"]')].some(n=>n.getClientRects().length&&getComputedStyle(n).visibility!=='hidden')}})
-        }catch(error){interactionFailure=error}
-        finally{released=await barrier.release({operationId:lease.operationId})}
-        await note({barrier:lease,blocked,locked,released,backdropPoint:point})
-        try{await nativeResponse(path,'PUT',[200],events,origin)}catch(error){responseFailure=error}
-        if(interactionFailure)throw interactionFailure
-        assert.equal(released?.released,true);assert.equal(released.expired,false,'owned write barrier exceeded its production-timeout-safe holding window')
-        if(responseFailure)throw responseFailure
-        assert.equal(blocked?.blocked,true);assert.equal(blocked.operationId,lease.operationId)
-        assert.deepEqual(locked,{path:origin.path,timeOrigin:origin.timeOrigin,busy:'true',closeDisabled:true,saveDisabled:true,fieldsetDisabled:true,discardOpen:false})
-        assert.equal((await page.diagnostics()).events.filter(event=>!events.has(event.id)&&event.kind==='request'&&event.url===base+api+path&&event.method==='PUT').length,1)
-        const saved=await read(path);await note({savedPermission:permissionInput(saved)});assert.equal(saved.description,draft);assert(saved.revision>permission.revision)
-        await effectsUnchanged(before);return {realWriteBlocked:true,escapeAndBackdropRejected:true,exactlyOneMutation:true,savedRevision:saved.revision}
-      }finally{if(!released)await barrier.release({operationId:lease.operationId});await restore()}
-    })
-    for(const mode of ['cancel','failure','focus'])await run(mode==='focus'?'ui-delete-focus-fallback':'ui-delete-'+mode+'-no-side-effects',()=>ownedGroup(async({path,route})=>{
+    for(const mode of ['cancel','failure'])await run('ui-delete-'+mode+'-no-side-effects',()=>ownedGroup(async({path,route})=>{
       const scope=await addScope(path,'delete-target');await login();const before=await effectsBefore()
       await open(route+'/scopes/'+scope.key)
-      const focusReference='__rbacDeleteFocus'+randomBytes(12).toString('hex')
-      if(mode==='focus')assert(await page.evaluate(key=>{
-        const root=document.querySelector('[data-test="extension-container"]').shadowRoot
-        const trigger=root.querySelector('[data-test="scope-delete"]'),fallback=root.querySelector('[data-focus-fallback]')??root.querySelector('[data-test="access-control-root"]')
-        if(!trigger?.isConnected||!fallback?.isConnected||trigger===fallback)return false
-        window[key]={trigger,fallback,root,timeOrigin:performance.timeOrigin}
-        return true
-      },focusReference),'delete focus test requires the real connected trigger and an explicit distinct fallback')
       await page.click('[data-test="scope-delete"]')
       await page.waitForFunction(()=>Boolean(document.querySelector('[data-test="extension-container"]').shadowRoot.querySelector('[data-test="delete-confirm"]')))
       assert(await page.evaluate(()=>{const root=document.querySelector('[data-test="extension-container"]').shadowRoot.querySelector('[data-test="delete-confirm"]'),button=root.querySelector('.kel-button--danger');return Boolean(button?.textContent.trim())&&!button.disabled&&root.textContent.includes('delete-target')}),'delete confirmation lacks native destructive action or exact target')
@@ -1283,26 +1168,6 @@ export async function runAccessControlV3Ui(page,base,fixture,record) {
         const winner=await privateRequest(path+'/scopes/'+scope.key);await note({concurrentWinner:winner})
         await clickSave('[data-test="delete-confirm"] .kel-button--danger',path+'/scopes/'+scope.key,'DELETE',[412])
         equal(await read(path+'/scopes/'+scope.key),winner);assert(await page.evaluate(()=>Boolean(document.querySelector('[data-test="extension-container"]').shadowRoot.querySelector('[data-test="delete-confirm"] [data-test="request-error"]'))));await cancelConfirmation()
-      }else {
-        try {
-          await clickSave('[data-test="delete-confirm"] .kel-button--danger',path+'/scopes/'+scope.key,'DELETE',[200])
-          await page.waitForFunction(key=>{const saved=window[key];return Boolean(saved&&saved.timeOrigin===performance.timeOrigin&&!saved.trigger.isConnected)},focusReference)
-          await page.waitForFunction(key=>{
-            const saved=window[key]
-            const confirmationVisible=[...saved.root.querySelectorAll('[data-test="delete-confirm"]')].some(node=>node.getClientRects().length&&getComputedStyle(node).visibility!=='hidden')
-            const fallback=saved.root.querySelector('[data-test="scope-sidebar"] [data-focus-fallback]')??saved.root.querySelector('[data-focus-fallback]')??saved.root.querySelector('[data-test="access-control-root"]')
-            return Boolean(saved&&saved.timeOrigin===performance.timeOrigin&&!saved.trigger.isConnected&&fallback?.isConnected&&!confirmationVisible&&saved.root.activeElement===fallback)
-          },focusReference)
-        }finally {
-          await note({deleteFocus:await page.evaluate(key=>{
-            const saved=window[key]
-            if(!saved)return {referenceMissing:true}
-            const state={sameDocument:saved.timeOrigin===performance.timeOrigin,originalTriggerDisconnected:!saved.trigger.isConnected,fallbackConnected:saved.fallback.isConnected,focusOnOriginalFallback:saved.root.activeElement===saved.fallback,focusOnCurrentFallback:saved.root.activeElement===(saved.root.querySelector('[data-test="scope-sidebar"] [data-focus-fallback]')??saved.root.querySelector('[data-focus-fallback]')??saved.root.querySelector('[data-test="access-control-root"]')),confirmationVisible:[...saved.root.querySelectorAll('[data-test="delete-confirm"]')].some(node=>node.getClientRects().length&&getComputedStyle(node).visibility!=='hidden'),triggerDataTest:saved.trigger.getAttribute('data-test'),fallbackDataTest:saved.fallback.getAttribute('data-test')}
-            delete window[key]
-            return state
-          },focusReference)})
-        }
-        assert(!(await all(path+'/scopes')).length)
       }
       await effectsUnchanged(before);return {mode,target:scope.key,verifiedPersistence:true}
     }))
@@ -1379,23 +1244,6 @@ export async function runAccessControlV3Ui(page,base,fixture,record) {
         return {clientId:controls.clientId,realResponseDropped:true,exactlyOneServerRotation:true,noAutomaticReissue:true,noPlaintextReplay:true,credentialRevision:afterCredentials.credentialRevision}
       }finally{await page.clearDroppedResponse({operationId:operation.operationId})}
     }
-    await run('ui-secret-copy-failure-retry',async()=>{
-      requireMethods(page,['setClipboardPermission','readClipboard'],'shared adapter')
-      return withRotatedSecret(async({secret})=>{
-        let previous
-        try {
-          await page.setClipboardPermission('granted');previous=await page.readClipboard();assert.equal(typeof previous,'string');page.redactSecrets([previous]);secrets.push(previous)
-          await page.setClipboardPermission('denied');await page.click('[data-test="credential-once"] .kel-button:not(.kel-button--primary)')
-          await page.waitForFunction(()=>document.querySelector('[data-test="extension-container"]')?.shadowRoot?.querySelector('[data-test="credential-once"] .error[role="alert"]')?.textContent.trim()==='Copy failed. Retry before closing this dialog.')
-          assert((await page.evaluate(()=>document.querySelector('[data-test="extension-container"]').shadowRoot.querySelector('[data-test="credential-once"] .rbac-one-time-value').textContent))===secret,'copy failure changed the in-memory one-time value')
-          await page.setClipboardPermission('granted');await page.click('[data-test="credential-once"] .kel-button:not(.kel-button--primary)')
-          await page.waitForFunction(()=>document.querySelector('[data-test="extension-container"]')?.shadowRoot?.querySelector('[data-test="credential-once"] [role="status"]')?.textContent.trim()==='Copied')
-          assert((await page.readClipboard())===secret,'native copy success status did not match actual clipboard value')
-          assert(!await page.evaluate(()=>Boolean(document.querySelector('[data-test="extension-container"]').shadowRoot.querySelector('[data-test="credential-once"] .error[role="alert"]'))))
-          return {nativeClipboardFailure:true,nativeRetrySucceeded:true,clipboardValueVerifiedInMemory:true,plaintextNotReported:true}
-        }finally{await page.setClipboardPermission('granted');if(previous!==undefined)await page.evaluate(value=>navigator.clipboard.writeText(value),previous)}
-      })
-    })
     await run('ui-secret-unmount-clears-plaintext',()=>withRotatedSecret(async({secret,path})=>{
       const original=await source();await page.goto(base+'/ui/main/extensions/rbac/'+group)
       await page.waitForFunction(path=>location.pathname===path&&document.querySelector('[data-test="extension-container"]')?.shadowRoot?.querySelector('main')?.getAttribute('aria-busy')==='false','/ui/main/extensions/rbac/'+group)
@@ -1407,127 +1255,6 @@ export async function runAccessControlV3Ui(page,base,fixture,record) {
       assert(!JSON.stringify(await read(path+'/credentials')).includes(secret));return {actualDocumentUnmount:true,noPlaintextReplay:true}
     }))
     await run('ui-secret-response-lost-once',lostResponseCase)
-  }
-  async function measurePanel(element,{shadow=true}={}) {
-    await waitForNativeStyleSettlement(page,{panel:element},{shadow})
-    const result=await page.evaluate(({element,shadow})=>{
-      const root=shadow?document.querySelector('[data-test="extension-container"]').shadowRoot:document,node=root.querySelector(element);if(!node||!node.getClientRects().length)throw new Error('visible native panel missing')
-      const rgb=color=>{const values=color.match(/[\d.]+/g)?.map(Number);if(!values||values.length<3)throw new Error('unsupported computed color');return values}
-      const background=node=>{for(let current=node;current;current=current.parentElement??current.getRootNode()?.host){const color=getComputedStyle(current).backgroundColor,values=rgb(color);if((values[3]??1)>0.99)return color}return getComputedStyle(document.documentElement).getPropertyValue('--ks-bg-base').trim()}
-      const luminance=color=>rgb(color).slice(0,3).map(value=>{value/=255;return value<=0.04045?value/12.92:((value+0.055)/1.055)**2.4}).reduce((sum,value,index)=>sum+value*[0.2126,0.7152,0.0722][index],0)
-      const style=getComputedStyle(node),box=node.getBoundingClientRect(),text=node.querySelector('h1,h2,label,p')??node,textStyle=getComputedStyle(text),bg=background(text),levels=[luminance(textStyle.color),luminance(bg)].sort((left,right)=>right-left)
-      const active=root.activeElement??document.activeElement,focus=active&&getComputedStyle(active),focusWrapper=active?.closest('.kel-input__wrapper.is-focus,.kel-select__wrapper.is-focused'),wrapperStyle=focusWrapper&&getComputedStyle(focusWrapper)
-      return {element,viewport:innerWidth,documentWidth:document.documentElement.scrollWidth,left:box.left,right:box.right,width:box.width,fontSize:parseFloat(textStyle.fontSize),color:textStyle.color,background:bg,panelBackground:style.backgroundColor,contrast:(levels[0]+0.05)/(levels[1]+0.05),focusVisible:Boolean(active?.matches(':focus-visible')&&(focus.outlineStyle!=='none'&&parseFloat(focus.outlineWidth)>0||focus.boxShadow!=='none'||wrapperStyle&&wrapperStyle.boxShadow!=='none')),focusInside:node.contains(active),text:text.textContent.trim()}
-    },{element,shadow})
-    await note({lastComputedPanel:result})
-    assert(result.documentWidth<=result.viewport+2&&result.left>=-2&&result.right<=result.viewport+2,'native panel overflows viewport')
-    assert(result.fontSize>=12&&result.contrast>=4.5,'localized text is too small or lacks contrast')
-    return result
-  }
-  async function fourDrawerThemeCase(theme,locale) {
-    await login();await page.setColorScheme('light');await preference(fixture.preferences.themes[theme]);await preference(fixture.preferences.locales[locale])
-    const expected=accessControlUiText[locale],observed=[]
-    for(const width of accessControlWidths) {
-    await page.setViewport({width,height:900})
-    assert.equal(fixture.references.kvPath,'/ui/main/kv','Published KV native drawer reference required')
-    await note({activeNativeReference:{theme,locale,width,phase:'navigate-kv'}})
-    await page.goto(base+fixture.references.kvPath)
-    await page.waitForFunction(path=>location.pathname===path&&document.querySelector('[data-test="kv-add"]')?.getClientRects().length&&!document.querySelector('[data-test="kv-add"]').disabled,fixture.references.kvPath)
-    await waitForNativeStyleSettlement(page,{trigger:'[data-test="kv-add"]'},{shadow:false})
-    await note({activeNativeReference:{theme,locale,width,phase:'click-create'}})
-    await page.click('[data-test="kv-add"]')
-    await page.waitForFunction(()=>[...document.querySelectorAll('.kel-drawer.open')].filter(n=>n.getClientRects().length&&getComputedStyle(n).visibility!=='hidden'&&n.getBoundingClientRect().width>0).length===1)
-    await waitForNativeStyleSettlement(page,{drawer:'.kel-drawer.open'},{shadow:false})
-    const nativeReference=await page.evaluate(nativeDrawerMeasurements,{shadow:false})
-    assert(nativeReference.icons.expand.length&&nativeReference.icons.close.length&&nativeReference.nativeForm,'Published reference must actually use native SVG/form')
-    await clickDrawerHeader({shadow:false});await page.waitForFunction(()=>![...document.querySelectorAll('.kel-drawer')].some(n=>n.getBoundingClientRect().width>0))
-    for(const plan of drawerPlans()) {
-      await note({activeDrawer:{theme,locale,width,kind:plan.kind}})
-      await page.setViewport({width,height:900});await open(plan.path);await drawer(plan.kind,plan.trigger)
-      const before=await effectsBefore()
-      try {
-        const nativeParity=await page.evaluate(nativeDrawerMeasurements,{shadow:true,kind:plan.kind})
-        for(const section of ['header','body','footer'])assert.deepEqual(nativeParity[section].style,nativeReference[section].style,'Native KV drawer '+section+' style differs')
-        assert.deepEqual(nativeParity.icons,nativeReference.icons,'Native drawer SVG actions differ from published KV reference')
-        assert(nativeParity.save.nativeIcon&&nativeReference.save.nativeIcon&&nativeParity.save.gap>0&&Math.abs(nativeParity.save.gap-nativeReference.save.gap)<=1,'Save must use the native icon prop and actual icon/label spacing')
-        assert.deepEqual(nativeParity.save.paths,nativeReference.save.paths,'Save SVG differs from native KV')
-        assert(nativeParity.nativeForm,'Editor did not reuse native horizontal form')
-        assert(Math.abs(nativeParity.footer.rect.bottom-nativeParity.drawer.bottom)<=2,'Native drawer footer does not stay at its bottom')
-        for(const action of ['expand','close'])for(const dimension of ['width','height'])assert(Math.abs(nativeParity.buttons[action][dimension]-nativeReference.buttons[action][dimension])<=2,'Native drawer action button dimensions differ')
-        await note({nativeDrawerReference:nativeReference,lastNativeDrawerParity:{kind:plan.kind,width,...nativeParity}})
-        const saveText=await page.evaluate(()=>document.querySelector('[data-test="extension-container"]').shadowRoot.querySelector('[data-test="drawer-save"]').textContent.trim());assert.equal(saveText,fixture.localeText[locale].save)
-        await page.focus('.rbac-editor-drawer .kel-drawer__close-btn');await page.pressFocused('Tab')
-        const native=await measurePanel(selector('drawer-'+plan.kind));assert(native.focusInside&&native.focusVisible,'native drawer keyboard focus is not visible/trapped')
-        if(plan.input) {
-          const requestStart=new Set((await page.diagnostics()).events.map(event=>event.id));await page.click('[data-test="drawer-save"]')
-          assert(await page.evaluate(kind=>Boolean(document.querySelector('[data-test="extension-container"]').shadowRoot.querySelector('[data-test="drawer-'+kind+'"] input:invalid')),plan.kind),'empty required fields did not expose native validation')
-          assert(!(await page.diagnostics()).events.some(event=>!requestStart.has(event.id)&&event.kind==='request'&&event.method==='POST'&&event.url.startsWith(base+api)),'native invalid form unexpectedly submitted')
-          await page.fill(plan.input,'localized-draft-'+randomBytes(3).toString('hex'))
-        }else {await page.click('[data-test="drawer-subject"] .kel-form-item:first-of-type .kel-select__wrapper');await page.click('[role="option"]:text-is('+JSON.stringify(fixture.zeroAccount.subject)+')')}
-        const draft=await drawerDraft(plan)
-        await clickDrawerHeader();await page.waitForFunction(discardConfirmationVisible)
-        const actualTitle=await page.evaluate(()=>{const node=document.querySelector('[data-test="extension-container"]').shadowRoot.querySelector('[data-test="discard-confirm"]');return node.querySelector('[role="heading"],h1,h2,.kel-dialog__title')?.textContent.trim()??node.textContent.trim()})
-        assert(actualTitle.includes(expected.discardTitle),'discard confirmation translation differs')
-        const confirmation=await measurePanel('[data-test="discard-confirm"]');await cancelConfirmation('discard-confirm');assert.equal(await drawerDraft(plan),draft)
-        await clickDrawerHeader();await confirmDiscard()
-        const collection=plan.kind==='group'?'/application-groups':plan.kind==='user'?'/users':plan.kind==='permission'?permissionApi:groupApi+'/scope-grants'
-        const beforeContent=await all(collection)
-        await drawer(plan.kind,plan.trigger)
-        if(plan.kind==='group'){await page.fill('[data-test="drawer-group"] .kel-form-item:first-of-type input',fixture.applicationGroupId);await page.fill('[data-test="drawer-group"] .kel-form-item:nth-of-type(2) input','Rejected duplicate group')}
-        else if(plan.kind==='user'){await page.fill('[data-test="drawer-user"] input[name="username"]',fixture.admin.username);await page.fill('[data-test="drawer-user"] input[name="name"]','Rejected duplicate user')}
-        else if(plan.kind==='permission'){await page.fill('[name="permission-key"]',beforeContent[0].key);await page.fill('[name="permission-name"]','Rejected duplicate permission')}
-        await clickSave('[data-test="drawer-save"]',collection,'POST',[plan.kind==='subject'?400:409])
-        const errorText=await page.evaluate(kind=>document.querySelector('[data-test="extension-container"]').shadowRoot.querySelector('[data-test="drawer-'+kind+'"] [data-test="request-error"]')?.textContent.trim(),plan.kind)
-        assert.equal(errorText,accessControlErrorText[locale][plan.kind==='subject'?'error':'conflict'],'drawer actual error translation differs')
-        equal(await all(collection),beforeContent,'rejected form changed persisted collection')
-        const errorPanel=await measurePanel(selector('drawer-'+plan.kind)+' [data-test="request-error"]')
-        await clearTransientUi();await effectsUnchanged(before)
-        observed.push({kind:plan.kind,width,native,nativeParity,nativeReference,confirmation,saveText,discardTitle:actualTitle,errorText,errorPanel,failedSaveUnchanged:true})
-        await note({theme,locale,drawers:observed})
-      }finally{await clearTransientUi()}
-    }
-    }
-    await page.reload();await page.waitForFunction(()=>document.querySelector('[data-test="extension-container"]')?.shadowRoot?.querySelector('main')?.getAttribute('aria-busy')==='false')
-    assert.equal((await state()).lang,locale.replaceAll('_','-'))
-    return {theme,locale,drawers:observed,refreshed:true,nativeGeometry:true}
-  }
-  async function authThemeCase(theme,locale) {
-    await login();await page.setColorScheme('light');await preference(fixture.preferences.themes[theme]);await preference(fixture.preferences.locales[locale])
-    const expected=accessControlUiText[locale],observed=[],before=await effectsBefore()
-    try {
-      const denied=await login(fixture.zeroAccount);assert.equal(denied.path,'/ui/access-denied')
-      for(const width of accessControlWidths) {
-        await page.setViewport({width,height:900});await page.waitForFunction(expected=>document.querySelector('#access-denied-title')?.textContent.trim()===expected.deniedTitle&&document.querySelector('[data-testid="return-to-login"]')?.textContent.trim()===expected.login,expected)
-        const text=await page.evaluate(()=>({title:document.querySelector('#access-denied-title').textContent.trim(),content:document.querySelector('.access-denied-page .description').textContent.trim(),login:document.querySelector('[data-testid="return-to-login"]').textContent.trim()}))
-        equal(text,{title:expected.deniedTitle,content:expected.deniedContent,login:expected.login},'denial page actual translation differs')
-        await page.focus('[data-testid="return-to-login"]');await page.press('[data-testid="return-to-login"]','Tab');await page.pressFocused('Shift+Tab')
-        const panel=await measurePanel('.access-denied-page main',{shadow:false});assert(panel.focusVisible,'denial logout keyboard focus is invisible')
-        observed.push({width,kind:'zero-authorization-denied',text,panel});await note({theme,locale,authPages:observed})
-      }
-      await page.reload();await page.waitForFunction(()=>Boolean(document.querySelector('#access-denied-title')));assert.equal(await page.evaluate(()=>document.querySelector('#access-denied-title').textContent.trim()),expected.deniedTitle)
-      await page.click('[data-testid="return-to-login"]');await page.waitForFunction(()=>location.pathname==='/oidc/login'&&Boolean(document.querySelector('input[name="username"]')))
-      await page.waitForFunction(({locale,login})=>document.documentElement.lang.replaceAll('_','-').toLowerCase()===locale.replaceAll('_','-').toLowerCase()&&document.querySelector('[data-i18n="setup.login"]')?.textContent.trim()===login,{locale,login:expected.login})
-      const anonymousSource=await source(),previous=new Set((await page.diagnostics()).events.map(event=>event.id)),acceptanceRequestId='root-ui-'+randomBytes(12).toString('hex')
-      const anonymous=await page.evaluate(async acceptanceRequestId=>{const response=await fetch('/api/v1/main/flows/search?size=1',{credentials:'same-origin',redirect:'manual',headers:{'X-Acceptance-Request-Id':acceptanceRequestId}});await response.text();return response.status},acceptanceRequestId)
-      report.requests.push({case:currentCase,path:'/api/v1/main/flows/search?size=1',method:'GET',status:anonymous,requestId:await browserResponseId(previous,anonymousSource,'/api/v1/main/flows/search?size=1','GET',anonymous,acceptanceRequestId),source:anonymousSource,expectedStatuses:[401,403]});assert([401,403].includes(anonymous))
-      for(const width of accessControlWidths) {
-        await page.setViewport({width,height:900});await page.focus('input[name="username"]');await page.press('input[name="username"]','Tab')
-        const panel=await measurePanel('body',{shadow:false});assert(panel.focusVisible,'anonymous login focus is invisible')
-        const translation=await page.evaluate(()=>({lang:document.documentElement.lang,text:[...document.querySelectorAll('[data-i18n]')].filter(node=>node.getClientRects().length).map(node=>({key:node.getAttribute('data-i18n'),text:node.textContent.trim()})),theme:document.documentElement.classList.contains('dark-2')?'dark-2':document.documentElement.classList.contains('dark')?'dark':'light'}))
-        assert.equal(translation.lang.replaceAll('_','-').toLowerCase(),locale.replaceAll('_','-').toLowerCase());assert(translation.text.length>0&&translation.text.every(item=>item.text&&item.text!==item.key),'anonymous login contains unresolved translation keys')
-        assert.equal(translation.theme,theme==='system'?'light':theme)
-        observed.push({width,kind:'anonymous-login-after-real-logout',panel,translation});await note({theme,locale,authPages:observed})
-      }
-      await page.goto(base+'/oidc/login?error=1')
-      await page.waitForFunction(text=>document.querySelector('.error[role="alert"]')?.textContent.trim()===text,accessControlErrorText[locale].incorrectCredentials)
-      const errorPanel=await measurePanel('.error[role="alert"]',{shadow:false}),authSource=await source()
-      const assets=(await page.diagnostics()).events.filter(event=>event.documentId===authSource.documentId&&event.kind==='http-response'&&event.resourceType==='Script'&&event.url.startsWith(base+'/ui/assets/'))
-      assert(assets.some(event=>event.url===base+'/ui/assets/oidc-login-i18n.js'),'anonymous login translation entry was not actually loaded')
-      assert(assets.every(event=>[200,304].includes(event.status)),'anonymous language/script resource failed')
-      observed.push({kind:'production-login-error-view',text:accessControlErrorText[locale].incorrectCredentials,errorPanel,resources:assets.map(event=>({requestId:event.requestId,documentId:event.documentId,url:event.url,status:event.status}))});await note({authPages:observed})
-      if(theme==='system') {const light=await measurePanel('body',{shadow:false});await page.setColorScheme('dark');await page.waitForFunction(()=>document.documentElement.classList.contains('dark')||document.documentElement.classList.contains('dark-2'));const dark=await measurePanel('body',{shadow:false});assert.notEqual(dark.background,light.background);await page.setColorScheme('light')}
-      await effectsUnchanged(before);return {theme,locale,authPages:observed,realLogout:true,anonymousBusinessDenied:true,refreshed:true}
-    }finally{await login()}
   }
   async function dependencyUnavailableCase() {
     const controls=fixture.dependencyControls??fixture.targetRuntime?.dependencyControls
@@ -1607,10 +1334,6 @@ export async function runAccessControlV3Ui(page,base,fixture,record) {
     await run('ui-four-tabs-cards-counts',async()=>{
       const groups=await all('/application-groups'),expected=await read(groupApi)
       await open('application-groups','[data-test="group-card"]')
-      const countSpacing=await page.evaluate(cardCountSpacingMeasurements)
-      assert(countSpacing.length>=3&&countSpacing.every(row=>Number.isFinite(row.token)&&row.token>0&&row.gap>=row.token-1&&row.text.startsWith(row.count+' ')),'card counts and units require actual visible spacing and accessible text separation')
-      const headingLayout=await page.evaluate(cardHeadingMeasurements)
-      assert(headingLayout.length&&headingLayout.every(row=>row.vertical&&row.nameGap>0&&(row.badgeGap===null||row.badgeGap>0)),'card key/name/badge must be visibly separated vertically')
       const card=selector('group-card','data-group-id',fixture.applicationGroupId)
       assert((await visibleRows('group-card','data-group-id')).every(id=>groups.some(group=>group.id===id)))
       await page.click(card+' .application-group-card-link');await page.waitForFunction(path=>location.pathname===path,'/ui/main/extensions/rbac/'+group)
@@ -1627,7 +1350,7 @@ export async function runAccessControlV3Ui(page,base,fixture,record) {
         await page.click('.rbac-statistics button:nth-child('+(index+1)+')')
         await page.waitForFunction(path=>location.pathname===path,target.pathname)
       }
-      return {counts:expected.counts,tabs:observed.tabs,countSpacing,headingLayout}
+      return {counts:expected.counts,tabs:observed.tabs,layer:'production-integration',visualEvidenceOwner:'plugin'}
     })
     await run('ui-group-create-edit-delete',async()=>{
       const id='ui-browser-group-'+randomBytes(5).toString('hex'),path='/application-groups/'+id
@@ -1821,18 +1544,6 @@ export async function runAccessControlV3Ui(page,base,fixture,record) {
       await closeDrawer('permission')
       return {key:saved.key,revision:saved.revision,grants:saved.grants,persistedAfterRefresh:true}
     })
-    await run('ui-permission-summary-expand',async()=>{
-      const permission=(await all(permissionApi)).find(permission=>permission.grants.length+permission.managementGrants.length>1);assert(permission,'multiple real typed grants required for summary expansion')
-      const total=permission.grants.length+permission.managementGrants.length
-      await open(app+'?permissionKey='+permission.key)
-      const before=await page.evaluate(()=>document.querySelector('[data-test="extension-container"]').shadowRoot.querySelector('.rbac-permission-summary')?.textContent.trim());assert(before?.includes('+'+(total-1)),'collapsed summary must show one line and +N')
-      await page.click('.rbac-permission-summary button')
-      const expanded=await page.evaluate(()=>{const element=document.querySelector('[data-test="extension-container"]').shadowRoot.querySelector('.rbac-permission-summary');return {lines:[...element.querySelectorAll('p')].map(node=>node.textContent.trim()),hasExpandButton:Boolean(element.querySelector('button'))}})
-      assert.equal(expanded.lines.length,total);assert.equal(expanded.hasExpandButton,false,'+N remained after expansion')
-      for(const grant of permission.grants)assert(expanded.lines.some(line=>line.includes(grant.resource)&&grant.actions.every(action=>line.includes(action))),'expanded summary omitted typed grant actions')
-      for(const grant of permission.managementGrants)assert(expanded.lines.some(line=>line.includes(grant.domain)&&grant.actions.every(action=>line.includes(action))),'expanded summary omitted management actions')
-      return {key:permission.key,total,expanded:expanded.lines,expandHintRemoved:true}
-    })
     await run('ui-empty-grants-no-policy-change',async()=>{
       const before=await all(permissionApi),name='ui-empty-'+randomBytes(4).toString('hex')
       const created=await createPermission(app,permissionApi,{key:name,name:'Empty grants must not authorize',scopeKeys:[]})
@@ -1874,139 +1585,6 @@ export async function runAccessControlV3Ui(page,base,fixture,record) {
       await open(app+'?permissionKey=does-not-exist');equal(await visibleRows('permission-row','data-permission-key'),[],'legal no-result query is not empty')
       await open(app+'?page=-1','[data-test="request-error"]');equal(await all(permissionApi),permissions,'invalid query wrote data')
       return {any:expected,and:[first.key],invalidQueryHasNoSideEffects:true}
-    })
-    await run('ui-native-filter-popup-geometry',async()=>{
-      const observations=[],nativeReferences=[]
-      const beforeFilterEffects=await effectsBefore()
-      await page.setColorScheme('light')
-      for(const theme of accessControlThemes) {
-      await page.setViewport({width:1280,height:900})
-      await preference(fixture.preferences.themes[theme])
-      await page.goto(base+fixture.references.namespacesPath)
-      await page.waitForFunction(()=>Boolean(document.querySelector('.customize-button')))
-      await openNativeAdvanced(false)
-      await page.waitForFunction(()=>{const node=document.querySelector('.adv-builder');if(!node)return false;const a=document.querySelector('.customize-button').getBoundingClientRect(),b=node.getBoundingClientRect();return Math.abs(b.top-a.bottom-6)<=3})
-      const nativeReference=await page.evaluate(()=>{const node=document.querySelector('.adv-builder'),a=document.querySelector('.customize-button').getBoundingClientRect(),b=node.getBoundingClientRect(),style=getComputedStyle(node);return{path:location.pathname,trigger:{left:a.left,bottom:a.bottom},panel:{left:b.left,top:b.top,width:b.width},style:{fontFamily:style.fontFamily,fontSize:style.fontSize,background:style.backgroundColor,borderRadius:style.borderRadius}}})
-      nativeReferences.push({theme,...nativeReference})
-      await page.click('.adv-footer .adv-add:nth-child(1)')
-      await page.waitForFunction(()=>document.querySelectorAll('.adv-row').length===1)
-      await page.click('.adv-header-close')
-      for(const [kind,path]of [['projects','application-groups'],['permissions',app],['users','users'],['subjects',group+'/scope-grants']]) {
-        await open(path)
-        for(let reopening=0;reopening<2;reopening++) {
-          await openNativeAdvanced()
-          await page.waitForFunction(desktopFilterViewportReady)
-          await page.click('.adv-clear')
-          await page.waitForFunction(()=>document.querySelector('[data-test="extension-container"]').shadowRoot.querySelectorAll('.adv-row').length===0)
-          const before=await page.evaluate(()=>{const root=document.querySelector('[data-test="extension-container"]').shadowRoot,node=root.querySelector('.adv-builder'),a=root.querySelector('.customize-button').getBoundingClientRect(),b=node.getBoundingClientRect(),style=getComputedStyle(node);return{trigger:{left:a.left,bottom:a.bottom},panel:{left:b.left,top:b.top,width:b.width},rows:root.querySelectorAll('.adv-row').length,style:{fontFamily:style.fontFamily,fontSize:style.fontSize,background:style.backgroundColor,borderRadius:style.borderRadius}}})
-          equal(before.style,nativeReference.style,'extension native filter visual styles differ from the published host')
-          const restriction=await page.evaluate(()=>{const root=document.querySelector('[data-test="extension-container"]').shadowRoot,panel=root.querySelector('.adv-builder'),button=panel.querySelector('.adv-footer .adv-add:nth-child(2)'),note=button&&root.getElementById(button.getAttribute('aria-describedby'));return {disabled:button?.disabled,ariaDisabled:button?.getAttribute('aria-disabled'),description:note?.textContent.trim(),rows:panel.querySelectorAll('.adv-row').length}})
-          assert.equal(restriction.disabled,true,'unsupported condition group must be visibly disabled')
-          assert.equal(restriction.ariaDisabled,'true');assert(restriction.description,'disabled group requires localized AND explanation')
-          await page.focus('.adv-footer .adv-add:nth-child(1)')
-          await page.press('.adv-footer .adv-add:nth-child(1)','Tab')
-          const groupFocus=await page.evaluate(()=>{const root=document.querySelector('[data-test="extension-container"]').shadowRoot;return root.activeElement===root.querySelector('.adv-footer .adv-add:nth-child(2)')})
-          assert.equal(groupFocus,false,'disabled OR group must not receive keyboard focus')
-          await page.click('.adv-footer .adv-add:nth-child(1)')
-          await page.waitForFunction(count=>document.querySelector('[data-test="extension-container"]').shadowRoot.querySelectorAll('.adv-row').length===count+1,before.rows)
-          const field='.adv-body .adv-row:last-child .cond-field .kel-select__wrapper'
-          await page.click(field)
-          await page.waitForFunction(()=>[...document.querySelector('[data-test="extension-container"]').shadowRoot.querySelectorAll('[role="option"]')].some(node=>node.getClientRects().length&&getComputedStyle(node).visibility!=='hidden'))
-          const options=await page.evaluate(()=>[...document.querySelector('[data-test="extension-container"]').shadowRoot.querySelectorAll('[role="option"]')].filter(node=>node.getClientRects().length&&getComputedStyle(node).visibility!=='hidden').map(node=>node.textContent.trim()))
-          assert(options.length>0,'native filter field dropdown did not open')
-          await page.press('body','Escape')
-          assert(await page.evaluate(()=>Boolean(document.querySelector('[data-test="extension-container"]').shadowRoot.querySelector('.adv-builder')?.getClientRects().length)),'nested select Escape closed its parent filter')
-          let boundary=null
-          if(kind==='permissions'&&reopening===0) {
-            const scroll=await page.evaluate(desktopFilterBoundaryScroll)
-            try {
-              await page.waitForFunction(()=>Math.abs(document.querySelector('[data-test="extension-container"]').shadowRoot.querySelector('.customize-button').getBoundingClientRect().bottom-(innerHeight-20))<=3)
-              await page.waitForFunction(desktopFilterViewportReady)
-              boundary=await page.evaluate(()=>{const root=document.querySelector('[data-test="extension-container"]').shadowRoot,rect=node=>{const b=node.getBoundingClientRect();return {left:b.left,right:b.right,top:b.top,bottom:b.bottom,width:b.width,height:b.height}};return {anchor:rect(root.querySelector('.customize-button')),panel:rect(root.querySelector('.adv-builder')),viewport:{width:innerWidth,height:innerHeight}}})
-              assert(boundary.panel.bottom<=boundary.anchor.top-3,'bottom desktop filter did not flip above its current trigger')
-              await page.click('.adv-clear')
-              await page.waitForFunction(()=>document.querySelector('[data-test="extension-container"]').shadowRoot.querySelectorAll('.adv-row').length===0)
-              boundary.clearClicked=true
-              await page.click('.adv-header-close')
-              await page.waitForFunction(()=>!document.querySelector('[data-test="extension-container"]').shadowRoot.querySelector('.adv-builder'))
-              boundary.closeClicked=true;boundary.scroll=scroll
-            }finally{await page.evaluate(desktopFilterBoundaryScroll,scroll)}
-          }else {
-            await page.click('.adv-header-close')
-            await page.waitForFunction(()=>![...document.querySelector('[data-test="extension-container"]').shadowRoot.querySelectorAll('.adv-builder')].some(node=>node.getClientRects().length))
-          }
-          observations.push({theme,kind,reopening,...before,andRestriction:restriction,conditionAdded:true,fieldOptions:options,nestedEscapePreservedParent:true,...(boundary?{desktopBottomBoundary:boundary}:{})})
-          await note({nativeFilterReferences:nativeReferences,nativeFilterObservations:observations})
-        }
-      }
-      await page.setViewport({width:390,height:900})
-      await page.goto(base+fixture.references.namespacesPath)
-      await page.click('.mobile-toggle')
-      await waitForNativeStyleSettlement(page,{panel:'.mobile-sheet'},{shadow:false})
-      const nativeMobile=await page.evaluate(()=>{const node=document.querySelector('.mobile-sheet'),style=getComputedStyle(node);return {fontFamily:style.fontFamily,fontSize:style.fontSize,background:style.backgroundColor,borderRadius:style.borderRadius}})
-      nativeReferences.push({theme,width:390,style:nativeMobile})
-      await page.press('body','Escape')
-      for(const [kind,path,row,attribute]of [['projects','application-groups','group-card','data-group-id'],['permissions',app,'permission-row','data-permission-key'],['users','users','user-row','data-subject'],['subjects',group+'/scope-grants','subject-row','data-subject']]) {
-        await open(path)
-        const beforeMobileRows=await visibleRows(row,attribute)
-        await page.click('.mobile-toggle')
-        await page.waitForFunction(mobileFilterViewportReady)
-        await waitForNativeStyleSettlement(page,{panel:'.mobile-sheet'})
-        const mobileBefore=await page.evaluate(()=>{const root=document.querySelector('[data-test="extension-container"]').shadowRoot,node=root.querySelector('.mobile-sheet'),style=getComputedStyle(node);return {trigger:root.querySelector('.mobile-bar').getBoundingClientRect().toJSON(),panel:node.getBoundingClientRect().toJSON(),style:{fontFamily:style.fontFamily,fontSize:style.fontSize,background:style.backgroundColor,borderRadius:style.borderRadius}}})
-        equal(mobileBefore.style,nativeMobile,'extension mobile filter styles differ from the published host')
-        const mobileConfiguration=await page.evaluate(()=>{const root=document.querySelector('[data-test="extension-container"]').shadowRoot,sheet=root.querySelector('.mobile-sheet'),shown=node=>Boolean(node&&node.getClientRects().length&&getComputedStyle(node).visibility!=='hidden'&&!node.closest('[hidden]'));const labels=[...sheet.querySelectorAll('.sheet-tabs label.kel-segmented__item')],find=text=>labels.filter(node=>node.querySelector('.kel-segmented__item-label')?.textContent.trim()===text),saved=find('My Filters saved'),all=find('All Filters'),save=sheet.querySelector('.sheet-footer-actions button:not(.sheet-apply)');if(saved.length!==1||all.length!==1)throw new Error('Native mobile tab labels absent or ambiguous');return {savedTabVisible:shown(saved[0]),saveVisible:shown(save),allTabVisible:shown(all[0]),applyVisible:shown(sheet.querySelector('.sheet-apply'))}})
-        assert.equal(mobileConfiguration.savedTabVisible,false,'native mobile filter ignored savedFilters.shown=false')
-        assert.equal(mobileConfiguration.saveVisible,false,'disabled saved-filter feature must not expose an unsupported Save entry')
-        assert(mobileConfiguration.allTabVisible&&mobileConfiguration.applyVisible,'supported native filter actions were hidden')
-        const record=fixture.records[kind==='subjects'?'assignments':kind][0],field=kind==='projects'?'id':kind==='permissions'?'key':'subject',value=record[field]
-        const label=kind==='projects'?'Application group ID':kind==='permissions'?'Permission key':'subject'
-        await page.click('.mobile-sheet .field-row-header:text-is('+JSON.stringify(label)+')')
-        await page.waitForFunction(()=>Boolean(document.querySelector('[data-test="extension-container"]').shadowRoot.querySelector('.field-row-body')))
-        if(kind==='projects') {
-          await page.click('.field-row-body .comparator-segment[aria-label="Equals"]')
-          await page.waitForFunction(()=>!document.querySelector('[data-test="extension-container"]').shadowRoot.querySelector('.field-row-body'))
-          await page.click('.mobile-sheet .field-row-header:text-is('+JSON.stringify(label)+')')
-          await page.waitForFunction(()=>document.querySelector('[data-test="extension-container"]').shadowRoot.querySelector('.field-row-body .comparator-segment[aria-label="Equals"]')?.getAttribute('aria-pressed')==='true')
-          await page.fill('.field-row-body input[placeholder="Enter application group id"]',value)
-        }
-        else {await page.click('.field-row-body .kel-select__wrapper');await page.click('[role="option"]:text-is('+JSON.stringify(value)+')')}
-        await page.waitForFunction(({field,value})=>[...new URL(location.href).searchParams.entries()].some(([key,current])=>key.includes(field)&&current===value),{field,value})
-        const nested=await page.evaluate(()=>{const root=document.querySelector('[data-test="extension-container"]').shadowRoot;return [...root.querySelectorAll('[role="option"]')].some(node=>node.getClientRects().length&&getComputedStyle(node).visibility!=='hidden')})
-        if(nested) {
-          const liveEditor=await page.evaluate(()=>Boolean(document.querySelector('[data-test="extension-container"]').shadowRoot.querySelector('.field-row-body .kel-select__wrapper')))
-          if(liveEditor)await page.press('.field-row-body .kel-select__wrapper','Escape')
-          await page.waitForFunction(()=>![...document.querySelector('[data-test="extension-container"]').shadowRoot.querySelectorAll('[role="option"]')].some(node=>node.getClientRects().length&&getComputedStyle(node).visibility!=='hidden'))
-        }
-        await page.click('.sheet-apply')
-        await page.waitForFunction(()=>!document.querySelector('[data-test="extension-container"]').shadowRoot.querySelector('.mobile-sheet'))
-        await page.waitForFunction(({row,attribute,value})=>{const root=document.querySelector('[data-test="extension-container"]').shadowRoot,rows=[...root.querySelectorAll('[data-test="'+row+'"]')].filter(node=>node.getClientRects().length);return root.querySelector('main')?.getAttribute('aria-busy')==='false'&&rows.length===1&&rows[0].getAttribute(attribute)===value},{row,attribute,value})
-        equal(await visibleRows(row,attribute),[value],'mobile native filter returned the wrong saved result')
-        await page.click('.mobile-toggle')
-        await page.waitForFunction(mobileFilterViewportReady)
-        assert(await page.evaluate(({field,value})=>[...new URL(location.href).searchParams.entries()].some(([key,current])=>key.includes(field)&&current===value),{field,value}),'reopening mobile filter lost its saved query')
-        await page.click('.sheet-clear')
-        await page.waitForFunction(field=>![...new URL(location.href).searchParams.keys()].some(key=>key.includes('filters['+field+']')),field)
-        await page.waitForFunction(({row,attribute,expected})=>{const root=document.querySelector('[data-test="extension-container"]').shadowRoot,actual=[...root.querySelectorAll('[data-test="'+row+'"]')].filter(node=>node.getClientRects().length).map(node=>node.getAttribute(attribute));return root.querySelector('main')?.getAttribute('aria-busy')==='false'&&JSON.stringify(actual)===JSON.stringify(expected)},{row,attribute,expected:beforeMobileRows})
-        assert.deepEqual(await visibleRows(row,attribute),beforeMobileRows,'mobile Clear failed to restore authorized rows')
-        // Explicit test stimulus: lose this owned native layer's required action.
-        // Recovery itself must use real visible controls and the production SDK.
-        await page.evaluate(()=>{const root=document.querySelector('[data-test="extension-container"]').shadowRoot,node=root.querySelector('.mobile-sheet .sheet-apply');if(!node)throw new Error('Owned mobile integrity stimulus target absent');node.remove()})
-        await page.waitForFunction(()=>{const root=document.querySelector('[data-test="extension-container"]').shadowRoot;return !root.querySelector('.mobile-sheet')&&!root.querySelector('.mobile-toggle')&&Boolean(root.querySelector('[data-test="request-error"]')?.getClientRects().length)})
-        await page.click('[data-test="request-error"] button')
-        await page.waitForFunction(()=>{const root=document.querySelector('[data-test="extension-container"]').shadowRoot;return Boolean(root.querySelector('.mobile-toggle'))&&!root.querySelector('[data-test="request-error"]')})
-        await page.click('.mobile-toggle')
-        await page.waitForFunction(()=>Boolean(document.querySelector('[data-test="extension-container"]').shadowRoot.querySelector('.mobile-sheet .sheet-apply')?.getClientRects().length))
-        await page.click('.sheet-apply')
-        await page.waitForFunction(()=>!document.querySelector('[data-test="extension-container"]').shadowRoot.querySelector('.mobile-sheet'))
-        assert.deepEqual(await visibleRows(row,attribute),beforeMobileRows,'native integrity recovery changed authorized rows')
-        observations.push({theme,kind,width:390,...mobileBefore,mobileConfiguration,value,selectedResult:[value],reopenedAtTrigger:true,clearRestoredRows:beforeMobileRows,integrityRecovery:{stimulus:'test-only removal of this owned native Apply node',failedInstanceUnmounted:true,visibleClearClicked:true,freshNativeFilterOpenedAndApplied:true}})
-        await note({nativeFilterReferences:nativeReferences,nativeFilterObservations:observations})
-      }
-      }
-      await page.setViewport({width:1280,height:900})
-      await preference(fixture.preferences.themes.light)
-      await effectsUnchanged(beforeFilterEffects)
-      return {nativeReferences,observations,locations:4,themes:4,desktopOpens:32,mobileOpens:48,source:'real-native-filter-clicks-and-geometry'}
     })
     for(const [kind,path,row,attribute]of [['projects','application-groups','group-card','data-group-id'],['permissions',app,'permission-row','data-permission-key'],['users','users','user-row','data-subject'],['subjects',group+'/scope-grants','subject-row','data-subject']])for(const [operator,plan]of Object.entries(fixture.filters[kind]))await run('ui-native-filter-'+kind+'-'+operator,async()=>{
       await open(path)
@@ -2114,47 +1692,6 @@ export async function runAccessControlV3Ui(page,base,fixture,record) {
       }
       return evidence
     })
-    await run('ui-four-drawers-focus-discard',async()=>{
-      const evidence=[]
-      for(const [kind,path,trigger]of [['group','application-groups','.management-toolbar button'],['user','users','[data-test="user-create"]'],['permission',app,'[data-test="permission-add"]'],['subject',group+'/scope-grants','[data-test="subject-add"]']]) {
-        await open(path);await drawer(kind,trigger)
-        const normal=await page.evaluate(kind=>document.querySelector('[data-test="extension-container"]').shadowRoot.querySelector('[data-test="drawer-'+kind+'"]').getBoundingClientRect().width,kind)
-        assert(normal>0&&normal<=await page.evaluate(()=>innerWidth),'native drawer exceeds its actual viewport')
-        await toggleDrawerMaximize();await closeDrawer(kind)
-        assert(await page.evaluate(trigger=>document.querySelector('[data-test="extension-container"]').shadowRoot.activeElement?.matches(trigger),trigger),'drawer did not restore trigger focus')
-        await drawer(kind,trigger)
-        const reset=await page.evaluate(kind=>document.querySelector('[data-test="extension-container"]').shadowRoot.querySelector('[data-test="drawer-'+kind+'"]').getBoundingClientRect().width,kind)
-        assert.equal(reset,normal,'maximize state leaked across opening')
-        const focus=await checkFocus(kind)
-        evidence.push({kind,normalWidth:normal,focusTrapped:true,escapeClosed:true,focusReturned:true,focus})
-      }
-      return evidence
-    })
-    await run('ui-four-drawers-draft-discard',async()=>{
-      const evidence=[]
-      for(const [kind,path,trigger,input]of [['group','application-groups','.management-toolbar button','[data-test="drawer-group"] .kel-form-item:first-of-type input'],['user','users','[data-test="user-create"]','[data-test="drawer-user"] input[name="username"]'],['permission',app,'[data-test="permission-add"]','[name="permission-name"]'],['subject',group+'/scope-grants','[data-test="subject-add"]',null]]) {
-        await open(path);await drawer(kind,trigger)
-        const draft='unsaved-browser-'+randomBytes(3).toString('hex')
-        if(input)await page.fill(input,draft)
-        else {await page.click('[data-test="drawer-subject"] .kel-form-item:first-of-type .kel-select__wrapper');await page.click('[role="option"]:text-is('+JSON.stringify(fixture.zeroAccount.subject)+')')}
-        const before=await page.evaluate(kind=>document.querySelector('[data-test="extension-container"]').shadowRoot.querySelector('[data-test="drawer-'+kind+'"]').textContent,kind)
-        await page.focus(input??'.rbac-editor-drawer .kel-drawer__close-btn');await page.pressFocused('Escape')
-        await page.waitForFunction(discardConfirmationVisible)
-        await page.click('[data-test="discard-confirm"] .kel-button:not(.kel-button--danger)')
-        assert(await page.evaluate(kind=>Boolean(document.querySelector('[data-test="extension-container"]').shadowRoot.querySelector('[data-test="drawer-'+kind+'"]')),kind),'cancel discard closed editor')
-        if(input)assert.equal(await page.evaluate(input=>document.querySelector('[data-test="extension-container"]').shadowRoot.querySelector(input).value,input),draft,'cancel discard lost entered draft')
-        else assert((await page.evaluate(kind=>document.querySelector('[data-test="extension-container"]').shadowRoot.querySelector('[data-test="drawer-'+kind+'"]').textContent,kind)).includes(fixture.zeroAccount.subject),'cancel discard lost selected subject')
-        await clickDrawerHeader();await page.waitForFunction(discardConfirmationVisible)
-        await page.click('[data-test="discard-confirm"] .kel-button--danger')
-        await page.waitForFunction(kind=>!document.querySelector('[data-test="extension-container"]').shadowRoot.querySelector('[data-test="drawer-'+kind+'"]'),kind)
-        assert(await page.evaluate(trigger=>document.querySelector('[data-test="extension-container"]').shadowRoot.activeElement?.matches(trigger),trigger),'confirmed discard did not restore focus')
-        await drawer(kind,trigger)
-        if(input)assert.equal(await page.evaluate(input=>document.querySelector('[data-test="extension-container"]').shadowRoot.querySelector(input).value,input),'','discarded draft returned on reopen')
-        await closeDrawer(kind)
-        evidence.push({kind,escapeRequestedConfirmation:true,cancelRetainedDraft:true,confirmedDiscardClearedDraft:true,focusReturned:true,observedDialogContent:Boolean(before)})
-      }
-      return evidence
-    })
     await run('ui-409-412-no-side-effects',async()=>{
       const permissions=await all(permissionApi),permission=permissions.find(item=>item.scopeKeys.length===1&&item.scopeKeys[0]===fixture.scope)
       assert(permission);const path=permissionApi+'/'+permission.key,original=permissionInput(permission)
@@ -2180,12 +1717,6 @@ export async function runAccessControlV3Ui(page,base,fixture,record) {
       assert.equal(await page.evaluate(()=>document.querySelector('[data-test="extension-container"]').shadowRoot.querySelector('[name="permission-name"]').value),'Duplicate must not replace','409 discarded draft')
       await login()
       return {stale,duplicate,persistedConcurrentRevision:accepted.revision,noBusinessSideEffects:true,refreshExplicit:true}
-    })
-    await run('ui-loading-transition',async()=>{
-      const observed=report.requests.filter(request=>request.loading)
-      assert(observed.length&&observed.some(request=>request.loading.saving),'no actual drawer save was observed')
-      assert(observed.every(request=>request.loading.busy&&(!request.loading.saving||request.loading.closeDisabled&&request.loading.saveDisabled)))
-      return observed.map(request=>({path:request.path,method:request.method,loading:request.loading}))
     })
     await run('ui-account-temporary-password-lifecycle',async()=>{
       const username='ui-created-'+randomBytes(5).toString('hex')
@@ -2374,94 +1905,8 @@ export async function runAccessControlV3Ui(page,base,fixture,record) {
     await runAdditionalAccountCases()
     await runAdditionalInteractionCases()
     await runAdditionalSecretCases()
-    for(const theme of accessControlThemes)for(const locale of accessControlLocales)await run('ui-theme-language-'+theme+'-'+locale,async()=>{
-      await page.setColorScheme('light');await page.setViewport({width:1280,height:900})
-      await preference(fixture.preferences.themes[theme]);await preference(fixture.preferences.locales[locale])
-      const preferenceSelector=fixture.preferences.themes[theme].at(-1).selector
-      await page.waitForFunction(selector=>document.querySelector(selector)?.getAttribute('aria-checked')==='true',preferenceSelector)
-      assert.equal(await page.evaluate(selector=>document.querySelector(selector)?.getAttribute('aria-checked'),preferenceSelector),'true','selected host theme preference differs')
-      const references={}
-      for(const [name,path,selectors]of [['mcp',fixture.references.mcpPath,{tab:fixture.references.tab,button:fixture.references.button}],['namespaces',fixture.references.namespacesPath,{search:fixture.references.search}],['flows',fixture.references.flowsPath,{header:fixture.references.tableHeader,cell:fixture.references.tableCell}]]) {
-        await page.goto(base+path);await page.waitForFunction(({path,selectors})=>location.pathname===path&&Object.values(selectors).every(selector=>document.querySelector(selector)?.getClientRects().length),{path,selectors});Object.assign(references,await styles(selectors,false))
-      }
-      await open(app+'?permissionKey='+encodeURIComponent(fixture.records.permissions.find(item=>item.scopeKeys.includes(fixture.scope)).key),'[data-test="application-permissions"]')
-      const computed=await styles({tab:'[role="tab"][aria-selected="true"]',button:'[data-test="permission-add"]',search:'.ks-search input',header:'.kel-table th',cell:'.kel-table tbody td',main:'main'})
-      for(const field of ['fontFamily','fontSize','fontWeight','padding','radius'])assert.equal(computed.tab[field],references.tab[field],'MCP tab '+field)
-      for(const field of ['fontSize','radius'])assert.equal(computed.button[field],references.button[field],'MCP button '+field)
-      assert.equal(computed.search.fontSize,references.search.fontSize,'Namespaces search typography')
-      for(const field of ['fontSize','fontWeight'])assert.equal(computed.header[field],references.header[field],'Flows header '+field)
-      for(const field of ['fontSize','borderBottomStyle','borderBottomWidth'])assert.equal(computed.cell[field],references.cell[field],'Flows row '+field)
-      assert.notEqual(computed.cell.color,computed.cell.background);assert.notEqual(computed.header.color,computed.header.background)
-      const translation=await state(),expected=fixture.localeText[locale]
-      assert.equal(translation.lang,locale.replaceAll('_','-'),'actual language differs')
-      assert(translation.text.includes(expected.clients)&&translation.text.includes(expected.scopes),'navigation translation differs')
-      assert.equal(await page.evaluate(()=>document.querySelector('[data-test="extension-container"]').shadowRoot.querySelector('.ks-search input').placeholder),expected.search)
-      await page.reload();await page.waitForFunction(()=>document.querySelector('[data-test="extension-container"]')?.shadowRoot?.querySelector('main')?.getAttribute('aria-busy')==='false');assert.equal((await state()).lang,translation.lang,'preference lost on refresh')
-      await openNativeAdvanced()
-      await page.waitForFunction(expected=>document.querySelector('[data-test="extension-container"]').shadowRoot.querySelector('[data-and-filter-note]')?.textContent.trim()===expected,accessControlAndFilterText[locale])
-      await waitForNativeStyleSettlement(page,{panel:'.adv-builder',note:'[data-and-filter-note]'})
-      const filterLayout=await page.evaluate(()=>{const root=document.querySelector('[data-test="extension-container"]').shadowRoot,panel=root.querySelector('.adv-builder'),note=panel.querySelector('[data-and-filter-note]'),footer=panel.querySelector('.adv-footer'),box=panel.getBoundingClientRect();return {width:innerWidth,panel:{left:box.left,right:box.right,width:box.width},scrollWidth:panel.scrollWidth,clientWidth:panel.clientWidth,noteText:note.textContent.trim(),noteInButtonRow:footer.contains(note),footerButtons:[...footer.querySelectorAll('button')].map(node=>({text:node.textContent.trim(),disabled:node.disabled,width:node.getBoundingClientRect().width})),disabledDescribedBy:[...footer.querySelectorAll('button:disabled')].map(node=>root.getElementById(node.getAttribute('aria-describedby'))===note)}})
-      await note({filterLayout})
-      assert.equal(filterLayout.noteText,accessControlAndFilterText[locale],'AND explanation translation differs')
-      assert.equal(filterLayout.noteInButtonRow,false,'AND explanation must not compress the native filter button row')
-      assert.equal(filterLayout.footerButtons.length,3,'native filter footer actions changed')
-      assert(filterLayout.footerButtons.every(button=>button.width>0),'native filter action has no visible area')
-      assert(filterLayout.disabledDescribedBy.length>0&&filterLayout.disabledDescribedBy.every(Boolean),'disabled OR action lost accessible explanation')
-      assert(filterLayout.scrollWidth<=filterLayout.clientWidth+2&&filterLayout.panel.left>=0&&filterLayout.panel.right<=filterLayout.width+2,'localized native filter overflows')
-      await page.click('.adv-header-close')
-      const layouts=[]
-      for(const width of accessControlWidths) {
-        await page.setViewport({width,height:900});await drawer('permission','[data-test="permission-edit"]')
-        assert.equal(await page.evaluate(()=>document.querySelector('[data-test="extension-container"]').shadowRoot.querySelector('[data-test="drawer-save"]').textContent.trim()),expected.save,'save label translation differs')
-        await page.focus('[name="permission-name"]');await page.press('[name="permission-name"]','Tab')
-        const layout=await page.evaluate(()=>{const root=document.querySelector('[data-test="extension-container"]').shadowRoot,active=root.activeElement,style=active&&getComputedStyle(active),wrapper=active?.closest('.kel-input__wrapper.is-focus,.kel-select__wrapper.is-focused'),focusStyle=wrapper&&getComputedStyle(wrapper),box=root.querySelector('[data-test="drawer-permission"]').getBoundingClientRect();return {width:innerWidth,documentWidth:document.documentElement.scrollWidth,left:box.left,right:box.right,focusVisible:Boolean(active&&!active.disabled&&(style.outlineStyle!=='none'&&parseFloat(style.outlineWidth)>0||focusStyle&&focusStyle.boxShadow!=='none'))}})
-        assert(layout.focusVisible,'keyboard focus invisible');assert(layout.documentWidth<=width+2&&layout.left>=-2&&layout.right<=width+2,'horizontal overflow')
-        const scopeInput='[data-test="drawer-permission"] [data-test="scope-picker"] input[role="combobox"]'
-        const selectedBeforeSearch=await page.evaluate(()=>[...document.querySelector('[data-test="extension-container"]').shadowRoot.querySelectorAll('[data-test="drawer-permission"] [data-test="scope-picker"] .rbac-tags code')].map(n=>n.textContent))
-        assert(selectedBeforeSearch.includes(fixture.scope),'the actual edited permission must retain its authorized scope before native search')
-        await page.click(scopeInput)
-        await page.fill(scopeInput,'no-matching-scope-'+randomBytes(8).toString('hex'))
-        await page.waitForFunction(expected=>{const root=document.querySelector('[data-test="extension-container"]').shadowRoot,visible=[...root.querySelectorAll('.kel-select-dropdown__empty')].filter(node=>node.getClientRects().length);return visible.length===1&&visible[0].textContent.trim()===expected},accessControlNativeSelectNoMatch[locale])
-        layout.nativeSelectNoMatch=await page.evaluate(()=>[...document.querySelector('[data-test="extension-container"]').shadowRoot.querySelectorAll('.kel-select-dropdown__empty')].find(node=>node.getClientRects().length).textContent.trim())
-        assert.equal(layout.nativeSelectNoMatch,accessControlNativeSelectNoMatch[locale],'native select did not follow the actual host language preference')
-        await page.press(scopeInput,'Escape')
-        const selectedAfterSearch=await page.evaluate(()=>[...document.querySelector('[data-test="extension-container"]').shadowRoot.querySelectorAll('[data-test="drawer-permission"] [data-test="scope-picker"] .rbac-tags code')].map(n=>n.textContent))
-        assert.deepEqual(selectedAfterSearch,selectedBeforeSearch,'search must not remove or change selected scope grants')
-        layout.scopeSearchPreservedSelection={before:selectedBeforeSearch,after:selectedAfterSearch}
-        assert(await page.evaluate(()=>Boolean(document.querySelector('[data-test="extension-container"]').shadowRoot.querySelector('[data-test="drawer-permission"]'))),'native select ESC incorrectly closed its parent drawer')
-        layouts.push(layout);await closeDrawer('permission')
-        for(const [path,element]of [['application-groups','[data-test="application-group-cards"]'],[group,'[data-test="group-detail"]'],[group+'/scopes/'+fixture.scope,'[data-test="scope-detail"]'],[group+'/scope-grants','[data-test="subject-list"]'],['users','[data-test="user-list"]']]) {
-          await open(path,element)
-          if(path==='application-groups') {
-            const countSpacing=await page.evaluate(cardCountSpacingMeasurements)
-            assert(countSpacing.length>=3&&countSpacing.every(row=>Number.isFinite(row.token)&&row.token>0&&row.gap>=row.token-1&&row.text.startsWith(row.count+' ')),'localized/narrow card count units visually joined')
-            const headingLayout=await page.evaluate(cardHeadingMeasurements)
-            assert(headingLayout.length&&headingLayout.every(row=>row.vertical&&row.nameGap>0&&(row.badgeGap===null||row.badgeGap>0)),'localized/narrow card heading labels joined')
-            layouts.push({path,width,countSpacing,headingLayout})
-          }
-          const overflow=await page.evaluate(element=>{const root=document.querySelector('[data-test="extension-container"]').shadowRoot,box=root.querySelector(element).getBoundingClientRect();return {viewport:innerWidth,documentWidth:document.documentElement.scrollWidth,left:box.left,right:box.right,text:root.querySelector(element).textContent.trim()}},element)
-          assert(overflow.text&&overflow.documentWidth<=width+2&&overflow.left>=-2&&overflow.right<=width+2,'localized page overflow or missing stable content: '+path)
-          layouts.push({path,...overflow})
-        }
-        await open(app+'?permissionKey='+encodeURIComponent(fixture.records.permissions.find(item=>item.scopeKeys.includes(fixture.scope)).key),'[data-test="application-permissions"]')
-      }
-      const resolvedTheme=()=>page.evaluate(()=>{const classes=document.documentElement.classList;return classes.contains('dark-2')?'dark-2':classes.contains('dark')?'dark':'light'})
-      if(theme==='system') {
-        assert.equal(await resolvedTheme(),'light','system preference did not start with OS light')
-        const systemLight=await styles({main:'main'})
-        await page.setColorScheme('dark');await page.waitForFunction(()=>document.documentElement.classList.contains('dark')||document.documentElement.classList.contains('dark-2'))
-        const dark=await styles({main:'main'});assert.notEqual(dark.main.color,computed.main.color,'system theme ignored OS preference');await page.setColorScheme('light')
-        await page.waitForFunction(()=>!document.documentElement.classList.contains('dark')&&!document.documentElement.classList.contains('dark-2'))
-        equal(await styles({main:'main'}),systemLight,'system light colors did not restore')
-      }else assert.equal(await resolvedTheme(),theme,'resolved host theme differs')
-      if(locale==='en')snapshots.set(theme,computed)
-      return {theme,locale,computedStyles:computed,translation,filterLayout,keyboardFocus:true,noHorizontalOverflow:true,layouts,references,refreshed:true}
-    })
-    for(const theme of accessControlThemes)for(const locale of accessControlLocales) {
-      await run('ui-four-drawers-theme-language-'+theme+'-'+locale,()=>fourDrawerThemeCase(theme,locale))
-      await run('ui-auth-theme-language-'+theme+'-'+locale,()=>authThemeCase(theme,locale))
-    }
-    await run('ui-theme-colors-are-distinct',async()=>{for(const [left,right]of [['light','dark'],['light','dark-2'],['dark','dark-2']])assert.notEqual(JSON.stringify(snapshots.get(left)),JSON.stringify(snapshots.get(right)),'theme colors collapsed');return Object.fromEntries(snapshots)})
+    // Visual/theme matrices run in the independent plugin and host browser jobs.
+
   }catch(error){report.failure??={case:currentCase,message:String(error.message)}}
   finally {
     report.cleanup=[]

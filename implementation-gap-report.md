@@ -1,5 +1,92 @@
 # 应用组目标模型实施差异报告
 
+2026-11-01 插件最终33f2c09的CI41229212687成功，artifact13053656532实际下载ZIP
+SHA bf5a71a5...1f1f0f，jar f0790514...ee16。主控重算实际ZIP与jar、解析正式720完整
+精确ID/参数及源码/lock/harness/SDK/bundle绑定，286/108/24/195与升级8/首装3均通过。
+前次7失败已由正式宿主SDK修复，强化稳定实例断言未删，未知错误0、跳过0、未运行0。
+根仓已选择实际下载jar并保留旧正式jar；本次正式组合输入见`.work/ci-layering-20261031/`
+`formal-release-evidence.json`。独立agent已完成并清理pane，根仓236回归/actionlint/原型
+与静态计划通过，即将提交后执行真实88UI/144check/56REST，不把独立发布当组合通过。
+
+2026-11-01 宿主最终253e5e9的CI41224044004五job成功并推广，主控重算7ZIP及
+candidate/release/commit/latest原始index一致，正式digest9f36f43a...d907e4；两架构
+实际pull/create(created且不启动)/cp executable与SDK核对通过，exeSHA f1899282...1993。
+SDK949/几何64/UI105/后端412与MCP4/认证20报告全部实际下载核对，completeness=false
+限制保留。插件仅从registry正式输入独立提取后，本地720/286/108/24/195全通过，
+原7失败的精确trigger稳定测试保留且修复后通过，349UI bundle等jar f0790514...ee16。
+4文件锁已获main提交发布授权，最终HEAD与自身CI尚待执行。root当前只更新候选image
+选择，不消费本地jar作正式输入，88流程/144组合计划仍待实际Compose和最终CI。
+
+2026-11-01 宿主首轮CI41220686385的认证job在主UI流程通过后，dependency503前置
+socket就绪门误放行初始化临时PostgreSQL，首次SQL报database system is shutting down。
+本地独立PG诊断实证socket先成功而TCP未就绪；主控只授权测试前置条件修复为TCP
+pg_isready+SELECT1、有界60次失败退出。4离线反例和本次CI实际candidate下两模式
+各7项通过，503/恢复/无副作用断言不改，资源清理。当前runSDK job仍在收尾，须先保存
+其报告再推新提交，防并发取消丢证据；不rerun碰运气，不给插件未推广镜像。
+root已物理移除迁出视觉回调，保留业务流程和拒绝副作用，236项本地回归及静态计划通过。
+
+2026-11-01 最终新候选SDK949/几何64/镜像classpath/OIDC35/MCP4/两模式认证20报告
+全部通过，后端412（410通过+2专项另验）与UI105通过。主控复核冻结12文件工作/index
+hash、0330测试仅消费方式修正、0384最小reference算法和完整patch replay后授权发布。
+overlay已提交推送46065ac，自动CI41220686385运行中，源码冻结；尚未推广，插件不得
+消费候选。root当前候选仍等待新正式宿主与插件门，没有把旧成功CI当本次完成。
+
+2026-11-01 宿主额外复测失败已定位为测试取首值后取消与异步关闭之间的竞态：
+AuthorizationEvaluationRestTest两条测试先用Mono.from(Flux).block取得首响应，再立即读close
+计数；独立候选Reactor latch探针确认响应可先返回、清理随后完成。主控授权只在0330已有
+测试文件改Flux.single().block(Duration.ofSeconds(10))等待完整流并要求单响应，403/200、
+零effects、snapshot、begin/close==1全部断言不变，取消专项门不变，生产Java未改。
+相关组及完整local-ci后端412（410通过+2镜像专用）/UI105通过。新executable rawhash
+64c978...与旧候选不同，尽管每次ZIP条目内容相同；主控不以内容比较转绑旧报告，要求
+最终新候选重跑classpath/OIDC/MCP/两模式认证/SDK949/几何64。当前仍未提交发布。
+
+2026-10-31 新实证改变发布依赖：插件完整CI中7个popup toggle失败，经完整ZIP/七份trace
+及本机稳定红例确认属于0384公开SDK的reference outside误判，不是允许删除的视觉重复。
+主控按overlay入口C接收最小同根精确ARIA/reference归属修复，提案写其既有能力文档；
+不改业务CRUD、Java授权、存储、vendor或动画，不加公开API。宿主先发布新正式SDK，
+插件后消费，根仓最后集成；旧“无需宿主改动”的计划前提已被此证据推翻，明确修订。
+本地局部门：shadow单元红3/31→绿31/31，真实几何/交互64/64，新增四主题稳定trigger
+关闭/重开/滚动具名结果已由主控解析。232项根回归通过，新增门拒绝旧60及缺关系/缺
+稳定证据。完整宿主local-ci/镜像/SDK949/自身CI推广仍待执行，不称已发布。
+插件b32f560失败报告及两项强化测试保留，当前不消费候选、不继续推CI；其pane已清理。
+
+2026-10-31 CI职责迁移候选：根仓默认integration计划为85个基础流程UI加退出换号/运行时
+投影/撤权3项，共88；49个原视觉/组件项迁归plugin或overlay，不计root执行或skip。
+完整主题/抽屉/认证视觉循环及重复宿主参照测量已从根运行代码移除，N/T门改消费所属仓
+原始正式报告。plugin新增实际Chromium720（四主题×中英×三宽度×30行为），候选本地
+720/720与Java286、组件195通过，349个bundle文件逐字节等同jar；主控已亲核。
+插件提交b32f560已在最终HEAD重跑完整本地门并推送，自动CI41211531677失败：Java/PG/
+生命周期通过，Chromium713通过/7失败，桌面筛选滚动后关闭/重开断言失败。当前实际下载
+完整日志与artifact并按trace归因，不盲重触发、不删除断言，root不消费该失败产物。
+
+主控独立审查修复三项消费证据缺口：derive重验raw报告/hash/精确720计划，不信全绿摘要；
+宿主认证4份报告按精确主题/语言/宽度/页面ID核对156行，不允许同数替换；source/lock
+读取所选Git commit对象，bundle重算正式jar，SDK先绑定正式provenance，再从实际运行
+容器的executable复制并核对10份SDK文件。跨OS下载审计不使用原runner源码目录。
+220项根仓回归通过，含伪摘要、同数错误矩阵、自洽伪hash、未提交源码拒绝反例；
+静态计划、actionlint、原型校验通过。既有正式host认证156行和真实executable SDK布局
+已只读核实；新runtime复制路径仍须本次Compose实际运行。证据见`.work/ci-layering-20261031/`。
+此段仅说明候选进展，不将旧aec1ebd成功CI用于证明新分层交付。
+
+独立远端克隆按README完成正式host提取及clean check，Java286通过，jar仍为402a1388。
+主控Ego人工复核独立页面测试transport：原生抽屉双图标、20px body间距、保存图标及
+实际Escape关闭通过；实际视口1434，不计作720矩阵的1280样本，也不冒充生产授权。
+Ego任务已结束，自有静态server已停止，未升级浏览器。另核实Playwright HTML的
+`password=null`为zip库静态代码，会触发根通用凭据扫描；根不再重复上传这份上游HTML，
+原下载及插件正式HTML保留，JSON/manifest/诊断与本仓报告的凭据拒绝规则保持，新增
+实际workflow反例验证只排除不上传区域，不排除会上传的browser JSON。
+
+2026-10-31 维护者最新CI分层裁决：根仓只负责流程与部署集成，八组原生抽屉等完整视觉
+矩阵不应继续在根仓运行。此前“没有重跑上游基础测试”的结论仅描述调用链，不足以证明
+测试职责正确；原分层把插件尚无真实浏览器视觉门误留在root，现明确纠正。
+归属：overlay承接原生机制/SDK/通用认证页主题，plugin承接插件页面呈现与组件交互，
+root保留生产登录、实际业务保存读回、权限分离、退出换号、撤权与拒绝无副作用等流程。
+当前差异：plugin只有Happy DOM与组件回归，须先补独立Chromium视觉门及正式CI artifact；
+不得仅删除root矩阵或把上游SDK949当插件页面已通过。主控先实施所属仓门，再让root
+消费绑定正式版本的下载报告，并用不同ID/计数明确标识“上游验证”和“本仓执行”。
+计划与风险细项在`.work/ci-layering-20261031/root-plan.md`；当前状态为实施中，未发布，
+既有最终提交aec1ebd成功CI仅证明旧验收计划，不证明本次分层已交付。
+
 2026-10-31 根417ffe1自动CI41191909359已结束：完整Compose步骤成功，实际下载
 artifact13040643564（ZIP SHA-256 `46cd7e37365d03808aea5773ce45dfa1bea5dc186618cb8993b3d2c1e19e1b59`）
 报告completed=true，REST56/UI137/组合192全部通过，失败0、未运行0；owner容器/卷/网络0。

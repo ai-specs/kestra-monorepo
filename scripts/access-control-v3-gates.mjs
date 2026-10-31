@@ -1,8 +1,10 @@
 import assert from 'node:assert/strict'
 import {createHash} from 'node:crypto'
-import {accessControlUiGateInputs,accessControlCaseIds} from './access-control-v3-ui.mjs'
+import {accessControlUiGateInputs,accessControlCaseIds,accessControlAllUiCaseIds} from './access-control-v3-ui.mjs'
 import {accessControlV3RestCheckIds} from './access-control-v3-rest-cases.mjs'
 import {projectScopeCases,requiredProjectChecks,legacyMigrationChecks} from './application-project-cases.mjs'
+import {uiCaseOwner} from './access-control-ci-ownership.mjs'
+import {assertPluginUiBrowserReport,assertHostAuthenticationUiReports,assertStablePopupReferenceCases} from './published-ui-browser-evidence.mjs'
 
 const sha256=value=>createHash('sha256').update(value).digest('hex')
 const commitPattern=/^[0-9a-f]{40}$/
@@ -171,7 +173,26 @@ export function derive(report) {
     if(predicate)assert(predicate(current),'required operation evidence mismatch: '+id)
     return true
   })
-  const ui=id=>row(report?.ui,id,'report.ui',current=>{
+  const publishedSource=owner=>check('source:published-ui-'+owner,'report.sources.'+owner,()=>{
+    const gate=report.sources?.[owner]?.[owner==='plugin'?'downloadedBrowserUiGate':'downloadedAuthenticationUiGate']
+    if(!gate)return {status:'not_run',reason:'Required '+owner+' published browser evidence has not been downloaded'}
+    assert.equal(gate.commit,inputs[owner+'Commit']);assert.equal(gate.image,inputs.image)
+    assert(hashPattern.test(gate.sha256));assert(Number.isSafeInteger(gate.runId)&&gate.runId>0)
+    assert(Number.isSafeInteger(gate.artifactId)&&gate.artifactId>0)
+    assert(gate.validation?.passed===true&&gate.validation.failures===0&&gate.validation.notRun===0&&gate.validation.skipped===0)
+    if(owner==='plugin') {
+      assert.equal(gate.sha256,sha256(gate.rawReport))
+      assert.deepEqual(gate.validation,assertPluginUiBrowserReport(gate.rawReport,{commit:inputs.pluginCommit,image:inputs.image,hostExecutableSha256:gate.validation.inputs.hostExecutableSha256,manifestRaw:gate.rawManifest,expectedHashes:gate.expectedHashes}))
+      assert.equal(gate.jarUiBundleSha256,gate.expectedHashes.bundleSha256)
+    }else {
+      assert.equal(gate.sha256,sha256(JSON.stringify(gate.rawReports)))
+      assert.deepEqual(gate.validation,assertHostAuthenticationUiReports(gate.rawReports))
+    }
+    return true
+  })
+  const publishedUi=id=>check('published-ui:'+id,'report.sources.'+uiCaseOwner(id),()=>publishedSource(uiCaseOwner(id)))
+  const integration=report.fragments?.ui?.shared?.profile==='integration'||report.uiProfile==='integration'
+  const ui=id=>integration&&uiCaseOwner(id)!=='root'?publishedUi(id):row(report?.ui,id,'report.ui',current=>{
     if(!Boolean(current.source&&Object.keys(current.source).length||current.evidence&&Object.keys(current.evidence).length)||current.error)return false
     if(/^ui-drawer-(group|user|permission|subject)-maximize$/.test(id)) {
       const e=current.evidence
@@ -212,7 +233,7 @@ export function derive(report) {
         if(!a||!b||b.height<=0||b.width<=0||b.top<6||b.bottom>894||Math.abs(a.bottom-880)>3||b.bottom>a.top-3)return false
       }
     }
-    if(id==='ui-four-tabs-cards-counts') {
+    if(id==='ui-four-tabs-cards-counts'&&!integration) {
       const spacing=current.evidence?.countSpacing
       if(!Array.isArray(spacing)||spacing.length<3||spacing.some(value=>!Number.isFinite(value.token)||value.token<=0||!Number.isFinite(value.gap)||value.gap<value.token-1||!value.text?.startsWith(value.count+' ')))return false
       const headings=current.evidence?.headingLayout
@@ -350,6 +371,13 @@ export function derive(report) {
   const gates=[]
   for(let number=1;number<=12;number++) {
     const gate='T'+number,required=(accessControlUiGateInputs[gate]??[]).map(ui)
+    if(number===11&&integration)required.push(check('host:stable-popup-reference','report.sources.overlay.downloadedFilterGeometryGate',()=>{
+      const current=report.sources?.overlay?.downloadedFilterGeometryGate
+      if(!current)return {status:'not_run',reason:'Published stable popup reference evidence missing'}
+      assert.equal(current.commit,inputs.overlayCommit);assert.equal(current.image,inputs.image)
+      assert.equal(current.checks,64);assertStablePopupReferenceCases(current.stablePopupReferenceCases)
+      return true
+    }))
     if(number===3||number===9){required.push(root('access-control-v3-rest-fixture'));required.push(...accessControlV3RestCheckIds.filter(id=>id.startsWith('access-control-v3-'+gate+'-rest-')).map(root))}
     if(number===9)required.push(...restProbeRows(),root('management-target-action-cross-scope-denied'),root('wrong-application-group'),root('wrong-tenant'))
     if(number===5)required.push(...xmlSet('overlay','hostAccounts'),...xmlSet('overlay','hostPassword'),...xmlSet('plugin','pluginAccounts'),...xmlSet('plugin','pluginAudit'),root('wrong-issuer'))
@@ -373,7 +401,7 @@ export function derive(report) {
         for(const field of ['failures','errors','skipped'])assert.equal(current.evidence[field],0)
         return true
       }))
-      required.push(...accessControlCaseIds.map(ui),ui('ui-zero-grant-logout-switch'),ui('ui-permission-runtime-projection'),ui('ui-subject-runtime-revoke'))
+      required.push(...(integration?accessControlCaseIds:accessControlAllUiCaseIds).map(ui),ui('ui-zero-grant-logout-switch'),ui('ui-permission-runtime-projection'),ui('ui-subject-runtime-revoke'))
       required.push(...restProbeRows())
       for(const id of cleanupCheckIds)required.push(row(evidence.cleanup?.checks,id,'report.gateEvidence.cleanup.checks',current=>nonempty(current.sourceRef)&&current.evidence?.ownerVerified===true&&current.evidence.remaining===0))
       required.push(check('cleanup:root-resources','report.resources.cleaned',()=>report.resources?.cleaned===true?true:{status:'not_run',reason:'root owned-resource cleanup has not completed'}))

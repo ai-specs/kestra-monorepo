@@ -1,13 +1,14 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import {checkTranslationCatalogues,dynamicTranslationKeys} from '../access-control-translation-coverage.mjs'
-import {accessControlLocales,accessControlSupportedLocales,accessControlCaseIds} from '../access-control-v3-ui.mjs'
+import {accessControlLocales,accessControlSupportedLocales,accessControlCaseIds,accessControlTransferredUiCases} from '../access-control-v3-ui.mjs'
 
 const catalogues=()=>Object.fromEntries(accessControlSupportedLocales.map(locale=>[locale,{[locale]:{title:'Title',count:'Count {count}'}}]))
-test('business browser uses English/Chinese while published SDK retains thirteen locales',()=>{
+test('plugin owns English/Chinese visual matrix while root runs workflows and SDK retains thirteen locales',()=>{
   assert.deepEqual(accessControlLocales,['en','zh_CN'])
   assert.equal(accessControlSupportedLocales.length,13)
-  assert.equal(accessControlCaseIds.filter(id=>id.startsWith('ui-theme-language-')).length,8)
+  assert.equal(accessControlCaseIds.filter(id=>id.startsWith('ui-theme-language-')).length,0)
+  assert.equal(accessControlTransferredUiCases.filter(row=>row.id.startsWith('ui-theme-language-')&&row.owner==='plugin').length,8)
   assert.equal(13+4*accessControlSupportedLocales.length*3*6,949)
 })
 test('complete catalogues satisfy static coverage without claiming browser behavior',()=>assert.equal(checkTranslationCatalogues(catalogues(),['title']).length,13))

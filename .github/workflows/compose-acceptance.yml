@@ -17,9 +17,9 @@ concurrency:
 jobs:
   compose:
     runs-on: ubuntu-24.04
-    # Full 4-theme/English-Chinese/3-width business matrix; all 13 locales have key checks.
-    # plus REST/MCP and timed no-side-effect checks, must finish without truncation.
-    timeout-minutes: 360
+    # Production workflow/integration only. Independent repositories own their
+    # browser visual matrices; consume their immutable published reports instead.
+    timeout-minutes: 120
     env:
       ADMIN_UI_REPORT_DIR: ${{ github.workspace }}/.work/admin-ui
       BB_BROWSER_DRIVER: ci
@@ -262,12 +262,20 @@ jobs:
           roots = ['.work/ci', '.work/admin-ui', '.work/namespace', '.work/management', 'kestra-plugin-rbac/build/reports/tests', 'kestra-plugin-rbac/build/test-results']
           sensitive = re.compile(r'token|password|secret|cookie|authorization|Bearer|eyJ[A-Za-z0-9_-]+\.|Passw0rd|ReaderPass|WriterPass|BlockedPass|MultiPass|ExactPass|local-ci-only', re.I)
           published = pathlib.Path('.work/ci/plugin-artifact').resolve()
+          # The independent Playwright HTML application is not a root input and
+          # is excluded from this upload below. Its JS contains zip-library
+          # assignments such as password=null, not credential evidence. Keep
+          # the original download unchanged; scan every uploaded JSON/XML
+          # report path under the existing policy.
+          upstream_browser_html = published / '.evidence/ui-browser/html'
           credential_value = re.compile(r'Bearer\s+[A-Za-z0-9._~-]+|eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+|(?:password|client_secret|access_token|refresh_token)\s*=', re.I)
           for root in roots:
               for file in pathlib.Path(root).rglob('*'):
                   if not file.is_file() or file.suffix.lower() not in {'.log', '.txt', '.xml', '.html', '.json'}:
                       continue
                   if file.resolve().is_relative_to(published):
+                      if file.resolve().is_relative_to(upstream_browser_html):
+                          continue
                       # Preserve downloaded formal report bytes and their hashes.
                       # Test names mentioning passwords are not credentials.
                       # A secret-shaped published input must fail before upload.
@@ -300,6 +308,7 @@ jobs:
           include-hidden-files: true
           path: |
             .work/ci/
+            !.work/ci/plugin-artifact/.evidence/ui-browser/html/**
             .work/admin-ui/
             .work/management/**/api.json
             .work/management/**/ui-style.json

@@ -9,7 +9,8 @@ import {createHash} from 'node:crypto'
 import {dirname,resolve,sep} from 'node:path'
 import {readBrowserDiagnosticEvidence,canonicalDiagnosticLabels} from './browser-diagnostic-evidence.mjs'
 import {assertUiClientOwnership} from './ui-client-ownership-evidence.mjs'
-import {accessControlLocales,accessControlSupportedLocales} from './access-control-v3-ui.mjs'
+import {accessControlLocales,accessControlSupportedLocales,accessControlCaseIds,accessControlTransferredUiCases} from './access-control-v3-ui.mjs'
+import {assertPluginUiBrowserReport,assertHostAuthenticationUiReports,committedPluginUiHashes,aggregateUiHashes,assertStablePopupReferenceCases} from './published-ui-browser-evidence.mjs'
 import {checkPublishedTranslationSources} from './access-control-translation-coverage.mjs'
 import {classifyAccessControlDiagnostics} from './access-control-browser-diagnostics.mjs'
 
@@ -20,6 +21,7 @@ for (const commit of [rootCommit, overlayCommit, pluginCommit]) assert(/^[0-9a-f
 const content = readFileSync(file, 'utf8')
 assert(!/eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+/.test(content), 'Report contains a credential-shaped JWT')
 const report = JSON.parse(content)
+assert.equal(report.uiProfile,'integration','Root must execute the integration UI plan, not an independent visual matrix')
 assert.equal(report.schemaVersion, 1)
 assert(['new-install','legacy-migration'].includes(report.profile),'Explicit acceptance profile required')
 assert(Array.isArray(report.excludedChecks),'Explicit excluded check list required')
@@ -64,9 +66,28 @@ assert.equal(geometryGate.image,image,'Downloaded native filter geometry report 
 assert.equal(geometryGate.runId,sdkGate.runId,'Geometry and SDK reports must come from the same final run')
 assert.equal(geometryGate.artifactId,sdkGate.artifactId,'Geometry and SDK reports must come from the same downloaded artifact')
 assert.equal(geometryGate.buildId,sdkGate.buildId,'Geometry and SDK frozen builds differ')
-assert.equal(geometryGate.checks,60,'Complete native geometry matrix required')
+assert.equal(geometryGate.checks,64,'Complete native geometry and stable popup reference matrix required')
+assert.deepEqual(assertStablePopupReferenceCases(geometryGate.stablePopupReferenceCases),geometryGate.stablePopupReferenceCases)
 assert(/^[a-f0-9]{64}$/.test(geometryGate.sha256),'Downloaded native geometry report hash missing')
 const pluginUi=report.sources?.plugin?.downloadedUiTests
+const pluginBrowser=report.sources?.plugin?.downloadedBrowserUiGate
+assert.equal(pluginBrowser?.commit,pluginCommit);assert.equal(pluginBrowser.image,image)
+assert.equal(pluginBrowser.sha256,createHash('sha256').update(pluginBrowser.rawReport).digest('hex'))
+assert.equal(pluginBrowser.jarUiBundleSha256,pluginBrowser.validation.inputs.bundleSha256,'Browser bundle differs from selected formal jar')
+assert.equal(pluginBrowser.validation.inputs.hostExecutableSha256,report.stages.find(stage=>stage.id==='publication-gate').evidence.hostExecutableSha256,'Plugin browser host differs from selected published executable')
+const committedUi=committedPluginUiHashes(fileURLToPath(new URL('../kestra-plugin-rbac/',import.meta.url)),pluginCommit)
+assert.equal(pluginBrowser.expectedHashes.sourceSha256,committedUi.sourceSha256)
+assert.equal(pluginBrowser.expectedHashes.lockSha256,committedUi.lockSha256)
+assert.equal(pluginBrowser.expectedHashes.harnessSha256,committedUi.harnessSha256)
+assert.equal(report.resources.uiSdk.source,'actual-running-formal-host-executable')
+assert.equal(report.resources.uiSdk.hostExecutableSha256,report.resources.hostExecutableSha256)
+assert.equal(report.resources.uiSdk.sha256,aggregateUiHashes(report.resources.uiSdk.files))
+assert.equal(pluginBrowser.expectedHashes.sdkSha256,report.resources.uiSdk.sha256)
+assert.deepEqual(pluginBrowser.validation,assertPluginUiBrowserReport(pluginBrowser.rawReport,{commit:pluginCommit,image,hostExecutableSha256:pluginBrowser.validation.inputs.hostExecutableSha256,manifestRaw:pluginBrowser.rawManifest,expectedHashes:pluginBrowser.expectedHashes}))
+const authBrowser=report.sources?.overlay?.downloadedAuthenticationUiGate
+assert.equal(authBrowser?.commit,overlayCommit);assert.equal(authBrowser.image,image)
+assert.equal(authBrowser.sha256,createHash('sha256').update(JSON.stringify(authBrowser.rawReports)).digest('hex'))
+assert.deepEqual(authBrowser.validation,assertHostAuthenticationUiReports(authBrowser.rawReports))
 assert.equal(pluginUi?.commit,pluginCommit,'Downloaded plugin UI report does not match final commit')
 assert(Number.isSafeInteger(pluginUi.tests)&&pluginUi.tests>=195,'Complete downloaded plugin UI regressions required')
 assert.equal(pluginUi.cases?.length,pluginUi.tests,'Plugin UI case count differs from downloaded JUnit')
@@ -261,6 +282,8 @@ assert.deepEqual(translations,checkPublishedTranslationSources({pluginRoot:fileU
 assert.equal(translations.pluginCommit,pluginCommit)
 assert.equal(translations.jarSha256,jarSha256)
 assert.deepEqual(translations.browserLocales,[...accessControlLocales])
+assert.equal(translations.browserMatrixOwner,'plugin')
+assert.equal(translations.rootBrowserProfile,'integration')
 assert.deepEqual(translations.locales.map(row=>row.locale),[...accessControlSupportedLocales])
 assert.deepEqual(translations.excludedBrowserLocales.map(row=>row.locale),accessControlSupportedLocales.filter(locale=>!accessControlLocales.includes(locale)))
 for(const row of translations.locales){assert(row.keys>0);for(const key of ['missing','extra','empty','placeholderMismatches'])assert.equal(row[key],0);assert.equal(row.fallbackRequired,false)}
@@ -278,5 +301,8 @@ for (const row of report.ui) {
     assert(row.computedStyles && row.translation && row.keyboardFocus && row.noHorizontalOverflow, `Incomplete actual browser evidence ${key}`)
   }
 }
-assert.equal(combinations.size, 4*accessControlLocales.length, 'Full four-theme English/Chinese browser matrix missing')
-console.log(`PASS final composition (${report.profile}): REST ${expectedRows}, required integration ${profileRequiredChecks.length}, browser theme/language ${combinations.size}, translation catalogues ${translations.locales.length}; zero failure/skip`)
+assert.equal(combinations.size,0,'Root must not re-execute independent repository theme/language matrices')
+assert.deepEqual(report.fragments.ui.shared.planned,[...accessControlCaseIds])
+assert.deepEqual(report.fragments.ui.shared.transferredChecks,accessControlTransferredUiCases)
+assert.deepEqual(report.ui.map(row=>row.name??row.case),[...accessControlCaseIds,'ui-zero-grant-logout-switch','ui-permission-runtime-projection','ui-subject-runtime-revoke'])
+console.log(`PASS final composition (${report.profile}): REST ${expectedRows}, required integration ${profileRequiredChecks.length}, production UI ${report.ui.length}; independently published plugin UI ${pluginBrowser.validation.cases}, host authentication UI ${authBrowser.validation.cases}; zero failure/skip`)

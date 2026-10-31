@@ -35,6 +35,7 @@ import {derive as deriveAccessControlGates,lifecycleXmlInputs,parseLifecycleJUni
 import {runAccessControlV3Transactions} from './access-control-v3-transactions.mjs'
 import {createOwnedAccessControlUiControls} from './access-control-v3-ui-controls.mjs'
 import {assertApplicationGroupPluginEntries,assertApplicationGroupSchemaTables} from './application-group-artifact-contract.mjs'
+import {assertPluginUiBrowserReport,assertHostAuthenticationUiReports,committedPluginUiHashes,aggregateUiHashes,assertStablePopupReferenceCases,stablePopupReferenceCaseName} from './published-ui-browser-evidence.mjs'
 
 /** Development can relax only root cleanliness, never independent release inputs. */
 export function assertApplicationProjectSources(sources,{allowDirtyRoot=false}={}) {
@@ -140,12 +141,12 @@ export async function main(argv=process.argv.slice(2),runtime={}) {
         command('node',['--check',join(repository,'scripts',file)])
         report.staticChecks.push({file,sha256:hash(readFileSync(join(repository,'scripts',file))),syntax:true})
       }
-      for(const file of ['access-control-v3-ui.mjs','access-control-v3-rest-cases.mjs','access-control-v3-maintenance.mjs','access-control-v3-frozen.mjs','access-control-v3-dependency.mjs','access-control-v3-gates.mjs','access-control-v3-transactions.mjs','access-control-v3-ui-controls.mjs','access-control-v3-browser-runtime.mjs']) {
+      for(const file of ['access-control-v3-ui.mjs','access-control-ci-ownership.mjs','published-ui-browser-evidence.mjs','access-control-v3-rest-cases.mjs','access-control-v3-maintenance.mjs','access-control-v3-frozen.mjs','access-control-v3-dependency.mjs','access-control-v3-gates.mjs','access-control-v3-transactions.mjs','access-control-v3-ui-controls.mjs','access-control-v3-browser-runtime.mjs']) {
         command('node',['--check',join(repository,'scripts',file)])
         report.staticChecks.push({file,sha256:hash(readFileSync(join(repository,'scripts',file))),syntax:true})
       }
       assert.equal(report.matrix.length,56,'shared REST matrix changed; review integration')
-      assert.equal(report.ui.filter(row=>row.case==='theme-language').length,4*applicationProjectUiLocales.length,'full English/Chinese theme matrix required')
+      assert.equal(report.ui.filter(row=>row.case==='theme-language').length,0,'Visual theme matrix belongs to independent CI, not root integration')
       const planned=planFixture('http://localhost:18128')
       const observerTriggers=planned.policy.applicationGroups[applicationProject].scopes[planned.observerScope].grants.filter(grant=>grant.resource==='TRIGGER')
       assert.deepEqual(observerTriggers,[namespaceDomains.a,namespaceDomains.b,namespaceDomains.outside,namespaceDomains.a+'2'].map(namespace=>({
@@ -263,12 +264,12 @@ export async function main(argv=process.argv.slice(2),runtime={}) {
       assert.equal(geometry.completed,true,'Final host native filter geometry gate did not complete')
       assert.equal(geometry.candidateImage,report.inputs.image,'Filter geometry used another image')
       assert.equal(geometry.build?.buildId,sdkReport.build?.buildId,'Geometry and SDK949 inputs differ')
-      assert.equal(geometry.checks?.length,60,'Complete native filter geometry matrix required')
+      assert.equal(geometry.checks?.length,64,'Complete native filter geometry and stable popup reference matrix required')
       assert(geometry.checks.every(row=>row.passed===true&&!row.error),'Native filter geometry has failed or missing checks')
       const geometryIds=geometry.checks.map(row=>row.theme+'/'+row.width+'/'+row.name)
-      assert.equal(new Set(geometryIds).size,60,'Duplicate native geometry cases')
+      assert.equal(new Set(geometryIds).size,64,'Duplicate native geometry cases')
       for(const theme of ['light','dark','dark-2','system'])for(const width of [1280,390]) {
-        const expected=['two-owned-native-filter-instances','native-condition-and-nested-select-escape','rules-pill-reopen-scroll-resize',...(width===1280?['direct-chip-and-add-filter-autoopen-retain-native-position']:[]),...(width===390?['mobile-bottom-anchor-flip','mobile-offscreen-anchor-clamp','mobile-boundary-reopen-resize']:[]),...(width===1280?['desktop-bottom-anchor-flip','desktop-offscreen-anchor-clamp','desktop-boundary-expand-reopen-resize']:[]),'dispose-cleans-owned-layers-and-listeners']
+        const expected=['two-owned-native-filter-instances','native-condition-and-nested-select-escape','rules-pill-reopen-scroll-resize',...(width===1280?['direct-chip-and-add-filter-autoopen-retain-native-position',stablePopupReferenceCaseName]:[]),...(width===390?['mobile-bottom-anchor-flip','mobile-offscreen-anchor-clamp','mobile-boundary-reopen-resize']:[]),...(width===1280?['desktop-bottom-anchor-flip','desktop-offscreen-anchor-clamp','desktop-boundary-expand-reopen-resize']:[]),'dispose-cleans-owned-layers-and-listeners']
         assert.deepEqual(geometry.checks.filter(row=>row.theme===theme&&row.width===width).map(row=>row.name),expected,'Native geometry case coverage changed')
       }
       assert.equal(geometry.driverSha256,hash(readFileSync(join(report.sources.overlay.path,'scripts/blackbox-filter-geometry.cjs'))),'Downloaded geometry driver differs from final host source')
@@ -281,8 +282,17 @@ export async function main(argv=process.argv.slice(2),runtime={}) {
       assert.equal(geometry.finalInputHashesEqual,true,'Geometry frozen build changed during execution')
       assert(Array.isArray(geometry.diagnostics)&&geometry.diagnostics.length===8,'Native geometry diagnostic sources missing')
       assert(!geometry.diagnostics.flatMap(snapshot=>snapshot.events??[]).some(event=>['console-error','page-error','http-error','request-failed','diagnostic-integrity-error'].includes(event.kind)),'Native geometry has browser errors')
-      report.sources.overlay.downloadedFilterGeometryGate={runId:evidence.overlayRunId,artifactId:sdkArtifacts[0].id,commit:report.inputs.overlayCommit,path:geometryPath,sha256:hash(geometryBytes),buildId:geometry.build.buildId,checks:60,image:geometry.candidateImage}
+      const stablePopupReferenceCases=assertStablePopupReferenceCases(geometry.checks)
+      report.sources.overlay.downloadedFilterGeometryGate={runId:evidence.overlayRunId,artifactId:sdkArtifacts[0].id,commit:report.inputs.overlayCommit,path:geometryPath,sha256:hash(geometryBytes),buildId:geometry.build.buildId,checks:64,stablePopupReferenceCases,image:geometry.candidateImage}
       report.sources.overlay.downloadedSdkBrowserGate={runId:evidence.overlayRunId,artifactId:sdkArtifacts[0].id,commit:report.inputs.overlayCommit,jobId:sdkJobs[0].databaseId,path:sdkReportPath,sha256:hash(sdkReportBytes),matrixSha256:sdkMatrixSha256,buildId:sdkReport.build?.buildId,passed:949,failures:0,notRun:0,image:sdkReport.candidateImage}
+      const authArtifacts=sdkArtifactList.artifacts.filter(item=>item.name==='authentication-theme-browser'&&!item.expired)
+      assert.equal(authArtifacts.length,1,'Required host authentication UI browser evidence missing')
+      const authArtifact=authArtifacts[0];assert.equal(authArtifact.workflow_run?.head_sha,report.inputs.overlayCommit)
+      const authDirectory=join(output,'downloaded-host-auth-ui');mkdirSync(authDirectory,{mode:0o700})
+      command('gh',['run','download',String(evidence.overlayRunId),'-R','ai-specs/kestra-overlay','--name','authentication-theme-browser','--dir',authDirectory],{timeout:180000})
+      const authReports=Object.fromEntries(['auth-theme-env.json','auth-theme-setup.json','auth-i18n-env.json','auth-i18n-setup.json'].map(name=>[name,readFileSync(join(authDirectory,name),'utf8')]))
+      const authValidation=assertHostAuthenticationUiReports(authReports)
+      report.sources.overlay.downloadedAuthenticationUiGate={runId:evidence.overlayRunId,artifactId:authArtifact.id,commit:report.inputs.overlayCommit,image:report.inputs.image,sha256:hash(JSON.stringify(authReports)),rawReports:authReports,validation:authValidation}
       assert(Number.isSafeInteger(evidence.pluginArtifactId),'explicit plugin artifact ID required')
       const artifact=JSON.parse(command('gh',['api','repos/ai-specs/kestra-plugin-rbac/actions/artifacts/'+evidence.pluginArtifactId]))
       assert.equal(artifact.name,'kestra-rbac-authorizer');assert.equal(artifact.expired,false)
@@ -300,6 +310,15 @@ export async function main(argv=process.argv.slice(2),runtime={}) {
         command('gh',['run','download',String(evidence.pluginRunId),'-R','ai-specs/kestra-plugin-rbac','--name','kestra-rbac-authorizer','--dir',downloaded],{timeout:180000})
       }
       const jar=join(downloaded,'build/libs/kestra-rbac-authorizer.jar')
+      const browserUiRaw=readFileSync(join(downloaded,'.evidence/ui-browser/report.json'),'utf8')
+      const browserManifestRaw=readFileSync(join(downloaded,'.evidence/ui-browser/manifest.json'),'utf8')
+      const browserHostProvenance=JSON.parse(readFileSync(join(downloaded,'.integration/host-provenance.json'),'utf8'))
+      const jarUiBundle=JSON.parse(command('python3',['-c',
+        'import hashlib,json,sys,zipfile\nwith zipfile.ZipFile(sys.argv[1]) as z:\n files={n[len("ui-extensions/rbac/"):]:hashlib.sha256(z.read(n)).hexdigest() for n in z.namelist() if n.startswith("ui-extensions/rbac/") and not n.endswith("/") and n!="ui-extensions/rbac/manifest.json"}\n assert files\n print(json.dumps({"files":files,"sha256":hashlib.sha256("\\n".join(k+"\\0"+v for k,v in sorted(files.items())).encode()).hexdigest()}))',jar]))
+      const browserExpectedHashes={...committedPluginUiHashes(report.sources.plugin.path,report.inputs.pluginCommit),sdkSha256:aggregateUiHashes(browserHostProvenance.uiSdk.files),bundleSha256:jarUiBundle.sha256}
+      const browserUiValidation=assertPluginUiBrowserReport(browserUiRaw,{commit:report.inputs.pluginCommit,image:report.inputs.image,hostExecutableSha256:browserHostProvenance.sha256,manifestRaw:browserManifestRaw,expectedHashes:browserExpectedHashes})
+      assert.equal(jarUiBundle.sha256,browserUiValidation.inputs.bundleSha256,'Plugin browser did not test the actual published jar UI bundle')
+      report.sources.plugin.downloadedBrowserUiGate={runId:evidence.pluginRunId,artifactId:artifact.id,commit:report.inputs.pluginCommit,image:report.inputs.image,sha256:hash(browserUiRaw),rawReport:browserUiRaw,rawManifest:browserManifestRaw,jarUiBundleSha256:jarUiBundle.sha256,expectedHashes:browserExpectedHashes,validation:browserUiValidation}
       for(const name of ['build/libs/kestra-rbac-authorizer.jar','.integration/host-provenance.json','.evidence','build/reports/tests/test','build/test-results/test'])assert(statSync(join(downloaded,name)),'downloaded artifact layout incomplete: '+name)
       assert(readdirSync(join(downloaded,'.evidence')).length,'hidden evidence omitted from artifact')
       const unitGate=command('python3',[join(report.sources.plugin.path,'scripts/check-application-project-tests.py'),join(downloaded,'.evidence/unit/results')])
@@ -464,6 +483,14 @@ export async function main(argv=process.argv.slice(2),runtime={}) {
       const hostSha=command('docker',['exec',ids.kestra,'sha256sum','/app/kestra']).split(/\s+/)[0]
       assert.equal(hostSha,report.stages.find(row=>row.id==='publication-gate').evidence.hostExecutableSha256,'running host executable differs from downloaded plugin provenance')
       report.resources.runningImageId=imageId;report.resources.hostExecutableSha256=hostSha
+      const hostExecutable=join(output,'running-host.jar')
+      command('docker',['cp',ids.kestra+':/app/kestra',hostExecutable])
+      assert.equal(hash(readFileSync(hostExecutable)),hostSha)
+      const sdkFiles=JSON.parse(command('python3',['-c',
+        'import hashlib,json,sys,zipfile\nwith zipfile.ZipFile(sys.argv[1]) as z:\n prefix="META-INF/kestra/ui-sdk/v1/"\n files={n[len(prefix):]:hashlib.sha256(z.read(n)).hexdigest() for n in z.namelist() if n.startswith(prefix) and not n.endswith("/")}\n assert files\n print(json.dumps(files))',hostExecutable]))
+      const runtimeSdkSha256=aggregateUiHashes(sdkFiles)
+      assert.equal(runtimeSdkSha256,report.sources.plugin.downloadedBrowserUiGate.expectedHashes.sdkSha256,'Plugin browser SDK differs from actual selected host executable')
+      report.resources.uiSdk={source:'actual-running-formal-host-executable',hostExecutableSha256:hostSha,files:sdkFiles,sha256:runtimeSdkSha256}
       const runningEnvironment=JSON.parse(command('docker',['inspect','-f','{{json .Config.Env}}',ids.kestra]))
       assert(runningEnvironment.includes('KESTRA_JDBC_QUEUE_CLEANER_RETENTION=24h'),'long-running acceptance must preserve queue evidence for24h')
       assert(!runningEnvironment.some(value=>/^KESTRA_JDBC_QUEUE_CLEANER_(?:INITIAL_DELAY|FIXED_DELAY)=/.test(value)),'queue cleaner schedule must remain enabled and unchanged')

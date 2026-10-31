@@ -11,7 +11,7 @@ import {applicationProject,scopeNames} from './application-project-cases.mjs'
 import {ProductionOAuthClient} from './production-oauth-client.mjs'
 import {runTargetGroupBrowser,targetUiCheckIds} from './application-project-target-ui.mjs'
 import {flowSource} from './application-project-fixture.mjs'
-import {applicationProjectUiLocales,applicationProjectUiThemes,applicationProjectUiCaseIds,sanitizeApplicationProjectUiEvidence,waitForNativeStyleSettlement} from './application-project-ui-cases.mjs'
+import {applicationProjectUiLocales,applicationProjectUiCaseIds,sanitizeApplicationProjectUiEvidence} from './application-project-ui-cases.mjs'
 import {createEgoApplicationProjectAdapter,runApplicationProjectBrowser} from './application-project-browser-adapters.mjs'
 import {assertUiClientOwnership} from './ui-client-ownership-evidence.mjs'
 import {loggedOutCapabilityDenials} from './zero-grant-logout-diagnostics.mjs'
@@ -189,7 +189,7 @@ export function uiFilterPlans(records) {
   return plans
 }
 
-export function uiBrowserFixture({base,admin,zeroAccount,clientId,subject,records,referenceEvidence}) {
+export function uiBrowserFixture({base,admin,zeroAccount,clientId,subject,records}) {
   const pagination=Object.fromEntries(Object.entries({projects:'id',scopes:'key',clients:'clientId',assignments:'subject'}).map(([section,field])=>[section,records[section][25][field]]))
   return {admin:copy(admin),zeroAccount:copy(zeroAccount),applicationGroupId:applicationProject,currentApplicationClientId:'kestra-ui',scope:uiScopeNames.edit,clientId,subject,newScopeKey:'acceptance-ui-declared-empty',referenceScopeKey:uiScopeNames.reference,referenceNamespace:uiNamespaces.reference,
     edit:{description:'UI saved explicit namespace/action change',namespace:uiNamespaces.edited,actions:['READ','UPDATE']},
@@ -198,7 +198,7 @@ export function uiBrowserFixture({base,admin,zeroAccount,clientId,subject,record
       locales:Object.fromEntries(applicationProjectUiLocales.map(locale=>[locale,[click('.settings-block:last-child .setting-row:first-child .kel-select__wrapper'),option(uiLanguageNames[locale])]]))},
     localeText:copy(uiLocaleText),translationEvidence:{kind:'target-wording-expectations',status:'runtime-validation-required',artifactBinding:'parent acceptance image and jar hashes'},
     references:{mcpPath:'/ui/main/admin/mcp-servers/edit/default/edit',namespacesPath:'/ui/main/namespaces',flowsPath:'/ui/main/flows',kvPath:'/ui/main/kv',tab:'#tab-edit',button:'button.kel-button--primary',search:'.ks-search input',tableHeader:'.kel-table th',tableCell:'.kel-table tbody td'},
-    records:copy(records),referenceEvidence,pagination,filters:uiFilterPlans(records),filterEvidence:{status:'candidate-public-component-structure; runtime DOM not yet verified',components:['CustomizeFilters','AdvancedFilterBuilder','ConditionRow'],package:'@kestra-io/design-system',version:'0.5.0'},
+    records:copy(records),pagination,filters:uiFilterPlans(records),filterEvidence:{status:'production-query-and-result-flow; geometry belongs to published plugin UI gate',components:['CustomizeFilters','AdvancedFilterBuilder','ConditionRow'],package:'@kestra-io/design-system',version:'0.5.0'},
     expectedRequestErrors:[],
     base,expectedBrowserErrors:[]}
 }
@@ -340,7 +340,7 @@ async function prepareUiData({base,management,planned,completedFragments,isolati
     for(const [section,items]of Object.entries(records))assert(items.length>25,'insufficient real UI data: '+section)
     for(const scope of [scopeNames.identityManager,scopeNames.policyManager])equal(await management.request(api+'/application-groups/'+applicationProject+'/scopes/'+encodeURIComponent(scope)),protectedScopes[scope])
     for(const [scope,definition]of Object.entries(baseline))equal(planned.policy.applicationGroups[applicationProject].scopes[scope],definition)
-    const fixture=uiBrowserFixture({base,admin:planned.admin,zeroAccount:zero,clientId:clients[0],subject:subjects[0],records,referenceEvidence:{status:'measure-current-formal-host-through-same-adapter; no historical styles consumed'}})
+    const fixture=uiBrowserFixture({base,admin:planned.admin,zeroAccount:zero,clientId:clients[0],subject:subjects[0],records})
     fixture.unassignedClientId=unassignedClientId
     fixture.accessAccounts=accessAccounts
     fixture.frozenUiBaseline=completedFragments.frozenUiBaseline??null
@@ -437,7 +437,7 @@ export async function runPreparedApplicationProjectUi(adapter,base,fixture,recor
   }
   let failure
   await record(copy(report))
-  try{await runApplicationProjectBrowser(adapter,base,fixture,async fragment=>{merge(fragment);await record(copy(report))});report.currentHostReferences=await measureCurrentHostReferences(adapter,base,fixture,async evidence=>{report.currentHostReferences=evidence;await record(copy(report))});await record(copy(report))}catch(error){failure=error;report.failure=safe(error)}
+  try{await runApplicationProjectBrowser(adapter,base,fixture,async fragment=>{merge(fragment);await record(copy(report))});await record(copy(report))}catch(error){failure=error;report.failure=safe(error)}
   try{report.zeroGrant=await runZeroGrantBrowser(adapter,base,fixture)}catch(error){report.zeroGrant={case:'ui-zero-grant-logout-switch',passed:false,status:'failed',error:safe(error)};failure??=error;await adapter.captureFailure(error,'zero-grant-browser-failure')}
   finally{
     report.ui.push(report.zeroGrant)
@@ -483,14 +483,10 @@ export function uiRootChecks(report) {
     'ui-zero-grant-logout-switch':['ui-zero-grant-logout-switch'],
     'ui-permission-runtime-projection':['ui-permission-runtime-projection'],
     'ui-subject-runtime-revoke':['ui-subject-runtime-revoke'],
-    'ui-narrow':applicationProjectUiThemes.flatMap(theme=>applicationProjectUiLocales.map(locale=>'ui-theme-language-'+theme+'-'+locale)),
     'ui-filter-search-pagination':['ui-filter-any-and-deeplink','ui-pagination-total-snapshot','ui-sidebar-search-pagination','ui-card-search-pagination','ui-filter-native-deeplink-coexistence','ui-filter-native-history',...applicationProjectUiCaseIds.filter(name=>name.startsWith('ui-native-filter-'))],
-    'ui-empty-loading-error-conflict':['ui-empty-grants-no-policy-change','ui-scope-create-delete-reference-guard','ui-409-412-no-side-effects','ui-loading-transition','ui-403-no-side-effects','ui-503-retry-no-side-effects'],
+    'ui-empty-loading-error-conflict':['ui-empty-grants-no-policy-change','ui-scope-create-delete-reference-guard','ui-409-412-no-side-effects','ui-403-no-side-effects','ui-503-retry-no-side-effects'],
   }
   for(const name of applicationProjectUiCaseIds.filter(name=>!name.startsWith('ui-theme-language-')))groups[name]??=[name]
-  for(const theme of applicationProjectUiThemes)groups['ui-'+theme]=applicationProjectUiLocales.map(locale=>'ui-theme-language-'+theme+'-'+locale)
-  groups['ui-languages']=applicationProjectUiThemes.flatMap(theme=>groups['ui-'+theme])
-  groups['ui-keyboard-focus']=[...groups['ui-languages'],'ui-four-drawers-focus-discard','ui-four-drawers-draft-discard']
   return Object.entries(groups).map(([id,names])=>{
     const selected=names.map(name=>rows.find(row=>(row.name??row.case)===name))
     const passed=selected.every(row=>row?.passed===true&&row.status==='passed')
@@ -511,31 +507,4 @@ export async function runRootApplicationProjectWithEgo(page,argv,{artifactDirect
     const {main}=await import('./blackbox-application-projects.mjs')
     return await main(argv,{uiAdapter:adapter,onReport})
   } finally {await adapter.dispose()}
-}
-
-/** Measure the current deployment using the SAME authenticated adapter after
- * canonical login has already been asserted by the shared matrix. Shared cases
- * additionally measure these pages during EACH theme/language combination.
- */
-export async function measureCurrentHostReferences(adapter,base,fixture,record=async()=>{}) {
-  const definitions=[['mcp',fixture.references.mcpPath,{tab:fixture.references.tab,button:fixture.references.button}],['namespaces',fixture.references.namespacesPath,{search:fixture.references.search}],['flows',fixture.references.flowsPath,{header:fixture.references.tableHeader,cell:fixture.references.tableCell}]]
-  const measured={status:'running',pages:[]}
-  const known=new Set((await adapter.diagnostics()).events.map(event=>event.id))
-  await record(copy(measured))
-  for(const [kind,path,selectors]of definitions) {
-    await adapter.goto(new URL(path,base).href)
-    await adapter.waitForFunction(({path,selectors})=>location.pathname===path&&Object.values(selectors).every(selector=>{const node=document.querySelector(selector);return node&&node.getClientRects().length>0}),{path,selectors})
-    await waitForNativeStyleSettlement(adapter,selectors,{shadow:false})
-    const evidence=await adapter.evaluate(({selectors})=>({path:location.pathname,url:location.href,timeOrigin:performance.timeOrigin,styles:Object.fromEntries(Object.entries(selectors).map(([name,selector])=>{
-      const node=document.querySelector(selector),style=getComputedStyle(node),box=node.getBoundingClientRect()
-      return [name,{selector,tag:node.tagName,role:node.getAttribute('role'),text:node.textContent.trim(),fontFamily:style.fontFamily,fontSize:style.fontSize,fontWeight:style.fontWeight,color:style.color,background:style.backgroundColor,padding:style.padding,borderRadius:style.borderRadius,borderBottomStyle:style.borderBottomStyle,borderBottomWidth:style.borderBottomWidth,width:box.width,height:box.height}]
-    }))}),{selectors})
-    assert.equal(evidence.path,path);measured.pages.push({kind,...evidence});await record(copy(measured))
-  }
-  measured.events=(await adapter.diagnostics()).events.filter(event=>!known.has(event.id))
-  const navigationAborts=measured.events.filter(event=>event.kind==='request-failed'&&event.message==='net::ERR_ABORTED'&&event.url.startsWith('https://api.kestra.io/v1/feeds?')&&measured.events.some(request=>request.kind==='request'&&request.requestId===event.requestId&&request.documentId===event.documentId&&request.url===event.url)&&measured.events.some(next=>next.kind==='document-navigation'&&next.documentId!==event.documentId&&Math.abs(Date.parse(next.observedAt)-Date.parse(event.observedAt))<1000))
-  measured.expectedErrorEventIds=navigationAborts.map(event=>event.id)
-  const failures=measured.events.filter(event=>['console-error','page-error','http-error','request-failed','diagnostic-integrity-error'].includes(event.kind)&&!navigationAborts.includes(event))
-  if(failures.length){measured.status='failed';await record(copy(measured));throw new Error('current host reference pages produced source-attributed errors')}
-  measured.status='measured-current-runtime';await record(copy(measured));return measured
 }

@@ -13,6 +13,7 @@ export function initialEvidence({legacyMigration=false}={}) {
   assert.equal(typeof legacyMigration,'boolean','explicit boolean migration profile required')
   return {
     profile:legacyMigration?'legacy-migration':'new-install',
+    uiProfile:'integration',
     excludedChecks:legacyMigration?[]:legacyMigrationChecks.map(id=>({id,reason:'Historical schema1 migration is outside the new-install profile'})),
     matrix:projectScopeCases.flatMap(item=>item.probes.map((probe,probeIndex)=>({transport:'rest',caseId:item.id,probeIndex,expectedAllowed:probe.allowed,resource:{tenant:'main',namespace:probe.namespace,resource:probe.resource,action:probe.action,...(probe.resourceId?{id:probe.resourceId}:{})},passed:false,status:'not_run',observed:{}}))),
     checks:[...new Set([...requiredProjectChecks,...(legacyMigration?legacyMigrationChecks:[]),...plannedMcpCheckIds,...accessControlV3RestCheckIds])].map(id=>({id,passed:false,status:'not_run',evidence:{}})),
