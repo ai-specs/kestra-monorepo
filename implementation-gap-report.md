@@ -1,5 +1,12 @@
 # 应用组目标模型实施差异报告
 
+2026-11-01 root3ae59de首次integration本地实际REST56/UI87通过，1诊断失败，0未运行；
+退出换号/运行时撤权及owner资源清理通过。错误来自旧dashboard的精确preview POST，
+已收200后body在同文档卸载取消，唯一对应request/response/abort与紧随新文档导航均保留。
+新增窄来源分类须同文档、唯一preview200取消、100ms、已证实卸载及宿主mf-shared日志栈；
+不忽略业务写入/未知错误。237离线及原始全事件只读重放错误0，原报告保持失败。
+首次总时长约40分钟，非完整通过；本次诊断修正后仍重新执行完整integration并等待最终CI。
+
 2026-11-01 插件最终33f2c09的CI41229212687成功，artifact13053656532实际下载ZIP
 SHA bf5a71a5...1f1f0f，jar f0790514...ee16。主控重算实际ZIP与jar、解析正式720完整
 精确ID/参数及源码/lock/harness/SDK/bundle绑定，286/108/24/195与升级8/首装3均通过。

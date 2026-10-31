@@ -139,3 +139,9 @@ for(const [name,mutate]of [
   ['wrong canonical group',events=>{events[4].url=base+'/ui/main/extensions/rbac/application-groups/other/applications/~YQ'}],
   ['late replacement',events=>{events[3].observedAt=time(5000)}],
 ])test(name+' cannot excuse cancelled capabilities',()=>{const events=canonicalCapabilities();mutate(events);assert(run(events).errors.some(event=>event.id==='abort'))})
+test('dashboard 200 body-read abort requires unique exact preview response and actual unload',()=>{
+ const url=base+'/api/v1/main/dashboards/charts/preview',doc=base+'/ui/main/dashboards?filters[timeRange][EQUALS]=PT24H'
+ const r={...request,url,method:'POST',documentUrl:doc},response={...r,id:'response',kind:'http-response',status:200,observedAt:time(90)},a={...abort,url,method:'POST',documentUrl:doc},c=event('console','console-error',{requestId:undefined,documentUrl:doc,message:'TypeError: 200 Failed to fetch',stack:[{url:base+'/ui/assets/mf-shared-frozen.js',functionName:'logError',line:0}]})
+ const events=[r,response,a,c,navigation];assert.equal(run(events).errors.length,0)
+ for(const mutate of [e=>e.splice(1,1),e=>{e[1].status=403},e=>e.pop(),e=>{e[3].documentId='other'},e=>{e[3].stack[0].url=base+'/ui/assets/plugin.js'},e=>{e[3].observedAt=time(5000)},e=>{e[0].url=e[1].url=e[2].url=base+'/api/v1/main/flows'}]){const copy=structuredClone(events);mutate(copy);assert(run(copy).errors.length>0)}
+})
