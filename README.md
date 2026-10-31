@@ -228,7 +228,10 @@ cp /tmp/kestra-rbac-artifact/build/libs/kestra-rbac-authorizer.jar deployment/li
 `--allow-dirty-root` 只用于开发，始终输出 `nonFinal=true`、`completed=false`，不得用于交付。
 失败和未执行项保留在报告中，不计为通过。
 隔离测试将 pending client 的保留时间设为协议允许的 120 分钟，并通过真实 owner 同意和
-S256 换码激活需要编辑的测试 client；该设置不改变生产 Compose 的注册默认值。
+S256 换码激活完整分页目录中的每一个长期测试 client，并逐个读回owner-only详情。
+不能仅激活需要直接编辑的前两个：目录更新会核对整个应用组，其他pending过期也会使
+长时验收恢复失败。准备门和最终报告门核对完整登记集合与激活集合完全一致，不延长期限
+或关闭清理器；该设置不改变生产 Compose 的注册默认值。
 完整主题/语言/三宽度矩阵运行数小时。隔离验收将队列证据保留期设为24小时，保留
 清理器原调度，避免一小时历史事件过期改变拒绝操作的前后hash；实际容器环境必须核对。
 该设置不改变生产Compose、不丢弃队列记录、不放宽入队或持久状态相等断言。

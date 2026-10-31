@@ -8,6 +8,7 @@ import {derive as deriveAccessControlGates,assertHostHttpOriginReport} from './a
 import {createHash} from 'node:crypto'
 import {dirname,resolve,sep} from 'node:path'
 import {readBrowserDiagnosticEvidence,canonicalDiagnosticLabels} from './browser-diagnostic-evidence.mjs'
+import {assertUiClientOwnership} from './ui-client-ownership-evidence.mjs'
 import {accessControlLocales,accessControlSupportedLocales} from './access-control-v3-ui.mjs'
 import {checkPublishedTranslationSources} from './access-control-translation-coverage.mjs'
 import {classifyAccessControlDiagnostics} from './access-control-browser-diagnostics.mjs'
@@ -237,6 +238,8 @@ assert.equal(missingProvider.authorizationDenied.protocolStateUnchanged,true,'Mi
 assert.equal(missingProvider.oldSessionRejected,true,'Previously allowed MCP session must fail closed without provider')
 const combinations = new Set()
 const browser=report.fragments?.ui?.shared
+assert.equal(report.fragments.uiPreparation?.completed,true,'Complete UI preparation missing')
+assert.deepEqual(report.fragments.uiPreparation.catalogueOwnership,assertUiClientOwnership(report.fragments.uiPreparation.events),'Long-running catalogue ownership evidence differs')
 const references=[report.fragments?.ui?.adapterDiagnostics,browser?.adapterDiagnostics].filter(Boolean)
 assert(references.length>=1,'Immutable final adapter diagnostics missing')
 for(const reference of references) {

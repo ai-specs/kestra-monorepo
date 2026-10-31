@@ -101,6 +101,12 @@ test('error message stack may identify originating fetch instead of console logg
   assert.equal(run([{...request,initiatorStack:[origin]},abort,navigation,consoleEvent]).errors.length,0)
   assert.equal(run([{...request,initiatorStack:[{...origin,functionName:'other'}]},abort,navigation,consoleEvent]).errors.length,1)
 })
+test('host login-config fetch console must share exact originating stack and proven unload',()=>{
+  const url=base+'/api/v1/configs/login',origin={url:base+'/ui/assets/vendor-frozen.js',functionName:'loadConfig',line:13,column:15182}
+  const consoleEvent=event('console','console-error',{requestId:undefined,message:'Error during authentication check: TypeError: Failed to fetch\n    at loadConfig ('+origin.url+':14:15183)',stack:[{url:base+'/ui/assets/app.js',functionName:'logError',line:100}]})
+  assert.equal(run([{...request,url,initiatorStack:[origin]},{...abort,url},navigation,consoleEvent]).errors.length,0)
+  assert.equal(run([{...request,url,initiatorStack:[origin]},{...abort,url},consoleEvent]).errors.length,2)
+})
 test('once-only deliberately dropped response console cannot excuse any other network failure',()=>{
   const failed={...abort,message:'net::ERR_FAILED'},consoleEvent=event('console','console-error',{source:'network',message:'Failed to load resource: net::ERR_FAILED'})
   const expectedTransportFailures=[{case:'ui-secret-response-lost-once',requestId:'r1',documentId:'old',url:request.url,message:'net::ERR_FAILED'}]

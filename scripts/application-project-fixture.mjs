@@ -70,10 +70,12 @@ export class ApplicationGroupManagement {
     assert(!relative.includes('/runtime-permissions')&&!relative.includes('/scope-declarations'),'retired parallel permission APIs are not accepted')
     assert(this.client,'fresh authenticated client required')
     const response=await this.client.request(path,{method,headers:{Accept:'application/json',...(body===undefined?{}:{'Content-Type':'application/json'}),...(revision===undefined?{}:{'If-Match':'"'+revision+'"'})},...(body===undefined?{}:{body:JSON.stringify(body)})})
-    this.requests.push({path,method,status:response.status})
+    const value=response.status===204?null:await response.json().catch(()=>null)
+    const errorCode=!response.ok&&typeof value?.code==='string'&&/^[a-z][a-z0-9_]{0,79}$/.test(value.code)?value.code:undefined
+    this.requests.push({path,method,status:response.status,...(errorCode?{errorCode}:{})})
     if(this.onRequest)await this.onRequest(this.requests.at(-1))
-    assert(response.ok,'management HTTP '+response.status+' '+method+' '+path)
-    return response.status===204?null:response.json()
+    assert(response.ok,'management HTTP '+response.status+' '+method+' '+path+(errorCode?' ['+errorCode+']':''))
+    return value
   }
   groupPath(group) {
     assert(typeof group==='string'&&/^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/.test(group),'exact application-group identifier required')

@@ -594,7 +594,8 @@ export async function runAccessControlV3Ui(page,base,fixture,record) {
     const acceptanceRequestId='root-ui-'+randomBytes(12).toString('hex')
     const response=await page.evaluate(async({path,method,body,revision,acceptanceRequestId})=>{const headers={Accept:'application/json','X-Acceptance-Request-Id':acceptanceRequestId};if(body!==undefined)headers['Content-Type']='application/json';if(revision!==undefined)headers['If-Match']='"'+revision+'"';if(method!=='GET'){const csrf=document.querySelector('meta[name="csrf-token"]')?.content;if(!csrf)throw new Error('host CSRF token missing');headers['X-CSRF-TOKEN']=csrf}const result=await fetch(path,{method,headers,credentials:'same-origin',redirect:'error',...(body===undefined?{}:{body:JSON.stringify(body)})});return {status:result.status,body:await result.json().catch(()=>null),cacheControl:result.headers.get('cache-control')}},{path:api+path,method,body,revision,acceptanceRequestId})
     assert.equal((await source()).timeOrigin,before.timeOrigin,'request changed source document')
-    report.requests.push({case:currentCase,path:api+path,method,status:response.status,requestId:await browserResponseId(previous,before,api+path,method,response.status,acceptanceRequestId),source:before,expectedStatuses:expected})
+    const errorCode=typeof response.body?.code==='string'&&/^[a-z][a-z0-9_]{0,79}$/.test(response.body.code)?response.body.code:undefined
+    report.requests.push({case:currentCase,path:api+path,method,status:response.status,...(errorCode?{errorCode}:{}),requestId:await browserResponseId(previous,before,api+path,method,response.status,acceptanceRequestId),source:before,expectedStatuses:expected})
     await persist();assert(expected.includes(response.status),method+' '+path+' returned '+response.status)
     return response
   }

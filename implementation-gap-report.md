@@ -1,5 +1,16 @@
 # 应用组目标模型实施差异报告
 
+2026-10-31 根CI41166920979/head322d5be失败包已完整下载，artifact13033269866 ZIP
+digest校验通过；续传仅只读下载，凭据不写证据。实际UI134通过/3失败，零未运行，
+主机诊断采集亦失败；报告完整写出并证实owner容器/卷/网络0，前次序列化溢出未复发。
+本次实际准备28个目录client但仅2个owner激活，其他pending最长120分钟，CI长时运行后
+恢复scope/typed/external权限及target授予返回400；目录update实际逐应用要求active或
+未过期pending，故不能只激活直接编辑的两个。现全部client经生产owner/S256/consent
+激活并owner-only详情读回，新增完整集合复算门和旧行为拒绝反例，不改协议TTL/清理器。
+诊断另有configs/login取消的两个宿主console，现仍按精确发起栈/同文档/实际卸载分类，
+恢复400保持未知失败，不豁免。管理助手只记录机器错误码，完整Docker日志缓冲提高至
+128MiB且不截断采集，采集失败仍失败。共享164离线通过；完整新提交真实验收和最终CI待验。
+
 2026-10-31 51b4dd1完整本地复验：REST56、检查192、UI137、主体/target诊断及全部清理
 通过，独立快照116404事件和hash实际落盘；最终checker仅因固定脱敏标签不一致失败：
 collector用[redacted-login-target]，父报告用[redacted]。现只归一该固定占位符，事件ID、

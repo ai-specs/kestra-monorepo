@@ -13,6 +13,7 @@ import {runTargetGroupBrowser,targetUiCheckIds} from './application-project-targ
 import {flowSource} from './application-project-fixture.mjs'
 import {applicationProjectUiLocales,applicationProjectUiThemes,applicationProjectUiCaseIds,sanitizeApplicationProjectUiEvidence,waitForNativeStyleSettlement} from './application-project-ui-cases.mjs'
 import {createEgoApplicationProjectAdapter,runApplicationProjectBrowser} from './application-project-browser-adapters.mjs'
+import {assertUiClientOwnership} from './ui-client-ownership-evidence.mjs'
 export {frozenBaselinePlan,prepareFrozenBaseline,runPreparedFrozenBaselineUi} from './access-control-v3-frozen.mjs'
 
 const api='/api/v1/main/extensions/rbac'
@@ -258,14 +259,18 @@ async function prepareUiData({base,management,planned,completedFragments,isolati
       assert(registered.client_id&&!registered.client_secret);assert.equal(registered.token_endpoint_auth_method,'none')
       await management.registerOrdinaryClient({clientId:registered.client_id,audiences:[base+'/api/v1/main/mcp/default'],applicationGroupScopes:[uiScopeNames.edit],registeredProtocolScopes:['openid'],requestedProtocolScopes:['openid']})
       planned.policy.applicationGroups[applicationProject].audiences=['kestra-ui',base+'/api/v1/main/mcp/default']
-      if(clients.length<2){
+      // Every catalogue member survives the full browser run only after real
+      // owner consent. A pending registration expires after at most 120min.
+      {
         const owner=new ProductionOAuthClient(base)
         const issued=await owner.issueMcpScopes(['openid'],undefined,current=>current.login(planned.admin.username,planned.admin.password),{registeredClient:registered})
         assert.deepEqual(issued.issuedScopes,['openid'])
         const owned=await owner.request('/'+'oidc/clients/'+encodeURIComponent(registered.client_id))
         assert.equal(owned.status,200)
         const details=await owned.json();assert.equal(details.client_id??details.clientId,registered.client_id)
-        await emit({kind:'ui-client-owner-consent-completed',clientId:registered.client_id,productionS256:true,issuedScopes:issued.issuedScopes,ownerOnlyDetailStatus:owned.status})
+        assert.equal(details.active,true,'UI catalogue owner client must remain active')
+        assert(typeof details.interaction==='string'&&details.interaction.length>0,'Owner-only management interaction proves completed ownership')
+        await emit({kind:'ui-client-owner-consent-completed',clientId:registered.client_id,productionS256:true,issuedScopes:issued.issuedScopes,ownerOnlyDetailStatus:owned.status,activatedForFullRun:true})
       }
       clients.push(registered.client_id);await emit({kind:'ui-member-created',clientId:registered.client_id,supportedScopeKeys:[uiScopeNames.edit]})
     }
@@ -323,7 +328,8 @@ async function prepareUiData({base,management,planned,completedFragments,isolati
     fixture.accessAccounts=accessAccounts
     fixture.frozenUiBaseline=completedFragments.frozenUiBaseline??null
     fixture.firstPasswordChange={path:'/oidc/password',newPassword:'input[name="password"]',confirmPassword:'input[name="confirmation"]',submit:'button[type="submit"]'}
-    await record({completed:true,events,requests:[...management.requests],counts:Object.fromEntries(Object.entries(records).map(([section,items])=>[section,items.length])),created:{projects:spec.projects.length,scopes:spec.scopes.length,clients:clients.length,assignments:subjects.length},filtersRuntimeVerified:false,zeroBrowserLogoutVerified:false})
+    const catalogueOwnership=assertUiClientOwnership(events)
+    await record({completed:true,events,catalogueOwnership,requests:[...management.requests],counts:Object.fromEntries(Object.entries(records).map(([section,items])=>[section,items.length])),created:{projects:spec.projects.length,scopes:spec.scopes.length,clients:clients.length,assignments:subjects.length},filtersRuntimeVerified:false,zeroBrowserLogoutVerified:false})
     return fixture
   }catch(error){failure=String(error.message);throw error}
   finally{if(failure)await record({completed:false,events,requests:[...management.requests],failure})}
