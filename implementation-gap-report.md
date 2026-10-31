@@ -1,5 +1,12 @@
 # 应用组目标模型实施差异报告
 
+2026-10-31 51b4dd1完整本地复验：REST56、检查192、UI137、主体/target诊断及全部清理
+通过，独立快照116404事件和hash实际落盘；最终checker仅因固定脱敏标签不一致失败：
+collector用[redacted-login-target]，父报告用[redacted]。现只归一该固定占位符，事件ID、
+来源、错误内容和文件原hash不变；精确使用本轮原始report-for-final-check.json复测通过，
+原失败report.json不修改、不追认。此次仅checker固定标签修正已完成相关本地复测，
+无需重复无关业务门，后续新提交CI仍全量执行。最终CI成功和实际下载门尚待取得。
+
 2026-10-31 最终根CI41145966528/head d3e8134失败，实际artifact13025119097已下载核ZIP
 digest和head。报告保留134UI通过、1诊断失败、2行未同步，target内部两业务已通过但根报告
 没有最终写出；driver实际错误为Invalid string length，不得计最终验收通过。

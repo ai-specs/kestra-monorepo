@@ -3,7 +3,13 @@ import assert from 'node:assert/strict'
 import {mkdtemp,readFile,writeFile,rm,symlink} from 'node:fs/promises'
 import {tmpdir} from 'node:os'
 import {join} from 'node:path'
-import {writeBrowserDiagnosticEvidence,readBrowserDiagnosticEvidence} from '../browser-diagnostic-evidence.mjs'
+import {writeBrowserDiagnosticEvidence,readBrowserDiagnosticEvidence,canonicalDiagnosticLabels} from '../browser-diagnostic-evidence.mjs'
+
+test('only fixed redacted login label normalizes; identities and real failures stay distinct',()=>{
+  assert.deepEqual(canonicalDiagnosticLabels({id:'one',url:'/?from=[redacted-login-target]'}),{id:'one',url:'/?from=[redacted]'})
+  assert.notDeepEqual(canonicalDiagnosticLabels({id:'one',message:'failure'}),canonicalDiagnosticLabels({id:'two',message:'failure'}))
+  assert.notDeepEqual(canonicalDiagnosticLabels({message:'failed'}),canonicalDiagnosticLabels({message:'passed'}))
+})
 
 test('large diagnostic snapshots retain all events without duplicating them in parent JSON',async()=>{
   const directory=await mkdtemp(join(tmpdir(),'root-diagnostics-offline-'))

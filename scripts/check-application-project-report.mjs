@@ -7,7 +7,7 @@ import {applicationGroupPluginClasses,applicationGroupTables} from './applicatio
 import {derive as deriveAccessControlGates,assertHostHttpOriginReport} from './access-control-v3-gates.mjs'
 import {createHash} from 'node:crypto'
 import {dirname,resolve,sep} from 'node:path'
-import {readBrowserDiagnosticEvidence} from './browser-diagnostic-evidence.mjs'
+import {readBrowserDiagnosticEvidence,canonicalDiagnosticLabels} from './browser-diagnostic-evidence.mjs'
 import {accessControlLocales,accessControlSupportedLocales} from './access-control-v3-ui.mjs'
 import {checkPublishedTranslationSources} from './access-control-translation-coverage.mjs'
 import {classifyAccessControlDiagnostics} from './access-control-browser-diagnostics.mjs'
@@ -246,7 +246,7 @@ for(const reference of references) {
   const evidence=readBrowserDiagnosticEvidence(reference,directories)
   assert.equal(evidence.integrity.length,0,'Final adapter diagnostic integrity errors remain')
   const events=new Map(evidence.events.map(event=>[event.id,event]))
-  for(const event of browser?.diagnostics??[])assert.deepEqual(events.get(event.id),event,'Immutable adapter snapshot omits or changes primary browser evidence')
+  for(const event of browser?.diagnostics??[])assert.deepEqual(canonicalDiagnosticLabels(events.get(event.id)),canonicalDiagnosticLabels(event),'Immutable adapter snapshot omits or changes primary browser evidence')
 }
 assert(browser?.completed&&Array.isArray(browser.diagnostics)&&browser.diagnostics.length>0,'Complete source-attributed browser diagnostics missing')
 const diagnosticReview=classifyAccessControlDiagnostics({events:browser.diagnostics,base:report.resources.base,requests:browser.requests,expectedTransportFailures:browser.expectedTransportFailures,identityWindows:browser.identityWindows})

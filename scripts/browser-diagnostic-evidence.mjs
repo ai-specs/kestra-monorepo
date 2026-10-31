@@ -5,6 +5,14 @@ import {readFileSync,realpathSync} from 'node:fs'
 import {isAbsolute,resolve,basename,sep} from 'node:path'
 
 const sha256=bytes=>createHash('sha256').update(bytes).digest('hex')
+// The collector and business report use different fixed labels for the same
+// already-redacted login target. Normalize labels only, never event identities.
+export function canonicalDiagnosticLabels(value) {
+  if(typeof value==='string')return value.replaceAll('[redacted-login-target]','[redacted]')
+  if(Array.isArray(value))return value.map(canonicalDiagnosticLabels)
+  if(value&&typeof value==='object')return Object.fromEntries(Object.entries(value).map(([key,item])=>[key,canonicalDiagnosticLabels(item)]))
+  return value
+}
 // Store every event once per immutable snapshot, not multiple times in parent JSON.
 // This is lossless persistence, not a diagnostic filter or an acceptance decision.
 export async function writeBrowserDiagnosticEvidence(evidence,directory) {
