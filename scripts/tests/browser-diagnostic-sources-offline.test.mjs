@@ -107,6 +107,16 @@ test('host login-config fetch console must share exact originating stack and pro
   assert.equal(run([{...request,url,initiatorStack:[origin]},{...abort,url},navigation,consoleEvent]).errors.length,0)
   assert.equal(run([{...request,url,initiatorStack:[origin]},{...abort,url},consoleEvent]).errors.length,2)
 })
+test('host authenticated-config fetch console needs exact source stack and real document unload',()=>{
+  const url=base+'/api/v1/configs',origin={url:base+'/ui/assets/vendor-frozen.js',functionName:'r',line:13,column:15182}
+  const consoleEvent=event('console','console-error',{requestId:undefined,message:'Error during authentication check: TypeError: Failed to fetch\n    at r ('+origin.url+':14:15183)',stack:[{url:base+'/ui/assets/app.js',functionName:'logError',line:100}]})
+  const events=[{...request,url,initiatorStack:[origin]},{...abort,url},navigation,consoleEvent]
+  assert.equal(run(events).errors.length,0)
+  assert.equal(run(events.filter(item=>item!==navigation)).errors.length,2)
+  assert.equal(run(events.map(item=>item===consoleEvent?{...item,message:item.message.replace('at r (','at unrelated (')}:item)).errors.length,1)
+  assert.equal(run(events.map(item=>item===consoleEvent?{...item,documentId:'current'}:item)).errors.length,1)
+  assert.equal(run(events.map(item=>item===consoleEvent?{...item,observedAt:time(5000)}:item)).errors.length,1)
+})
 test('once-only deliberately dropped response console cannot excuse any other network failure',()=>{
   const failed={...abort,message:'net::ERR_FAILED'},consoleEvent=event('console','console-error',{source:'network',message:'Failed to load resource: net::ERR_FAILED'})
   const expectedTransportFailures=[{case:'ui-secret-response-lost-once',requestId:'r1',documentId:'old',url:request.url,message:'net::ERR_FAILED'}]

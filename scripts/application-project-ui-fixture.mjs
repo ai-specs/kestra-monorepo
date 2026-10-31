@@ -14,6 +14,7 @@ import {flowSource} from './application-project-fixture.mjs'
 import {applicationProjectUiLocales,applicationProjectUiThemes,applicationProjectUiCaseIds,sanitizeApplicationProjectUiEvidence,waitForNativeStyleSettlement} from './application-project-ui-cases.mjs'
 import {createEgoApplicationProjectAdapter,runApplicationProjectBrowser} from './application-project-browser-adapters.mjs'
 import {assertUiClientOwnership} from './ui-client-ownership-evidence.mjs'
+import {loggedOutCapabilityDenials} from './zero-grant-logout-diagnostics.mjs'
 export {frozenBaselinePlan,prepareFrozenBaseline,runPreparedFrozenBaselineUi} from './access-control-v3-frozen.mjs'
 
 const api='/api/v1/main/extensions/rbac'
@@ -412,9 +413,7 @@ export async function runZeroGrantBrowser(page,base,fixture) {
   const expectedUrl=base+path
   const errors=events.filter(event=>['console-error','page-error','request-failed','http-error','diagnostic-integrity-error'].includes(event.kind))
   const expectedHttp=errors.filter(event=>event.kind==='http-error'&&event.url===expectedUrl&&((event.status===403&&event.documentId===rejectedDocument.documentId)||(anonymous.status===401&&event.status===401&&event.documentId===anonymousDocument.documentId)))
-  const logoutCapabilityDenial=errors.filter(event=>event.kind==='http-error'&&event.status===401&&event.method==='GET'
-    &&event.url===base+api+'/capabilities'&&event.documentId===anonymousDocument.documentId
-    &&event.documentUrl===base+'/ui/access-denied'&&anonymous.status===401)
+  const logoutCapabilityDenial=loggedOutCapabilityDenials({events,base,anonymousDocument,anonymousStatus:anonymous.status,realSignOutClicked:clicked})
   const zeroLoginConfigDenial=errors.filter(event=>event.kind==='http-error'&&event.status===403&&event.method==='GET'&&event.url===base+'/'+['api','v1','configs'].join('/')&&event.documentUrl===base+'/'+['ui',''].join('/'))
   const classifiedConsole=errors.filter(event=>event.kind==='console-error'&&event.source==='network'&&event.requestId&&/^Failed to load resource: the server responded with a status of (401|403) /.test(event.message)&&[...expectedHttp,...zeroLoginConfigDenial,...logoutCapabilityDenial].some(http=>http.requestId===event.requestId&&http.documentId===event.documentId&&http.url===event.url))
   const teardownPaths=[path,'/'+['api','v1','main','extensions','rbac','capabilities'].join('/'),'/'+['api','v1','main','dashboards','charts','preview'].join('/')]
