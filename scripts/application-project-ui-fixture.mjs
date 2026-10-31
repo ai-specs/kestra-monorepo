@@ -251,6 +251,22 @@ async function prepareUiData({base,management,planned,completedFragments,isolati
     for(const scope of spec.scopes) {
       if(!spec.applicationPolicies[scope.key])await management.saveTypedPermission(applicationProject,scope.key,scopeDefinition(scope.description,[]))
     }
+    // Catalogue clients need real owners, but sharing the administrator's
+    // default 20-client quota with earlier protocol cases exhausts that quota.
+    // Use dedicated ordinary accounts; keep the product limit unchanged.
+    const catalogueOwners=[]
+    for(let index=0;index<Math.ceil(spec.clients.length/14);index++) {
+      const username='ui-catalogue-owner-'+index,password=randomBytes(24).toString('base64url')+'Aa1!'
+      await management.login()
+      const created=await management.request(api+'/users','POST',{username,name:'UI catalogue owner '+index,email:username+'@acceptance.invalid'})
+      assert.equal(created.subject,username);assert.equal(typeof created.temporaryPassword,'string')
+      credentialSecrets.push(created.temporaryPassword,password)
+      await new ProductionOAuthClient(base).changeTemporaryPassword(username,created.temporaryPassword,password)
+      await management.login();const group=await management.request(api+'/application-groups/'+applicationProject)
+      await management.mutateDirectory(api+'/application-groups/'+applicationProject+'/scope-grants','POST',{issuer:base,subject:username,scopeKeys:[uiScopeNames.edit]},group.revision)
+      catalogueOwners.push({username,password})
+      await emit({kind:'ui-catalogue-owner-created',subject:username,maximumCatalogueClients:14,productQuotaUnchanged:true})
+    }
     const clients=[]
     for(const registrationInput of spec.clients) {
       const client=await management.login()
@@ -262,8 +278,8 @@ async function prepareUiData({base,management,planned,completedFragments,isolati
       // Every catalogue member survives the full browser run only after real
       // owner consent. A pending registration expires after at most 120min.
       {
-        const owner=new ProductionOAuthClient(base)
-        const issued=await owner.issueMcpScopes(['openid'],undefined,current=>current.login(planned.admin.username,planned.admin.password),{registeredClient:registered})
+        const owner=new ProductionOAuthClient(base),account=catalogueOwners[Math.floor(clients.length/14)]
+        const issued=await owner.issueMcpScopes(['openid'],undefined,current=>current.login(account.username,account.password),{registeredClient:registered})
         assert.deepEqual(issued.issuedScopes,['openid'])
         const owned=await owner.request('/'+'oidc/clients/'+encodeURIComponent(registered.client_id))
         assert.equal(owned.status,200)
