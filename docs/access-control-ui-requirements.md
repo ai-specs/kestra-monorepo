@@ -211,8 +211,9 @@ KsFilter 式筛选（字段 subject、值=用户目录枚举）+ ⟳ + 创建用
 共享；无组级 Audience）+ 统计行（scope/应用/subject 数量为链接跳页签）；显式编辑 + 丢弃确认。
 
 **scope**：侧栏（key 条目、选中高亮、悬停/选中浮现删除图标）+ 详情区（key 只读、
-name/desc 编辑、**绑定的应用**（应用维度行 + 权限 key tag 深链）、**scope 授予**
-（subject tag 深链 subject 页签并筛选））。
+name/desc 编辑、**绑定的应用**（应用行链接 → 应用页签选中该应用，且运行时权限
+表按当前 scope 过滤；维护者 2026-11-01 裁决：不显示权限 key）、**scope 授予**
+（subject 行链接 → subject 页签按 subject 筛选；scope 列链接 → 选中对应 scope））。
 
 **scope 删除（R13，受限删除）**：点击 🗑 → 居中确认弹窗：
 - 若无任何引用（无权限激活条件引用、无 subject 授予引用）→ 确认后删除（持久化）；
