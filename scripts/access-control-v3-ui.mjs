@@ -230,7 +230,7 @@ export const accessControlAdditionalCases=Object.freeze([
   ['ui-group-retired-id-rejected','T1'],
   ...['next','previous','empty'].map(mode=>['ui-scope-delete-selection-'+mode,'T2']),
   ...['application','subject','typed-policy'].map(kind=>['ui-scope-reference-'+kind+'-refused','T2']),
-  ['ui-filter-same-field-and','T4'],['ui-filter-name-case-sensitive','T4'],['ui-filter-clear-all','T4'],
+  ['ui-filter-cross-field-and','T4'],['ui-filter-name-case-sensitive','T4'],['ui-filter-clear-all','T4'],
   ['ui-filter-cross-group-clear','T4'],['ui-filter-cross-application-clear','T4'],['ui-filter-expired-subject-revalidated','T4'],
   ['ui-filter-valid-empty','T4'],['ui-pagination-last-row-delete','T4'],
   ...accessControlInvalidQueries.map(item=>[item.id,'T4']),
@@ -669,6 +669,12 @@ export async function runAccessControlV3Ui(page,base,fixture,record) {
     await page.click(button)
     return nativeResponse(path,method,expectedStatuses,before,document)
   }
+  // The published plugin gates every online rotation behind its risk
+  // confirmation dialog; the actual POST only fires after explicit confirm.
+  async function confirmRotate() {
+    await page.waitForFunction(()=>Boolean(document.querySelector('[data-test="extension-container"]')?.shadowRoot?.querySelector('[data-test="credential-rotate-confirm"]')))
+    await page.click('[data-test="credential-rotate-confirm"]')
+  }
   async function nativeResponse(path,method,expectedStatuses,before,document) {
     const deadline=Date.now()+30000;let event
     do{event=(await page.diagnostics()).events.find(item=>!before.has(item.id)&&item.documentId===document.documentId&&['http-response','http-error'].includes(item.kind)&&item.url===base+api+path&&item.method===method);if(event)break;await new Promise(resolve=>setTimeout(resolve,50))}while(Date.now()<deadline)
@@ -879,30 +885,35 @@ export async function runAccessControlV3Ui(page,base,fixture,record) {
       equal(await all(permissionApi),permissions);await effectsUnchanged(before)
       return {query:invalid.query,clearable:true,noPersistenceChange:true}
     })
-    await run('ui-filter-same-field-and',async()=>{
-      const permissions=await all(permissionApi);assert(permissions.length>1)
-      const query=new URLSearchParams();for(const permission of permissions.slice(0,2))query.append('filter',JSON.stringify({field:'key',value:permission.key}))
-      await open(app+'?'+query);equal(await visibleRows('permission-row','data-permission-key'),[])
-      assert.equal(await page.evaluate(()=>document.querySelector('[data-test="extension-container"]').shadowRoot.querySelectorAll('[data-test="filter-chip"]').length),2)
+    await run('ui-filter-cross-field-and',async()=>{
+      const permissions=await all(permissionApi)
+      const target=permissions.find(item=>item.scopeKeys.length),keys=permissions.filter(item=>item.scopeKeys.includes(target.scopeKeys[0])).map(item=>item.key);assert(target&&keys.length>1)
+      const query=new URLSearchParams({'filters[key][EQUALS]':target.key,'filters[scopeKeys][EQUALS]':target.scopeKeys[0]})
+      await open(app+'?'+query)
+      equal(await visibleRows('permission-row','data-permission-key'),[target.key])
+      assert(await page.evaluate(()=>{const root=document.querySelector('[data-test="extension-container"]').shadowRoot;return [...root.querySelectorAll('.filter-chip-wrap')].some(node=>node.textContent.includes('2 条规则'))}),'two native conditions must render as the combined rules chip')
       await page.reload();await page.waitForFunction(()=>document.querySelector('[data-test="extension-container"]')?.shadowRoot?.querySelector('main')?.getAttribute('aria-busy')==='false')
-      equal(await visibleRows('permission-row','data-permission-key'),[])
-      return {keys:permissions.slice(0,2).map(item=>item.key),semantics:'same-field AND',refresh:true}
+      equal(await visibleRows('permission-row','data-permission-key'),[target.key])
+      const restored=new URLSearchParams((await source()).query);assert.equal(restored.get('filters[key][EQUALS]'),target.key);assert.equal(restored.get('filters[scopeKeys][EQUALS]'),target.scopeKeys[0])
+      return {keys:[target.key],siblings:keys,semantics:'cross-field AND via native deep link',refresh:true}
     })
     await run('ui-filter-name-case-sensitive',async()=>{
       const permissions=await all(permissionApi),selected=permissions.find(item=>item.name!==item.name.toUpperCase());assert(selected)
       const observed=[]
       for(const name of [selected.name,selected.name.toUpperCase()]) {
-        await open(app+'?'+new URLSearchParams({filter:JSON.stringify({field:'name',value:name}),size:'100'}))
+        await open(app+'?'+new URLSearchParams({'filters[name][CONTAINS]':name}))
         const expected=permissions.filter(item=>item.name.includes(name)).map(item=>item.key),actual=await visibleRows('permission-row','data-permission-key');equal(actual,expected)
         observed.push({name,ids:actual})
       }
       assert.notDeepEqual(observed[0].ids,observed[1].ids);return {observed}
     })
     await run('ui-filter-clear-all',async()=>{
-      const permission=(await all(permissionApi))[0],query=new URLSearchParams({permissionKey:permission.key,filter:JSON.stringify({field:'name',value:permission.name}),size:'100'})
-      await open(app+'?'+query);assert.equal(await page.evaluate(()=>document.querySelector('[data-test="extension-container"]').shadowRoot.querySelectorAll('[data-test="filter-chip"]').length),1,'only the JSON chip the native bar cannot own stays in the custom row')
-      await page.click('[data-test="application-permissions"] > .rbac-tags > button')
-      await page.waitForFunction(()=>{const root=document.querySelector('[data-test="extension-container"]').shadowRoot,p=new URL(location.href).searchParams;return root.querySelector('main')?.getAttribute('aria-busy')==='false'&&!root.querySelector('[data-test="filter-chip"]')&&['filter','scopeKeys','permissionKey','filterSubject','page'].every(key=>!p.has(key))})
+      const permission=(await all(permissionApi))[0],query=new URLSearchParams({permissionKey:permission.key,'filters[name][CONTAINS]':permission.name})
+      await open(app+'?'+query)
+      assert(await page.evaluate(()=>{const root=document.querySelector('[data-test="extension-container"]').shadowRoot;return [...root.querySelectorAll('.filter-chip-wrap')].some(node=>node.textContent.includes('2 条规则'))}),'deep link and native condition must coexist as visible native chips')
+      const cleared=await page.evaluate(()=>{const root=document.querySelector('[data-test="extension-container"]').shadowRoot;const visible=[...root.querySelectorAll('button')].filter(node=>node.textContent.trim()==='清除所有'&&node.getClientRects().length);const target=visible.find(node=>!node.closest('.adv-builder')?.getClientRects().length)??visible[0];if(!target)return {found:false};target.click();return {found:true}})
+      assert.equal(cleared.found,true,'native clear-all control missing')
+      await page.waitForFunction(()=>{const search=new URL(location.href).searchParams,root=document.querySelector('[data-test="extension-container"]').shadowRoot;return root.querySelector('main')?.getAttribute('aria-busy')==='false'&&['filter','scopeKeys','permissionKey','filterSubject','page','filters[key][EQUALS]','filters[name][CONTAINS]'].every(key=>!search.has(key))})
       const final=await source(),search=new URLSearchParams(final.query);for(const key of ['filter','scopeKeys','permissionKey','filterSubject','page'])assert.equal(search.has(key),false)
       equal(await visibleRows('permission-row','data-permission-key'),(await all(permissionApi)).map(item=>item.key));return {final}
     })
@@ -914,8 +925,8 @@ export async function runAccessControlV3Ui(page,base,fixture,record) {
     })
     await run('ui-filter-cross-group-clear',async()=>{
       const other=fixture.records.projects.find(item=>item.id!==fixture.applicationGroupId),permission=(await all(permissionApi))[0];assert(other)
-      await open(app+'?'+new URLSearchParams({permissionKey:permission.key,scopeKeys:fixture.scope,filter:JSON.stringify({field:'name',value:permission.name})}))
-      await page.click('.rbac-detail-title button');await page.waitForFunction(()=>location.pathname==='/ui/main/extensions/rbac/application-groups')
+      await open(app+'?'+new URLSearchParams({permissionKey:permission.key,scopeKeys:fixture.scope}))
+      await page.click('.rbac-detail-nav .rbac-back');await page.waitForFunction(()=>location.pathname==='/ui/main/extensions/rbac/application-groups')
       await page.fill('.ks-search input',other.id);await page.click(selector('group-card','data-group-id',other.id)+' .application-group-card-link')
       await page.waitForFunction(id=>location.pathname==='/ui/main/extensions/rbac/application-groups/'+id,other.id)
       const final=await source();assert.equal(final.query,'');await readonly('[data-test="group-detail"]');return {from:fixture.applicationGroupId,to:other.id,final}
@@ -1180,7 +1191,7 @@ export async function runAccessControlV3Ui(page,base,fixture,record) {
     const path=groupApi+'/applications/'+encoded(controls.clientId),before=await read(path+'/credentials')
     assert.equal(before.clientType,'confidential');assert.equal(before.rotationMode,'online')
     await open(group+'/applications/'+encoded(controls.clientId));const baseline=new Set((await page.diagnostics()).events.map(event=>event.id))
-    await page.click('[data-test="credential-rotate"]');const secret=await oneTimeValue('secret')
+    await page.click('[data-test="credential-rotate"]');await confirmRotate();const secret=await oneTimeValue('secret')
     try {
       const response=(await page.diagnostics()).events.find(event=>!baseline.has(event.id)&&event.kind==='http-response'&&event.method==='POST'&&event.url===base+api+path+'/credentials/rotate');assert(response)
       const metadata=await page.responseMetadata({requestId:response.requestId,documentId:response.documentId,url:response.url})
@@ -1215,7 +1226,9 @@ export async function runAccessControlV3Ui(page,base,fixture,record) {
         const path=groupApi+'/applications/'+encoded(controls.clientId)+'/credentials',beforeCredentials=await read(path)
         await open(group+'/applications/'+encoded(controls.clientId));await page.waitForFunction(()=>Boolean(document.querySelector('[data-test="extension-container"]')?.shadowRoot?.querySelector('[data-test="credential-rotate"]')))
         await restore();const before=await effectsBefore()
-        const denied=await nativeActionResponse('[data-test="credential-rotate"]',path+'/rotate','POST',[403])
+        const rotationClick={before:new Set((await page.diagnostics()).events.map(event=>event.id)),document:await source()}
+        await page.click('[data-test="credential-rotate"]');await confirmRotate()
+        const denied=await nativeResponse(path+'/rotate','POST',[403],rotationClick.before,rotationClick.document)
         await page.waitForFunction(()=>{const root=document.querySelector('[data-test="extension-container"]')?.shadowRoot;return Boolean(root?.querySelector('[data-test="request-error"]'))&&!root.querySelector('[data-test="credential-once"]')&&!root.querySelector('[data-test="credential-rotate"]')})
         const retained=await privateRequest(path);await note({beforeCredentials,afterCredentials:retained,revokedSubject:account.subject});equal(retained,beforeCredentials)
         await effectsUnchanged(before);await login();return {clientId:controls.clientId,revokedSubject:account.subject,status:denied.status,noSecretShown:true,credentialStateUnchanged:true}
@@ -1228,7 +1241,7 @@ export async function runAccessControlV3Ui(page,base,fixture,record) {
       await open(group+'/applications/'+encoded(controls.clientId));const sourceDocument=await source(),baseline=new Set((await page.diagnostics()).events.map(event=>event.id))
       const operation=await page.dropNextResponse({url:base+api+path+'/rotate',method:'POST'});assert(operation?.operationId)
       try {
-        await page.click('[data-test="credential-rotate"]')
+        await page.click('[data-test="credential-rotate"]');await confirmRotate()
         const dropped=await page.waitForDroppedResponse({operationId:operation.operationId})
         assert.equal(dropped.status,200);assert.equal(dropped.dropped,true);assert.equal(dropped.url,base+api+path+'/rotate');assert.equal(dropped.documentId,sourceDocument.documentId);assert(dropped.requestId);assert(['net::ERR_FAILED','net::ERR_CONNECTION_RESET'].includes(dropped.message))
         report.expectedTransportFailures??=[];report.expectedTransportFailures.push({case:currentCase,requestId:dropped.requestId,documentId:dropped.documentId,url:dropped.url,message:dropped.message})
@@ -1347,7 +1360,7 @@ export async function runAccessControlV3Ui(page,base,fixture,record) {
         const count=await page.evaluate(index=>Number(document.querySelector('[data-test="extension-container"]').shadowRoot.querySelectorAll('dl.rbac-details dd .rbac-stat-link')[index].textContent),index)
         assert.equal(count,expected.counts[field])
         const target=await canonicalPageUrl(group+'/'+(field==='subjects'?'scope-grants':field))
-        await page.click('dl.rbac-details dd .rbac-stat-link >> nth='+index)
+        await page.evaluate(index=>{const links=document.querySelector('[data-test="extension-container"]').shadowRoot.querySelectorAll('dl.rbac-details dd .rbac-stat-link');links[index].click()},index)
         await page.waitForFunction(path=>location.pathname===path,target.pathname)
       }
       return {counts:expected.counts,tabs:observed.tabs,layer:'production-integration',visualEvidenceOwner:'plugin'}
@@ -1437,10 +1450,10 @@ export async function runAccessControlV3Ui(page,base,fixture,record) {
       await open(external);await page.click('[data-test="application-supported-scopes"] code:text-is('+JSON.stringify(fixture.scope)+')')
       await page.waitForFunction(path=>location.pathname===path,'/ui/main/extensions/rbac/'+scopePath);evidence.push({link:'application-support-to-scope',source:await source()})
       await page.waitForFunction(subject=>{const root=document.querySelector('[data-test="extension-container"]').shadowRoot;return root.querySelector('main')?.getAttribute('aria-busy')==='false'&&[...root.querySelectorAll('[data-test="scope-detail"] code')].some(node=>node.textContent.trim()===subject)},fixture.subject)
-      await page.click('[data-test="scope-detail"] code:text-is('+JSON.stringify(fixture.subject)+')');await page.waitForFunction(subject=>location.pathname.endsWith('/scope-grants')&&new URL(location.href).searchParams.get('filterSubject')===subject,fixture.subject)
+      await page.click('[data-test="scope-detail"] code:text-is('+JSON.stringify(fixture.subject)+')');await page.waitForFunction(subject=>location.pathname.endsWith('/scope-grants')&&new URL(location.href).searchParams.get('filters[subject][EQUALS]')===subject,fixture.subject)
       await page.waitForFunction(subject=>{const root=document.querySelector('[data-test="extension-container"]').shadowRoot;return root.querySelector('main')?.getAttribute('aria-busy')==='false'&&[...root.querySelectorAll('[data-test="subject-row"]')].some(node=>node.getAttribute('data-subject')===subject)},fixture.subject)
       equal(await visibleRows('subject-row','data-subject'),[fixture.subject]);evidence.push({link:'scope-to-subject-filter',source:await source()})
-      await page.click('[data-test="subject-row"]');await page.waitForFunction(subject=>location.pathname.endsWith('/users')&&new URL(location.href).searchParams.get('filterSubject')===subject,fixture.subject)
+      await page.click('[data-test="subject-row"]');await page.waitForFunction(subject=>location.pathname.endsWith('/users')&&new URL(location.href).searchParams.get('filters[subject][EQUALS]')===subject,fixture.subject)
       await page.waitForFunction(()=>document.querySelector('[data-test="extension-container"]').shadowRoot.querySelector('main')?.getAttribute('aria-busy')==='false')
       equal(await visibleRows('user-row','data-subject'),[fixture.subject]);evidence.push({link:'subject-to-standard-user',source:await source()})
       await open(group+'/scope-grants?filterSubject='+encodeURIComponent(fixture.subject))
@@ -1448,11 +1461,11 @@ export async function runAccessControlV3Ui(page,base,fixture,record) {
       await page.click(involvedApplicationButton)
       await page.waitForFunction(({path,subject})=>location.pathname===path&&new URL(location.href).searchParams.get('filterSubject')===subject,{path:'/ui/main/extensions/rbac/'+external,subject:fixture.subject})
       await page.waitForFunction(()=>document.querySelector('[data-test="extension-container"]').shadowRoot.querySelector('main')?.getAttribute('aria-busy')==='false')
-      const linked=await source();assert(new URLSearchParams(linked.query).getAll('scopeKeys').includes(fixture.scope));equal(await visibleRows('permission-row','data-permission-key'),permissions.filter(item=>item.scopeKeys.includes(fixture.scope)).map(item=>item.key).sort(compare));evidence.push({link:'subject-involved-application-filter',source:linked})
+      const linked=await source();assert(new URLSearchParams(linked.query).get('filters[scopeKeys][IN]')?.split(',').includes(fixture.scope),'subject-involved deep link must carry the granted scope intersection');equal(await visibleRows('permission-row','data-permission-key'),permissions.filter(item=>item.scopeKeys.includes(fixture.scope)).map(item=>item.key).sort(compare));evidence.push({link:'subject-involved-application-filter',source:linked})
       await open(scopePath)
       const scopePermissionButton=await page.evaluate(({clientId,key})=>{const root=document.querySelector('[data-test="extension-container"]').shadowRoot,rows=[...root.querySelectorAll('[data-test="scope-detail"] .rbac-tags')].filter(row=>[...row.querySelectorAll('code')].some(code=>code.textContent.trim()===clientId));if(rows.length!==1)throw new Error('Scope application relation absent or ambiguous');const codes=[...rows[0].querySelectorAll('code')].filter(code=>code.textContent.trim()===key);if(codes.length!==1)throw new Error('Scope permission relation absent or ambiguous in selected application');const button=codes[0].closest('button');if(!button)throw new Error('Scope permission relation has no native button');const parts=[];for(let node=button;node&&node.parentElement;node=node.parentElement)parts.unshift(node.tagName.toLowerCase()+':nth-child('+([...node.parentElement.children].indexOf(node)+1)+')');const selector=parts.join(' > ');if(root.querySelectorAll(selector).length!==1||root.querySelector(selector)!==button)throw new Error('Scope permission native button path is not unique');return selector},{clientId:fixture.clientId,key:permission.key})
       await page.click(scopePermissionButton)
-      await page.waitForFunction(({path,key})=>location.pathname===path&&new URL(location.href).searchParams.get('permissionKey')===key,{path:'/ui/main/extensions/rbac/'+external,key:permission.key})
+      await page.waitForFunction(({path,key})=>location.pathname===path&&new URL(location.href).searchParams.get('filters[key][EQUALS]')===key,{path:'/ui/main/extensions/rbac/'+external,key:permission.key})
       await page.waitForFunction(()=>document.querySelector('[data-test="extension-container"]').shadowRoot.querySelector('main')?.getAttribute('aria-busy')==='false')
       equal(await visibleRows('permission-row','data-permission-key'),[permission.key]);evidence.push({link:'scope-permission-deeplink',source:await source()})
       await open(external+'?permissionKey='+permission.key);await page.click('[data-test="application-permissions"] .rbac-tags code:text-is('+JSON.stringify(fixture.applicationGroupId+': '+fixture.scope)+')')
@@ -1578,10 +1591,14 @@ export async function runAccessControlV3Ui(page,base,fixture,record) {
       await open(app+'?'+query);equal(await visibleRows('permission-row','data-permission-key'),[first.key],'different chips must use AND')
       await page.reload();await page.waitForFunction(()=>document.querySelector('[data-test="extension-container"]')?.shadowRoot?.querySelector('main')?.getAttribute('aria-busy')==='false')
       equal(await visibleRows('permission-row','data-permission-key'),[first.key],'deep-link state lost on refresh')
-      const scopeChipIndex=await page.evaluate(()=>[...document.querySelector('[data-test="extension-container"]').shadowRoot.querySelectorAll('[data-test="filter-chip"]')].findIndex(node=>node.textContent.includes('scope ∈')));assert(scopeChipIndex>=0)
-      await page.click('[data-test="filter-chip"]:nth-child('+(scopeChipIndex+1)+') button')
-      await page.waitForFunction(()=>!new URL(location.href).searchParams.has('scopeKeys'))
+      assert(await page.evaluate(()=>{const root=document.querySelector('[data-test="extension-container"]').shadowRoot;return [...root.querySelectorAll('.filter-chip-wrap')].some(node=>node.textContent.includes('2 条规则'))}),'deep-link chips must render in the native bar')
+      await page.evaluate(()=>{const root=document.querySelector('[data-test="extension-container"]').shadowRoot;root.querySelector('.rules-pill')?.click()})
+      await page.waitForFunction(()=>{const root=document.querySelector('[data-test="extension-container"]').shadowRoot;return [...root.querySelectorAll('.adv-row .cond-field')].some(node=>node.textContent.includes('scope'))})
+      await page.evaluate(()=>{const root=document.querySelector('[data-test="extension-container"]').shadowRoot;const row=[...root.querySelectorAll('.adv-row')].find(node=>node.querySelector('.cond-field')?.textContent.includes('scope'));row.querySelector('button.cond-delete').click()})
+      await page.waitForFunction(()=>!new URL(location.href).searchParams.has('filters[scopeKeys][IN]'))
+      await page.click('.adv-header-close')
       assert(!(await state()).query.includes('scopeKeys'),'single chip removal did not update URL')
+      equal(await visibleRows('permission-row','data-permission-key'),[first.key],'removing the ANY scope chip must preserve the key filter')
       await open(app+'?permissionKey=does-not-exist');equal(await visibleRows('permission-row','data-permission-key'),[],'legal no-result query is not empty')
       await open(app+'?page=-1','[data-test="request-error"]');equal(await all(permissionApi),permissions,'invalid query wrote data')
       return {any:expected,and:[first.key],invalidQueryHasNoSideEffects:true}
@@ -1619,11 +1636,30 @@ export async function runAccessControlV3Ui(page,base,fixture,record) {
     await run('ui-filter-native-deeplink-coexistence',async()=>{
       const plan=fixture.filters.permissions.equals,target=fixture.records.permissions.find(item=>item.key===plan.expectedIds[0]);assert(target?.scopeKeys.length)
       await open(app+'?scopeKeys='+encodeURIComponent(target.scopeKeys[0]))
-      await runNativeFilterPlan(plan.steps)
+      await page.waitForFunction(scope=>{const root=document.querySelector('[data-test="extension-container"]').shadowRoot;return new URL(location.href).searchParams.get('filters[scopeKeys][EQUALS]')===scope&&[...root.querySelectorAll('.filter-chip-wrap .chip .key')].some(node=>node.textContent.includes('scope'))},target.scopeKeys[0])
+      // The manual condition joins the deep-link chip without resetting it: this
+      // plan intentionally omits the reset step the pure native plans use.
+      await runNativeFilterPlan([
+        {action:'open-advanced'},
+        {action:'click',selector:'.adv-footer .adv-add:nth-child(1)'},
+        {action:'click',selector:'.adv-body .adv-row:nth-child(1) .cond-field .kel-select__wrapper'},
+        {action:'click',selector:'[role="option"]:text-is("Permission key")'},
+        {action:'assert-comparator',selector:'.adv-body .adv-row:nth-child(1) .cond-op',value:'Equals'},
+        {action:'click',selector:'.adv-body .adv-row:nth-child(1) .cond-value-select .kel-select__wrapper'},
+        {action:'click',selector:'[role="option"]:text-is('+JSON.stringify(target.key)+')'},
+        {action:'wait-query-value',value:target.key},
+        {action:'click',selector:'.adv-header-close'}
+      ])
       equal(await visibleRows('permission-row','data-permission-key'),[target.key])
-      const combined=await source();assert(new URLSearchParams(combined.query).get('filters[scopeKeys][EQUALS]')===target.scopeKeys[0],'deep-link scope filter must normalize into the native bar query')
-      const bar=page.locator('.kel-filter .kel-tag',{hasText:'scope 授予'}).first();await bar.locator('.kel-tag__close').click()
-      await page.waitForFunction(()=>!new URL(location.href).searchParams.has('filters[scopeKeys][EQUALS]'))
+      const combined=await source(),joined=new URLSearchParams(combined.query)
+      assert.equal(joined.get('filters[scopeKeys][EQUALS]'),target.scopeKeys[0],'deep-link scope filter must normalize into the native bar query')
+      assert.equal(joined.get('filters[key][EQUALS]'),target.key,'manual condition must coexist with the deep-link chip')
+      await page.evaluate(()=>{const root=document.querySelector('[data-test="extension-container"]').shadowRoot;root.querySelector('.rules-pill')?.click()})
+      await page.waitForFunction(()=>{const root=document.querySelector('[data-test="extension-container"]').shadowRoot;return [...root.querySelectorAll('.adv-row .cond-field')].some(node=>node.textContent.includes('scope'))})
+      await page.evaluate(()=>{const root=document.querySelector('[data-test="extension-container"]').shadowRoot;const row=[...root.querySelectorAll('.adv-row')].find(node=>node.querySelector('.cond-field')?.textContent.includes('scope'));row.querySelector('button.cond-delete').click()})
+      await page.waitForFunction(()=>{const root=document.querySelector('[data-test="extension-container"]').shadowRoot;return [...root.querySelectorAll('.adv-row .cond-field')].every(node=>!node.textContent.includes('scope'))})
+      await page.click('.adv-header-close')
+      await page.waitForFunction(()=>{const root=document.querySelector('[data-test="extension-container"]').shadowRoot;return !new URL(location.href).searchParams.has('filters[scopeKeys][EQUALS]')&&root.querySelector('main')?.getAttribute('aria-busy')==='false'})
       assert(!new URLSearchParams((await source()).query).has('filters[scopeKeys][EQUALS]'),'deleting deep-link chip did not clear its query')
       equal(await visibleRows('permission-row','data-permission-key'),[target.key],'deleting deep-link chip erased native filter')
       return {permissionKey:target.key,scopeKey:target.scopeKeys[0],combined,singleRemovalPreservesNative:true}
@@ -1833,7 +1869,7 @@ export async function runAccessControlV3Ui(page,base,fixture,record) {
       const oldAuditIds=new Set(auditBefore.authorizedItems.map(event=>event.id));await note({credentialAuditBefore:auditBefore})
       const path=groupApi+'/applications/'+encoded(controls.clientId),credentials=await read(path+'/credentials')
       assert.equal(credentials.clientType,'confidential');assert.equal(credentials.rotationMode,'online')
-      await open(group+'/applications/'+encoded(controls.clientId));const eventBaseline=new Set((await page.diagnostics()).events.map(event=>event.id));await page.click('[data-test="credential-rotate"]')
+      await open(group+'/applications/'+encoded(controls.clientId));const eventBaseline=new Set((await page.diagnostics()).events.map(event=>event.id));await page.click('[data-test="credential-rotate"]');await confirmRotate()
       const next=await oneTimeValue('secret')
       const rotationEvent=(await page.diagnostics()).events.find(event=>!eventBaseline.has(event.id)&&event.kind==='http-response'&&event.method==='POST'&&event.url===base+api+path+'/credentials/rotate')
       assert(rotationEvent,'native rotation response missing')
@@ -1867,7 +1903,8 @@ export async function runAccessControlV3Ui(page,base,fixture,record) {
       assert.equal(before.rotationMode,'deployment-maintenance')
       await open(app)
       assert(!await page.evaluate(()=>Boolean(document.querySelector('[data-test="extension-container"]').shadowRoot.querySelector('[data-test="credential-rotate"]'))),'login client exposed online rotation')
-      const help=page.locator('[data-test="credential-maintenance-help"]');await help.click()
+      await page.evaluate(()=>document.querySelector('[data-test="extension-container"]').shadowRoot.querySelector('[data-test="credential-maintenance-help"]').click())
+      await page.waitForFunction(()=>Boolean(document.querySelector('[data-test="extension-container"]').shadowRoot.querySelector('[data-test="credential-maintenance-note"]')))
       assert(/CLI|maintenance|维护/.test(await page.evaluate(()=>document.querySelector('[data-test="extension-container"]').shadowRoot.querySelector('[data-test="credential-maintenance-note"]').textContent)),'maintenance note must open on help click')
       const refused=await request(path+'/rotate','POST',undefined,before.credentialRevision,[409]);assert.equal(refused.body?.code,'maintenance_required')
       equal(await read(path),before);assert.equal((await fixture.targetRuntime.effects.snapshot()).hash,effects.hash)

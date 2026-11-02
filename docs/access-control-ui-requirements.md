@@ -456,6 +456,7 @@ READ 时不展示依赖枚举的编辑抽屉，但公开写 API 仍独立验收�
 | R27 | 组key沿用id、不重命名安装组；无组级Audience；账号创建有一次性临时密码及首次强制修改 | 本次主控裁决，§12 |
 | R28 | 先调查与所属仓设计，再正式宿主→插件→root发布验收 | 本次主控裁决，§10 |
 | R29 | 冻结原型事实，完整数据提取，明确深链/筛选/分页/CAS与DOM标识 | 本次主控裁决，§11–12 |
+| R30 | 深链词表归一为原生筛选参数，深链 chip 与手工条件同形（原生栏呈现、可单删、清除所有同步）；验收驱动用词表同样遵守；filter=JSON 词表退役为非法 query；重复 scopeKeys 合并为原生 IN，其余重复参数拒绝；"同字段多chip AND"语义随 filter=JSON 一并退役 | **维护者裁决 2026-11-02**："即使是验收驱动测试专用的词表，也应该和正常 UI 操作出的结果形状相同" |
 
 ---
 
@@ -668,12 +669,15 @@ scope-grants，scope/app选择写入其子路径。侧栏只切内容与规范UR
 “登记已有应用”表单，与scope新建模式一致；不在侧栏内联，不新增第五个抽屉，
 标准redirect/type/owner仍由宿主管理。
 
-深链query约定permissionKey、filterSubject、重复scopeKeys、page/size。subject跳应用
-保留来源与scope集合，READ后重新校验当前授予，不继续采用过期范围；scopeKeys内ANY，
-不同chip间AND，同字段多chip也AND。权限key精确相等、name大小写敏感包含、scope集合
-相交；用户/subject主体精确相等。非法query显示可清除错误，不写数据或跳外站；合法
-无结果显示空态。深链与手工chip共存、可单删，清除所有同步query，刷新/前进后退/复制
-URL还原状态；切组清旧组过滤，切应用清不存在权限条件。
+深链query约定permissionKey、filterSubject、重复scopeKeys、page/size，全部归一为
+原生筛选参数（filters[字段][比较器]=值），由发布版KsFilter以原生chip呈现，与手工
+添加的条件同形、共存、可单删；scopeKeys单值归一为EQUALS，多值归一为IN（集合内ANY）。
+subject跳应用保留来源与scope集合，READ后重新校验当前授予，不继续采用过期范围；
+scopeKeys集合内ANY，不同条件间AND；同一深链参数重复出现时除scopeKeys合并为IN外
+一律按非法query拒绝。权限key精确相等、name大小写敏感包含、scope集合相交；用户/
+subject主体精确相等。非法query（含已退役的filter=JSON词表）显示可清除错误，不写
+数据或跳外站；合法无结果显示空态。清除所有同步query，刷新/前进后退/复制URL还原
+状态；切组清旧组过滤，切应用清不存在权限条件。
 
 默认page1,size25，可选10/25/50/100，过滤或size变化回第一页；删除末页末行退最后
 有效页；删当前选中项按key升序选下一项、无则上一项、全空则空态。key/subject按Unicode
