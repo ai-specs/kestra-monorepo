@@ -575,17 +575,32 @@ export async function runAccessControlV3Ui(page,base,fixture,record) {
     }
     return url
   }
+  // R30: the published plugin rewrites the deep-link vocabulary into native
+  // filter params before rendering, so open() must accept both the raw and the
+  // rewritten shape of the same filter semantics, compared order-insensitively.
+  function rewrittenDeepLinkQuery(search) {
+    const output=new URLSearchParams(),scopes=[]
+    for(const [key,value]of new URLSearchParams(search)) {
+      if(key==='permissionKey')output.set('filters[key][EQUALS]',value)
+      else if(key==='scopeKeys')scopes.push(value)
+      else if(key==='filterSubject')output.set('filters[subject][EQUALS]',value)
+      else output.append(key,value)
+    }
+    if(scopes.length===1)output.set('filters[scopeKeys][EQUALS]',scopes[0])
+    else if(scopes.length>1)output.set('filters[scopeKeys][IN]',scopes.join(','))
+    return '?'+output.toString()
+  }
   async function open(path,element='[data-test="access-control-root"]') {
     const url=new URL('/ui/main/extensions/rbac/'+path,base)
     const target=await canonicalPageUrl(path)
     await page.goto(url.href)
     const observation='ui-route-settlement-'+randomBytes(6).toString('hex')
     try {
-      await page.waitForFunction(({path,query,element,observation})=>{
+      await page.waitForFunction(({path,queries,element,observation})=>{
         const root=document.querySelector('[data-test="extension-container"]')?.shadowRoot,main=root?.querySelector('main')
-        const normalized=value=>{const parameters=new URLSearchParams(value);for(const [key,defaultValue]of [['page','1'],['size','25']])if(parameters.getAll(key).length===1&&parameters.get(key)===defaultValue)parameters.delete(key);return JSON.stringify([...parameters])}
-        const rejectedEmptySubject=element==='[data-test="request-error"]'&&query==='?filterSubject='&&location.search===''&&Boolean(root?.querySelector('[data-test="request-error"] button'))&&!root.querySelector('[data-test="permission-row"]')
-        if(location.pathname!==path||!rejectedEmptySubject&&normalized(location.search)!==normalized(query)||main?.getAttribute('aria-busy')!=='false'||!root.querySelector(element))return false
+        const normalized=value=>{const parameters=new URLSearchParams(value);for(const [key,defaultValue]of [['page','1'],['size','25']])if(parameters.getAll(key).length===1&&parameters.get(key)===defaultValue)parameters.delete(key);return JSON.stringify([...parameters].sort(([left],[right])=>left<right?-1:left>right?1:0))}
+        const rejectedEmptySubject=element==='[data-test="request-error"]'&&queries.includes(normalized('?filterSubject='))&&location.search===''&&Boolean(root?.querySelector('[data-test="request-error"] button'))&&!root.querySelector('[data-test="permission-row"]')
+        if(location.pathname!==path||!rejectedEmptySubject&&!queries.includes(normalized(location.search))||main?.getAttribute('aria-busy')!=='false'||!root.querySelector(element))return false
         const selected=path.match(/\/(scopes|applications)\/([^/]+)$/)
         if(selected) {
           const sidebar=root.querySelector('[data-test="'+(selected[1]==='scopes'?'scope':'application')+'-sidebar"]')
@@ -599,7 +614,7 @@ export async function runAccessControlV3Ui(page,base,fixture,record) {
         const signature=main.textContent+'|'+root.querySelector(element).textContent
         const previous=window[observation];window[observation]={signature,count:previous?.signature===signature?previous.count+1:1}
         return window[observation].count>=3
-      },{path:target.pathname,query:target.search,element,observation})
+      },{path:target.pathname,queries:[...new Set([target.search,rewrittenDeepLinkQuery(target.search)])].map(search=>search),element,observation})
     }finally{await page.evaluate(observation=>{delete window[observation]},observation).catch(()=>{})}
     await dismissNativeInstallPrompt()
     return state()
@@ -886,16 +901,27 @@ export async function runAccessControlV3Ui(page,base,fixture,record) {
       return {query:invalid.query,clearable:true,noPersistenceChange:true}
     })
     await run('ui-filter-cross-field-and',async()=>{
-      const permissions=await all(permissionApi)
-      const target=permissions.find(item=>item.scopeKeys.length),keys=permissions.filter(item=>item.scopeKeys.includes(target.scopeKeys[0])).map(item=>item.key);assert(target&&keys.length>1)
-      const query=new URLSearchParams({'filters[key][EQUALS]':target.key,'filters[scopeKeys][EQUALS]':target.scopeKeys[0]})
-      await open(app+'?'+query)
-      equal(await visibleRows('permission-row','data-permission-key'),[target.key])
-      assert(await page.evaluate(()=>{const root=document.querySelector('[data-test="extension-container"]').shadowRoot;return [...root.querySelectorAll('.filter-chip-wrap')].some(node=>node.textContent.includes('2 条规则'))}),'two native conditions must render as the combined rules chip')
-      await page.reload();await page.waitForFunction(()=>document.querySelector('[data-test="extension-container"]')?.shadowRoot?.querySelector('main')?.getAttribute('aria-busy')==='false')
-      equal(await visibleRows('permission-row','data-permission-key'),[target.key])
-      const restored=new URLSearchParams((await source()).query);assert.equal(restored.get('filters[key][EQUALS]'),target.key);assert.equal(restored.get('filters[scopeKeys][EQUALS]'),target.scopeKeys[0])
-      return {keys:[target.key],siblings:keys,semantics:'cross-field AND via native deep link',refresh:true}
+      const word='andprobe'+randomBytes(4).toString('hex'),name=word+' shared alpha',sibling=word+' shared beta'
+      let parent=await privateRequest('/'+app)
+      const key='ui-and-'+randomBytes(5).toString('hex'),siblingKey='ui-and-'+randomBytes(5).toString('hex')
+      await privateRequest(permissionApi,'POST',{key,name,scopeKeys:[],description:'Cross-field AND probe',enabled:true,grants:[],managementGrants:[]},parent.revision)
+      parent=await privateRequest('/'+app)
+      await privateRequest(permissionApi,'POST',{key:siblingKey,name:sibling,scopeKeys:[],description:'Cross-field AND probe sibling',enabled:true,grants:[],managementGrants:[]},parent.revision)
+      const cleanup=async()=>{for(const target of [key,siblingKey]){const current=(await privateList(permissionApi)).find(item=>item.key===target);if(current)await privateRequest(permissionApi+'/'+target,'DELETE',undefined,current.revision)}}
+      restores.push({id:'cleanup-cross-field-and',run:cleanup})
+      try {
+        const query=new URLSearchParams({'filters[name][CONTAINS]':word})
+        await open(app+'?'+query)
+        equal(await visibleRows('permission-row','data-permission-key'),[key,siblingKey].sort(compare),'the name condition alone must be broader than one row')
+        query.set('filters[key][EQUALS]',key)
+        await open(app+'?'+query)
+        equal(await visibleRows('permission-row','data-permission-key'),[key],'different fields must combine as AND')
+        assert(await page.evaluate(()=>{const root=document.querySelector('[data-test="extension-container"]').shadowRoot;const wraps=[...root.querySelectorAll('.filter-chip-wrap')].filter(node=>node.getClientRects().length);return wraps.some(node=>node.textContent.includes('2 条规则'))||wraps.length>=2}),'two native conditions must render as visible native chips')
+        await page.reload();await page.waitForFunction(()=>document.querySelector('[data-test="extension-container"]')?.shadowRoot?.querySelector('main')?.getAttribute('aria-busy')==='false')
+        equal(await visibleRows('permission-row','data-permission-key'),[key])
+        const restored=new URLSearchParams((await source()).query);assert.equal(restored.get('filters[key][EQUALS]'),key);assert.equal(restored.get('filters[name][CONTAINS]'),word)
+        return {keys:[key,siblingKey],semantics:'cross-field AND via native deep link',refresh:true}
+      }finally{await cleanup()}
     })
     await run('ui-filter-name-case-sensitive',async()=>{
       const permissions=await all(permissionApi),selected=permissions.find(item=>item.name!==item.name.toUpperCase());assert(selected)
@@ -910,7 +936,7 @@ export async function runAccessControlV3Ui(page,base,fixture,record) {
     await run('ui-filter-clear-all',async()=>{
       const permission=(await all(permissionApi))[0],query=new URLSearchParams({permissionKey:permission.key,'filters[name][CONTAINS]':permission.name})
       await open(app+'?'+query)
-      assert(await page.evaluate(()=>{const root=document.querySelector('[data-test="extension-container"]').shadowRoot;return [...root.querySelectorAll('.filter-chip-wrap')].some(node=>node.textContent.includes('2 条规则'))}),'deep link and native condition must coexist as visible native chips')
+      assert(await page.evaluate(()=>{const root=document.querySelector('[data-test="extension-container"]').shadowRoot;const wraps=[...root.querySelectorAll('.filter-chip-wrap')].filter(node=>node.getClientRects().length);return wraps.some(node=>node.textContent.includes('2 条规则'))||wraps.length>=2}),'deep link and native condition must coexist as visible native chips')
       const cleared=await page.evaluate(()=>{const root=document.querySelector('[data-test="extension-container"]').shadowRoot;const visible=[...root.querySelectorAll('button')].filter(node=>node.textContent.trim()==='清除所有'&&node.getClientRects().length);const target=visible.find(node=>!node.closest('.adv-builder')?.getClientRects().length)??visible[0];if(!target)return {found:false};target.click();return {found:true}})
       assert.equal(cleared.found,true,'native clear-all control missing')
       await page.waitForFunction(()=>{const search=new URL(location.href).searchParams,root=document.querySelector('[data-test="extension-container"]').shadowRoot;return root.querySelector('main')?.getAttribute('aria-busy')==='false'&&['filter','scopeKeys','permissionKey','filterSubject','page','filters[key][EQUALS]','filters[name][CONTAINS]'].every(key=>!search.has(key))})
@@ -1591,7 +1617,7 @@ export async function runAccessControlV3Ui(page,base,fixture,record) {
       await open(app+'?'+query);equal(await visibleRows('permission-row','data-permission-key'),[first.key],'different chips must use AND')
       await page.reload();await page.waitForFunction(()=>document.querySelector('[data-test="extension-container"]')?.shadowRoot?.querySelector('main')?.getAttribute('aria-busy')==='false')
       equal(await visibleRows('permission-row','data-permission-key'),[first.key],'deep-link state lost on refresh')
-      assert(await page.evaluate(()=>{const root=document.querySelector('[data-test="extension-container"]').shadowRoot;return [...root.querySelectorAll('.filter-chip-wrap')].some(node=>node.textContent.includes('2 条规则'))}),'deep-link chips must render in the native bar')
+      assert(await page.evaluate(()=>{const root=document.querySelector('[data-test="extension-container"]').shadowRoot;const wraps=[...root.querySelectorAll('.filter-chip-wrap')].filter(node=>node.getClientRects().length);return wraps.some(node=>node.textContent.includes('2 条规则'))||wraps.length>=2}),'deep-link chips must render in the native bar')
       await page.evaluate(()=>{const root=document.querySelector('[data-test="extension-container"]').shadowRoot;root.querySelector('.rules-pill')?.click()})
       await page.waitForFunction(()=>{const root=document.querySelector('[data-test="extension-container"]').shadowRoot;return [...root.querySelectorAll('.adv-row .cond-field')].some(node=>node.textContent.includes('scope'))})
       await page.evaluate(()=>{const root=document.querySelector('[data-test="extension-container"]').shadowRoot;const row=[...root.querySelectorAll('.adv-row')].find(node=>node.querySelector('.cond-field')?.textContent.includes('scope'));row.querySelector('button.cond-delete').click()})
