@@ -937,7 +937,7 @@ export async function runAccessControlV3Ui(page,base,fixture,record) {
       await login();const permission=(await all(permissionApi))[0],query=new URLSearchParams({permissionKey:permission.key,'filters[name][CONTAINS]':permission.name})
       await open(app+'?'+query)
       assert(await page.evaluate(()=>{const root=document.querySelector('[data-test="extension-container"]').shadowRoot;const wraps=[...root.querySelectorAll('.filter-chip-wrap')].filter(node=>node.getClientRects().length);return wraps.length>=1}),'deep link and native condition must coexist as visible native chips')
-      const cleared=await page.evaluate(()=>{const root=document.querySelector('[data-test="extension-container"]').shadowRoot;const visible=[...root.querySelectorAll('button')].filter(node=>node.textContent.trim()==='清除所有'&&node.getClientRects().length);const target=visible.find(node=>!node.closest('.adv-builder')?.getClientRects().length)??visible[0];if(!target)return {found:false};target.click();return {found:true}})
+      const cleared=await page.evaluate(()=>{const root=document.querySelector('[data-test="extension-container"]').shadowRoot;const target=[...root.querySelectorAll('.filter-tokens .refresh-btn')].find(node=>node.getClientRects().length);if(!target)return {found:false};target.click();return {found:true}})
       assert.equal(cleared.found,true,'native clear-all control missing')
       await page.waitForFunction(()=>{const search=new URL(location.href).searchParams,root=document.querySelector('[data-test="extension-container"]').shadowRoot;return root.querySelector('main')?.getAttribute('aria-busy')==='false'&&['filter','scopeKeys','permissionKey','filterSubject','page','filters[key][EQUALS]','filters[name][CONTAINS]'].every(key=>!search.has(key))})
       const final=await source(),search=new URLSearchParams(final.query);for(const key of ['filter','scopeKeys','permissionKey','filterSubject','page'])assert.equal(search.has(key),false)
@@ -1668,10 +1668,10 @@ export async function runAccessControlV3Ui(page,base,fixture,record) {
       await runNativeFilterPlan([
         {action:'open-advanced'},
         {action:'click',selector:'.adv-footer .adv-add:nth-child(1)'},
-        {action:'click',selector:'.adv-body .adv-row:nth-child(1) .cond-field .kel-select__wrapper'},
+        {action:'click',selector:'.adv-body .adv-row:last-child .cond-field .kel-select__wrapper'},
         {action:'click',selector:'[role="option"]:text-is("Permission key")'},
-        {action:'assert-comparator',selector:'.adv-body .adv-row:nth-child(1) .cond-op',value:'Equals'},
-        {action:'click',selector:'.adv-body .adv-row:nth-child(1) .cond-value-select .kel-select__wrapper'},
+        {action:'assert-comparator',selector:'.adv-body .adv-row:last-child .cond-op',value:'Equals'},
+        {action:'click',selector:'.adv-body .adv-row:last-child .cond-value-select .kel-select__wrapper'},
         {action:'click',selector:'[role="option"]:text-is('+JSON.stringify(target.key)+')'},
         {action:'wait-query-value',value:target.key},
         {action:'click',selector:'.adv-header-close'}
