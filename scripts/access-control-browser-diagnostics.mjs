@@ -12,6 +12,7 @@ export function classifyAccessControlDiagnostics({events,base,requests=[],expect
   for(const event of events) {
     const related=byRequest.get(event.requestId)??[]
     const original=related.find(request=>request.kind==='request'&&same(request,event)&&request.method===event.method)
+    if(['http-error','request-failed'].includes(event.kind)&&new URL(event.url).origin==='https://api.kestra.io'&&new URL(event.documentUrl??'').pathname!=='/ui/main/extensions/rbac'){add(event,'host-telemetry-external-error',{requestId:event.requestId,documentId:event.documentId,status:event.status??null,message:event.message});continue}
     if(event.kind==='http-error'&&original&&exactRequests(event)){add(event,'explicit-business-denial',{requestId:event.requestId,documentId:event.documentId});continue}
     if(event.kind==='request-failed'&&expectedTransportFailures.some(item=>item.case==='ui-secret-response-lost-once'&&same(item,event)&&item.message===event.message)){add(event,'explicit-once-only-response-drop',{requestId:event.requestId,documentId:event.documentId});continue}
     if(event.kind==='request-failed'&&original&&event.message==='net::ERR_ABORTED'&&event.cancelled===true) {

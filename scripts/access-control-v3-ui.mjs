@@ -714,6 +714,19 @@ export async function runAccessControlV3Ui(page,base,fixture,record) {
     const advancedVisible=await page.evaluate(shadow=>{const root=shadow?document.querySelector('[data-test="extension-container"]').shadowRoot:document;return [...root.querySelectorAll('.adv-builder')].some(node=>node.getClientRects().length)},shadow)
     if(!advancedVisible)await page.click('.advanced-add')
   }
+  // Removes the scope condition through the published native controls: the
+  // combined rules pill opens the advanced editor when conditions render
+  // combined; separate chips are removed through their own close control.
+  async function removeScopeCondition(page, scopeValue) {
+    const opened=await page.evaluate(scopeValue=>{const root=document.querySelector('[data-test="extension-container"]').shadowRoot;const pill=[...root.querySelectorAll('.rules-pill')].find(node=>node.getClientRects().length);if(pill){pill.click();return 'pill'}const chips=[...root.querySelectorAll('.filter-chip-wrap .chip')].filter(node=>node.getClientRects().length&&node.querySelector('.value')?.textContent.includes(scopeValue));if(chips.length===1){chips[0].querySelector('button.close')?.click();return 'chip'}return 'none'},scopeValue)
+    if(opened==='chip')return
+    assert.equal(opened,'pill','no native scope chip or rules pill to remove')
+    await page.waitForFunction(()=>{const root=document.querySelector('[data-test="extension-container"]').shadowRoot;return [...root.querySelectorAll('.adv-row .cond-field')].some(node=>node.textContent.toLowerCase().includes('scope'))})
+    await page.evaluate(()=>{const root=document.querySelector('[data-test="extension-container"]').shadowRoot;const row=[...root.querySelectorAll('.adv-row')].find(node=>node.querySelector('.cond-field')?.textContent.toLowerCase().includes('scope'));row.querySelector('button.cond-delete').click()})
+    await page.waitForFunction(()=>{const root=document.querySelector('[data-test="extension-container"]').shadowRoot;return ![...root.querySelectorAll('.adv-row .cond-field')].some(node=>node.textContent.toLowerCase().includes('scope'))})
+    await page.click('.adv-header-close')
+    await page.waitForFunction(()=>{const root=document.querySelector('[data-test="extension-container"]').shadowRoot;return !root.querySelector('.adv-builder')?.getClientRects().length})
+  }
   async function runNativeFilterPlan(steps) {
     for(const step of steps) {
       if(step.action==='open-advanced')await openNativeAdvanced()
@@ -934,7 +947,7 @@ export async function runAccessControlV3Ui(page,base,fixture,record) {
       assert.notDeepEqual(observed[0].ids,observed[1].ids);return {observed}
     })
     await run('ui-filter-clear-all',async()=>{
-      await login();const permission=(await all(permissionApi))[0],query=new URLSearchParams({permissionKey:permission.key,'filters[name][CONTAINS]':permission.name})
+      await login();const permission=(await all(permissionApi))[0],query=new URLSearchParams({permissionKey:permission.key,'filters[name][CONTAINS]':permission.name,size:'100'})
       await open(app+'?'+query)
       assert(await page.evaluate(()=>{const root=document.querySelector('[data-test="extension-container"]').shadowRoot;const wraps=[...root.querySelectorAll('.filter-chip-wrap')].filter(node=>node.getClientRects().length);return wraps.length>=1}),'deep link and native condition must coexist as visible native chips')
       const cleared=await page.evaluate(()=>{const root=document.querySelector('[data-test="extension-container"]').shadowRoot;const target=[...root.querySelectorAll('.filter-tokens .refresh-btn')].find(node=>node.getClientRects().length);if(!target)return {found:false};target.click();return {found:true}})
@@ -1486,14 +1499,15 @@ export async function runAccessControlV3Ui(page,base,fixture,record) {
       const involvedApplicationButton=await page.evaluate(({subject,clientId})=>{const root=document.querySelector('[data-test="extension-container"]').shadowRoot,subjects=[...root.querySelectorAll('[data-test="subject-row"]')].filter(node=>node.getAttribute('data-subject')===subject);if(subjects.length!==1)throw new Error('Subject row absent or ambiguous');const row=subjects[0].closest('tr'),codes=[...row.querySelectorAll('.rbac-tags code')].filter(node=>node.textContent.trim()===clientId);if(codes.length!==1)throw new Error('Involved application absent or ambiguous in subject row');const button=codes[0].closest('button');if(!button)throw new Error('Involved application has no native button');const parts=[];for(let node=button;node&&node.parentElement;node=node.parentElement)parts.unshift(node.tagName.toLowerCase()+':nth-child('+([...node.parentElement.children].indexOf(node)+1)+')');const selector=parts.join(' > ');if(root.querySelectorAll(selector).length!==1||root.querySelector(selector)!==button)throw new Error('Actual involved application button path not unique');return selector},{subject:fixture.subject,clientId:fixture.clientId})
       await page.click(involvedApplicationButton)
       await page.waitForFunction(({path,subject})=>location.pathname===path&&new URL(location.href).searchParams.get('filterSubject')===subject,{path:'/ui/main/extensions/rbac/'+external,subject:fixture.subject})
-      await page.waitForFunction(()=>document.querySelector('[data-test="extension-container"]').shadowRoot.querySelector('main')?.getAttribute('aria-busy')==='false')
+      await page.waitForFunction(({path,subject})=>location.pathname===path&&!new URL(location.href).searchParams.has('scopeKeys')&&new URL(location.href).searchParams.get('filterSubject')===subject&&document.querySelector('[data-test="extension-container"]').shadowRoot.querySelector('main')?.getAttribute('aria-busy')==='false',{path:'/ui/main/extensions/rbac/'+external,subject:fixture.subject})
       const linked=await source();assert(new URLSearchParams(linked.query).get('filters[scopeKeys][IN]')?.split(',').includes(fixture.scope),'subject-involved deep link must carry the granted scope intersection');equal(await visibleRows('permission-row','data-permission-key'),permissions.filter(item=>item.scopeKeys.includes(fixture.scope)).map(item=>item.key).sort(compare));evidence.push({link:'subject-involved-application-filter',source:linked})
       await open(scopePath)
-      const scopePermissionButton=await page.evaluate(({clientId,key})=>{const root=document.querySelector('[data-test="extension-container"]').shadowRoot,rows=[...root.querySelectorAll('[data-test="scope-detail"] .rbac-tags')].filter(row=>[...row.querySelectorAll('code')].some(code=>code.textContent.trim()===clientId));if(rows.length!==1)throw new Error('Scope application relation absent or ambiguous');const codes=[...rows[0].querySelectorAll('code')].filter(code=>code.textContent.trim()===key);if(codes.length!==1)throw new Error('Scope permission relation absent or ambiguous in selected application');const button=codes[0].closest('button');if(!button)throw new Error('Scope permission relation has no native button');const parts=[];for(let node=button;node&&node.parentElement;node=node.parentElement)parts.unshift(node.tagName.toLowerCase()+':nth-child('+([...node.parentElement.children].indexOf(node)+1)+')');const selector=parts.join(' > ');if(root.querySelectorAll(selector).length!==1||root.querySelector(selector)!==button)throw new Error('Scope permission native button path is not unique');return selector},{clientId:fixture.clientId,key:permission.key})
-      await page.click(scopePermissionButton)
-      await page.waitForFunction(({path,key})=>location.pathname===path&&new URL(location.href).searchParams.get('filters[key][EQUALS]')===key,{path:'/ui/main/extensions/rbac/'+external,key:permission.key})
-      await page.waitForFunction(()=>document.querySelector('[data-test="extension-container"]').shadowRoot.querySelector('main')?.getAttribute('aria-busy')==='false')
-      equal(await visibleRows('permission-row','data-permission-key'),[permission.key]);evidence.push({link:'scope-permission-deeplink',source:await source()})
+      // The bound-applications relation is the ruled single-column link: it
+      // opens the application filtered to this scope through the native bar.
+      const boundApplicationButton=await page.evaluate(clientId=>{const root=document.querySelector('[data-test="extension-container"]').shadowRoot,codes=[...root.querySelectorAll('[data-test="scope-detail"] .rbac-bound-row code')].filter(code=>code.textContent.trim()===clientId);if(codes.length!==1)throw new Error('Scope application relation absent or ambiguous');const button=codes[0].closest('button');if(!button)throw new Error('Scope application relation has no native button');const parts=[];for(let node=button;node&&node.parentElement;node=node.parentElement)parts.unshift(node.tagName.toLowerCase()+':nth-child('+([...node.parentElement.children].indexOf(node)+1)+')');const selector=parts.join(' > ');if(root.querySelectorAll(selector).length!==1||root.querySelector(selector)!==button)throw new Error('Scope application native button path is not unique');return selector},fixture.clientId)
+      await page.click(boundApplicationButton)
+      await page.waitForFunction(({path,scope})=>location.pathname===path&&new URL(location.href).searchParams.get('filters[scopeKeys][EQUALS]')===scope&&document.querySelector('[data-test="extension-container"]').shadowRoot.querySelector('main')?.getAttribute('aria-busy')==='false',{path:'/ui/main/extensions/rbac/'+external,scope:fixture.scope})
+      equal(await visibleRows('permission-row','data-permission-key'),permissions.filter(item=>item.scopeKeys.includes(fixture.scope)).map(item=>item.key).sort(compare));evidence.push({link:'scope-bound-application-filter',source:await source()})
       await open(external+'?permissionKey='+permission.key);await page.click('[data-test="application-permissions"] .rbac-tags code:text-is('+JSON.stringify(fixture.applicationGroupId+': '+fixture.scope)+')')
       await page.waitForFunction(path=>location.pathname===path,'/ui/main/extensions/rbac/'+scopePath);evidence.push({link:'permission-activation-to-scope',source:await source()})
       assert.equal(evidence.length,6);return evidence
@@ -1618,11 +1632,8 @@ export async function runAccessControlV3Ui(page,base,fixture,record) {
       await page.reload();await page.waitForFunction(()=>document.querySelector('[data-test="extension-container"]')?.shadowRoot?.querySelector('main')?.getAttribute('aria-busy')==='false')
       equal(await visibleRows('permission-row','data-permission-key'),[first.key],'deep-link state lost on refresh')
       assert(await page.evaluate(()=>{const root=document.querySelector('[data-test="extension-container"]').shadowRoot;const wraps=[...root.querySelectorAll('.filter-chip-wrap')].filter(node=>node.getClientRects().length);return wraps.length>=1}),'deep-link chips must render in the native bar')
-      await page.evaluate(()=>{const root=document.querySelector('[data-test="extension-container"]').shadowRoot;root.querySelector('.rules-pill')?.click()})
-      await page.waitForFunction(()=>{const root=document.querySelector('[data-test="extension-container"]').shadowRoot;return [...root.querySelectorAll('.adv-row .cond-field')].some(node=>node.textContent.includes('scope'))})
-      await page.evaluate(()=>{const root=document.querySelector('[data-test="extension-container"]').shadowRoot;const row=[...root.querySelectorAll('.adv-row')].find(node=>node.querySelector('.cond-field')?.textContent.includes('scope'));row.querySelector('button.cond-delete').click()})
-      await page.waitForFunction(()=>!new URL(location.href).searchParams.has('filters[scopeKeys][IN]'))
-      await page.click('.adv-header-close')
+      await removeScopeCondition(page,fixture.scope)
+      await page.waitForFunction(()=>!new URL(location.href).searchParams.has('filters[scopeKeys][IN]')&&!new URL(location.href).searchParams.has('filters[scopeKeys][EQUALS]'))
       assert(!(await state()).query.includes('scopeKeys'),'single chip removal did not update URL')
       equal(await visibleRows('permission-row','data-permission-key'),[first.key],'removing the ANY scope chip must preserve the key filter')
       await open(app+'?permissionKey=does-not-exist');equal(await visibleRows('permission-row','data-permission-key'),[],'legal no-result query is not empty')
@@ -1680,11 +1691,7 @@ export async function runAccessControlV3Ui(page,base,fixture,record) {
       const combined=await source(),joined=new URLSearchParams(combined.query)
       assert.equal(joined.get('filters[scopeKeys][EQUALS]'),target.scopeKeys[0],'deep-link scope filter must normalize into the native bar query')
       assert.equal(joined.get('filters[key][EQUALS]'),target.key,'manual condition must coexist with the deep-link chip')
-      await page.evaluate(()=>{const root=document.querySelector('[data-test="extension-container"]').shadowRoot;root.querySelector('.rules-pill')?.click()})
-      await page.waitForFunction(()=>{const root=document.querySelector('[data-test="extension-container"]').shadowRoot;return [...root.querySelectorAll('.adv-row .cond-field')].some(node=>node.textContent.includes('scope'))})
-      await page.evaluate(()=>{const root=document.querySelector('[data-test="extension-container"]').shadowRoot;const row=[...root.querySelectorAll('.adv-row')].find(node=>node.querySelector('.cond-field')?.textContent.includes('scope'));row.querySelector('button.cond-delete').click()})
-      await page.waitForFunction(()=>{const root=document.querySelector('[data-test="extension-container"]').shadowRoot;return [...root.querySelectorAll('.adv-row .cond-field')].every(node=>!node.textContent.includes('scope'))})
-      await page.click('.adv-header-close')
+      await removeScopeCondition(page,target.scopeKeys[0])
       await page.waitForFunction(()=>{const root=document.querySelector('[data-test="extension-container"]').shadowRoot;return !new URL(location.href).searchParams.has('filters[scopeKeys][EQUALS]')&&root.querySelector('main')?.getAttribute('aria-busy')==='false'})
       assert(!new URLSearchParams((await source()).query).has('filters[scopeKeys][EQUALS]'),'deleting deep-link chip did not clear its query')
       equal(await visibleRows('permission-row','data-permission-key'),[target.key],'deleting deep-link chip erased native filter')
