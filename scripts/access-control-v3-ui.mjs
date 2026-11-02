@@ -599,8 +599,8 @@ export async function runAccessControlV3Ui(page,base,fixture,record) {
       await page.waitForFunction(({path,queries,element,observation})=>{
         const root=document.querySelector('[data-test="extension-container"]')?.shadowRoot,main=root?.querySelector('main')
         const normalized=value=>{const parameters=new URLSearchParams(value);for(const [key,defaultValue]of [['page','1'],['size','25']])if(parameters.getAll(key).length===1&&parameters.get(key)===defaultValue)parameters.delete(key);return JSON.stringify([...parameters].sort(([left],[right])=>left<right?-1:left>right?1:0))}
-        const rejectedEmptySubject=element==='[data-test="request-error"]'&&queries.includes(normalized('?filterSubject='))&&location.search===''&&Boolean(root?.querySelector('[data-test="request-error"] button'))&&!root.querySelector('[data-test="permission-row"]')
-        if(location.pathname!==path||!rejectedEmptySubject&&!queries.includes(normalized(location.search))||main?.getAttribute('aria-busy')!=='false'||!root.querySelector(element))return false
+        const rejectedEmptySubject=element==='[data-test="request-error"]'&&queries.includes('?filterSubject=')&&location.search===''&&Boolean(root?.querySelector('[data-test="request-error"] button'))&&!root.querySelector('[data-test="permission-row"]')
+        if(location.pathname!==path||!rejectedEmptySubject&&!queries.some(candidate=>normalized(candidate)===normalized(location.search))||main?.getAttribute('aria-busy')!=='false'||!root.querySelector(element))return false
         const selected=path.match(/\/(scopes|applications)\/([^/]+)$/)
         if(selected) {
           const sidebar=root.querySelector('[data-test="'+(selected[1]==='scopes'?'scope':'application')+'-sidebar"]')
@@ -614,7 +614,7 @@ export async function runAccessControlV3Ui(page,base,fixture,record) {
         const signature=main.textContent+'|'+root.querySelector(element).textContent
         const previous=window[observation];window[observation]={signature,count:previous?.signature===signature?previous.count+1:1}
         return window[observation].count>=3
-      },{path:target.pathname,queries:[...new Set([target.search,rewrittenDeepLinkQuery(target.search)])].map(search=>search),element,observation})
+      },{path:target.pathname,queries:[...new Set([target.search,rewrittenDeepLinkQuery(target.search)])],element,observation})
     }finally{await page.evaluate(observation=>{delete window[observation]},observation).catch(()=>{})}
     await dismissNativeInstallPrompt()
     return state()
