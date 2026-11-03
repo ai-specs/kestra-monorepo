@@ -122,7 +122,7 @@ kestra-monorepo/
 
 无需任何额外操作。Kestra 标准 OIDC 认证可用，但不提供细粒度资源授权。
 
-### 模式 B：使用 RBAC（自动首装，最终组合验收中）
+### 模式 B：使用 RBAC（自动首装）
 
 本仓当前选定插件提交 `6ec194ad`，成功 CI run `41638334994`，正式 jar SHA-256：
 `bfc5ea876698565f4a8a07ee41e4e51c647c9361282ec53fd99c705558807e89`。
@@ -171,7 +171,8 @@ Copy-Item .work/rbac-release/build/libs/kestra-rbac-authorizer.jar deployment/li
 已经完成安装的数据库不会再次开放首装或自动补授管理员。不得删除安装凭据或清空用户来重复首装；已有部署按插件公开维护流程处理，先保护原数据。
 
 > 宿主 c4a1eb22/CI41628600618、插件 6ec194ad/CI41638334994 已分别通过独立发布门。
-> 正式 jar 已下载核对；根仓最终提交的组合验收与 CI 尚在进行，不宣称已完成交付。
+> 正式 jar 已下载核对。部署组合在根仓 `d66d324` 的成功 CI `41669412885` 中，
+> 通过正常首装9项、缺jar恢复12项、REST56、组合检查144及业务UI88；该提交报告已实际下载复核。
 
 默认初始业务范围为 `company` 及子命名空间，其他命名空间仍拒绝；范围可在访问控制页面
 由获准管理员显式调整。详细边界与验收条件见 [RBAC 首次安装体验](docs/rbac-onboarding-experience.md)。
@@ -200,7 +201,7 @@ Copy-Item .work/rbac-release/build/libs/kestra-rbac-authorizer.jar deployment/li
 | [docs/application-group-target-model.md](docs/application-group-target-model.md) | 应用组概念模型 |
 | [docs/rbac-ui-contract.md](docs/rbac-ui-contract.md) | RBAC UI 授权契约 |
 | [docs/access-control-ui-requirements.md](docs/access-control-ui-requirements.md) | 访问控制管理 UI 需求规格 |
-| [docs/rbac-onboarding-experience.md](docs/rbac-onboarding-experience.md) | RBAC 首次安装目标体验与验收条件（实施中，未发布） |
+| [docs/rbac-onboarding-experience.md](docs/rbac-onboarding-experience.md) | RBAC 首次安装使用流程与验收条件 |
 | [docs/rbac-acceptance.md](docs/rbac-acceptance.md) | 组合验收记录（历史） |
 | [implementation-gap-report.md](implementation-gap-report.md) | 实施差异报告（历史） |
 | [deprecated.md](deprecated.md) | 已归档的历史验收记录 |
