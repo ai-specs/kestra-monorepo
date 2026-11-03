@@ -117,6 +117,13 @@ test('classifies only exact read-only setup polls inside owned restart window',(
   assert.equal(result.errors.length,0)
   assert.equal(result.classifications[0].reason,'owned-jvm-restart-setup-poll')
 })
+test('socket-not-connected is limited to the exact setup poll during the proved JVM restart',()=>{
+  const events=restartEvents({message:'net::ERR_SOCKET_NOT_CONNECTED'})
+  assert.equal(classifyRbacOnboardingDiagnostics({events,base,requests:[],restartWindows}).errors.length,0)
+  assert.equal(classifyRbacOnboardingDiagnostics({events,base,requests:[],restartWindows:[]}).errors.length,1)
+  events[0].method=events[1].method='POST'
+  assert.equal(classifyRbacOnboardingDiagnostics({events,base,requests:[],restartWindows}).errors.length,1)
+})
 for(const [name,options,windows] of [
   ['post retry',{method:'POST'},restartWindows],
   ['business API',{path:'/api/v1/main/flows'},restartWindows],

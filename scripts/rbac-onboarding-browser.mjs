@@ -120,10 +120,10 @@ export function classifyRbacOnboardingDiagnostics({events,base,requests,restartW
     const restart=restartWindows.find(window=>timestamp>=Date.parse(window.startedAt)&&timestamp<=Date.parse(window.finishedAt))
     if(!restart||!request||request.method!=='GET'||request.url!==base+'/oidc/setup'
       ||new URL(request.documentUrl).pathname!=='/oidc/setup')continue
-    const failed=event.kind==='request-failed'&&['net::ERR_CONNECTION_REFUSED','net::ERR_CONNECTION_RESET','net::ERR_EMPTY_RESPONSE'].includes(event.message)
+    const failed=event.kind==='request-failed'&&['net::ERR_CONNECTION_REFUSED','net::ERR_CONNECTION_RESET','net::ERR_EMPTY_RESPONSE','net::ERR_SOCKET_NOT_CONNECTED'].includes(event.message)
     const unavailable=event.kind==='http-error'&&event.status===503
     const networkConsole=event.kind==='console-error'&&event.source==='network'&&events.some(item=>matches(item,event)
-      &&(item.kind==='request-failed'&&['net::ERR_CONNECTION_REFUSED','net::ERR_CONNECTION_RESET','net::ERR_EMPTY_RESPONSE'].includes(item.message)
+      &&(item.kind==='request-failed'&&['net::ERR_CONNECTION_REFUSED','net::ERR_CONNECTION_RESET','net::ERR_EMPTY_RESPONSE','net::ERR_SOCKET_NOT_CONNECTED'].includes(item.message)
         ||item.kind==='http-error'&&item.status===503))
     if(failed||unavailable||networkConsole)classified.set(event.id,{id:event.id,reason:'owned-jvm-restart-setup-poll',
       evidence:{requestId:request.requestId,documentId:request.documentId,restart}})
