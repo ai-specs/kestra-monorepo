@@ -126,7 +126,18 @@ kestra-monorepo/
 
 `.env` 中 `KESTRA_RBAC_ENABLED=true`。当前需要手动完成以下步骤：
 
-1. **下载插件 jar**：从 `kestra-plugin-rbac` 仓库的 CI 成功构建中下载
+1. **找到与当前 KESTRA_IMAGE 匹配的插件 CI run**
+
+   插件 jar 必须与 overlay 镜像版本兼容。先确认当前 `.env` 中的 `KESTRA_IMAGE` digest 对应哪个 overlay commit，再到 `kestra-plugin-rbac` 仓找到消费了该镜像的成功 CI run：
+
+   ```bash
+   gh run list -R ai-specs/kestra-plugin-rbac --limit 10
+   ```
+
+   选择最新状态为 success 的 run。
+
+2. **下载 jar**
+
    ```bash
    gh run download -R ai-specs/kestra-plugin-rbac <成功构建的run-id> \
      --name kestra-rbac-authorizer --dir /tmp/kestra-rbac-artifact
@@ -137,21 +148,29 @@ kestra-monorepo/
      --name kestra-rbac-authorizer --dir $env:TEMP\kestra-rbac-artifact
    ```
 
-2. **放置 jar**：将 jar 复制到 `deployment/libs/kestra-rbac-authorizer.jar`
+   下载后 jar 位于 `<目标目录>/build/libs/kestra-rbac-authorizer.jar`。
 
-3. **修改 .env**：
+3. **放置 jar**
+
+   将下载的 jar 复制到本仓 `deployment/libs/kestra-rbac-authorizer.jar`。文件名必须严格为 `kestra-rbac-authorizer.jar`，宿主按此约定路径加载。
+
+   放置后验证 SHA-256 与 CI 记录一致（CI run 产物中包含 `.integration/host-provenance.json`，其中记录了 jar hash）。
+
+4. **修改 .env**：
    ```
    KESTRA_RBAC_ENABLED=true
    KESTRA_OIDC_UI_SCOPES=openid,profile,email,kestra:application-group-scopes
    ```
 
-4. **初始化数据库**：在 JVM 运行时执行插件安装 CLI（详见插件 README）
+5. **初始化数据库**：在 JVM 运行时执行插件安装 CLI（详见插件 README）
    - `ApplicationGroupDirectoryCommand preview/apply`
    - `ApplicationGroupPolicyCommand initialize`
 
-5. **重启容器**：`docker compose up -d`
+6. **重启容器**：`docker compose up -d`
 
-> ⚠️ 如果未完成第 4 步就启用 RBAC，所有请求将被 fail-closed 拒绝，页面无法登录。
+> ⚠️ 如果未完成第 5 步就启用 RBAC，所有请求将被 fail-closed 拒绝，页面无法登录。
+>
+> ⚠️ 不要使用未验证的候选 jar 或本地编译 jar。jar 与 overlay 镜像的兼容性由 CI 验证保障。
 
 启用后管理页面位于 `/ui/main/extensions/rbac`。
 
