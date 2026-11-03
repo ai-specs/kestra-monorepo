@@ -45,10 +45,26 @@ Copy-Item .env.example .env
 |---|---|
 | `POSTGRES_PASSWORD` | 数据库密码，自行生成 |
 | `KESTRA_OIDC_UI_CLIENT_SECRET` | OIDC UI client secret，自行生成 |
-| `KESTRA_IMAGE` | 已发布的 overlay 镜像 digest（.env.example 已填入当前正式版本） |
+| `KESTRA_IMAGE` | overlay 镜像 digest（.env.example 已填入当前已验证的正式版本） |
 | `KESTRA_OIDC_BOOTSTRAP_USERNAME` / `PASSWORD` / `EMAIL` | 可选；不填则首次启动后在 UI 手动创建账号 |
 
 > 镜像来自私有 GHCR 包，拉取前需 `docker login ghcr.io -u <你的GitHub用户名>`，凭据需有 `read:packages` 权限。
+
+### 关于 KESTRA_IMAGE
+
+`KESTRA_IMAGE` 使用镜像 digest（`@sha256:...`）而非 tag，确保每次部署可复现。
+
+`.env.example` 中固定的 digest 对应 `kestra-overlay` 仓库最近一次 CI 全绿并完成推广的构建。随 overlay 仓迭代，新的验证通过后更新此值：
+
+```bash
+# 查看 overlay 仓最新成功的 CI run
+gh run list -R ai-specs/kestra-overlay --workflow <workflow-name> --limit 5
+
+# 从成功 run 的产物中提取镜像 digest
+gh run view -R ai-specs/kestra-overlay <run-id>
+```
+
+> ⚠️ 不要随意改用 `latest` tag 或未验证的候选 digest。digest 与插件 jar 的兼容性由 CI 验证保障。
 
 ### 3. 启动服务
 
@@ -155,39 +171,6 @@ kestra-monorepo/
 | kestra-overlay | setup 页面 jar 检查、RBAC 提示、初始化钩子 |
 | kestra-plugin-rbac | 暴露运行时初始化 API、幂等状态查询 |
 | kestra-monorepo | README 文档、.env 模板 |
-
----
-
-## 终端代理（如拉取境外仓库需要）
-
-如果你的网络需要代理才能访问 GitHub / GHCR，按你的 shell 配置：
-
-```bash
-# macOS / Linux (zsh/bash) — 加入 ~/.zshrc
-function proxy_on() {
-    export http_proxy=http://127.0.0.1:7897
-    export https_proxy=http://127.0.0.1:7897
-    export all_proxy=socks5h://127.0.0.1:7897
-    echo "✅ 终端代理已开启"
-}
-function proxy_off() { unset http_proxy https_proxy all_proxy; echo "❌ 终端代理已关闭" }
-```
-
-```powershell
-# Windows PowerShell — 加入 $PROFILE
-function proxy_on {
-    $env:http_proxy  = "http://127.0.0.1:7897"
-    $env:https_proxy = "http://127.0.0.1:7897"
-    $env:all_proxy   = "socks5h://127.0.0.1:7897"
-    Write-Host "✅ 终端代理已开启"
-}
-function proxy_off {
-    Remove-Item Env:http_proxy, Env:https_proxy, Env:all_proxy -ErrorAction SilentlyContinue
-    Write-Host "❌ 终端代理已关闭"
-}
-```
-
-> 端口 `7897` 对应 Clash Verge Rev 默认混合端口。其他代理工具按实际端口修改。
 
 ---
 
