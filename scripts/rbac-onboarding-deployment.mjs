@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import {copyFileSync,mkdirSync,readFileSync,writeFileSync} from 'node:fs'
+import {copyFileSync,mkdirSync,readFileSync,writeFileSync,chmodSync} from 'node:fs'
 import {createHash,randomBytes} from 'node:crypto'
 import {createRequire} from 'node:module'
 import {join} from 'node:path'
@@ -18,8 +18,14 @@ export async function runRbacOnboardingDeployment({configuration,compose,saveCon
   const database='application_group_acceptance_'+Date.now()+'_'+process.pid
   const directory=join(output,scenario==='normal'?'onboarding-normal':'onboarding'),libs=join(directory,'libs')
   const storage=scenario==='normal'?'onboarding-normal-data':'onboarding-data'
-  mkdirSync(libs,{recursive:true,mode:0o700})
-  if(scenario==='normal')copyFileSync(formalJar,join(libs,'kestra-rbac-authorizer.jar'))
+  mkdirSync(libs,{recursive:true,mode:0o755})
+  chmodSync(libs,0o755)
+  const placeJar=()=>{
+    const destination=join(libs,'kestra-rbac-authorizer.jar')
+    copyFileSync(formalJar,destination)
+    chmodSync(destination,0o644)
+  }
+  if(scenario==='normal')placeJar()
   const reportPath=join(directory,'report.json')
   const account={username:'onboarding-'+randomBytes(6).toString('hex'),password:randomBytes(24).toString('base64url')+'Aa1!'}
   let postgresContainer,hostContainer,browser,context,adapter
@@ -113,7 +119,7 @@ export async function runRbacOnboardingDeployment({configuration,compose,saveCon
       },
       deliverFormalJar:async()=>{
         await assertOwner()
-        copyFileSync(formalJar,join(libs,'kestra-rbac-authorizer.jar'))
+        placeJar()
         assert.equal(command('docker',['exec',hostContainer,'sha256sum','/app/libs/kestra-rbac-authorizer.jar']).split(/\s+/)[0],inputs.jarSha256)
       },restartJvm:async()=>{
         await assertOwner();compose('restart','kestra');await waitForHost()

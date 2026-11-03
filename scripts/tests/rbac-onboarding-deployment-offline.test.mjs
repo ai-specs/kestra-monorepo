@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import {mkdtempSync,writeFileSync,readFileSync,rmSync} from 'node:fs'
+import {mkdtempSync,writeFileSync,readFileSync,rmSync,statSync} from 'node:fs'
 import {tmpdir} from 'node:os'
 import {join} from 'node:path'
 import {createHash} from 'node:crypto'
@@ -63,6 +63,8 @@ for(const scenario of ['missing-jar','normal'])test(scenario+': orchestration us
     assert(first.volumes.some(volume=>volume.target==='/app/libs'&&volume.read_only))
     assert.deepEqual(configuration.volumes[storage].labels,{owner:project})
     if(scenario==='normal')assert.deepEqual(readFileSync(join(output,directory,'libs/kestra-rbac-authorizer.jar')),readFileSync(formalJar))
+    assert.equal(statSync(join(output,directory,'libs')).mode&0o777,0o755,'Unprivileged runtime must traverse the artifact-only mount')
+    if(scenario==='normal')assert.equal(statSync(join(output,directory,'libs/kestra-rbac-authorizer.jar')).mode&0o777,0o644)
     assert.equal(commands.filter(row=>row.args.some(arg=>arg.startsWith('CREATE DATABASE '))).length,1)
     assert(!composeCalls.some(args=>args.includes('down')))
     assert.deepEqual(composeCalls.at(-1),['stop','kestra'])
