@@ -10,6 +10,16 @@ const fixture=()=>({base,anonymousDocument:{documentId:'login'},anonymousStatus:
   {id:'login-navigation',kind:'document-navigation',documentId:'login',url:base+'/oidc/login?from=[redacted]',frameId:'frame',observedAt:time(40)},
 ]})
 test('late old-denial capability refusal requires actual same-frame logout and final login document',()=>assert.deepEqual(classify(fixture()).map(x=>x.id),['denial']))
+test('initial account logout and zero-account logout require their own explicit anonymous proof',()=>{
+  const first=fixture(),second=fixture()
+  second.anonymousDocument.documentId='second-login'
+  second.events=second.events.map(event=>({...event,id:'second-'+event.id,requestId:'second-'+event.requestId,
+    documentId:event.documentId==='login'?'second-login':'second-denial',observedAt:time(2000+Date.parse(event.observedAt)-1700000000000)}))
+  const events=[...first.events,...second.events]
+  assert.deepEqual(classify({...first,events}).map(event=>event.id),['denial'])
+  assert.deepEqual(classify({...second,events}).map(event=>event.id),['second-denial'])
+  assert.deepEqual(classify({...first,events,anonymousStatus:403}),[])
+})
 for(const [name,mutate]of [
   ['no real logout click',x=>{x.realSignOutClicked=false}],
   ['anonymous session not proven cleared',x=>{x.anonymousStatus=403}],

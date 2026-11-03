@@ -167,8 +167,10 @@ jobs:
                   command_failures = report.parent / 'command-failures.log'
                   if command_failures.exists():
                       shutil.copy2(command_failures, destination / 'command-failures.log')
-                  for phase in ['frozen-browser', 'browser']:
+                  for phase in ['frozen-browser', 'browser', 'onboarding', 'onboarding-normal']:
                       browser = report.parent / phase / 'browser-report.json'
+                      if phase in ['onboarding', 'onboarding-normal']:
+                          browser = report.parent / phase / 'report.json'
                       if browser.exists():
                           shutil.copy2(browser, destination / (phase + '-report.json'))
                       diagnostics = report.parent / phase / 'diagnostics'

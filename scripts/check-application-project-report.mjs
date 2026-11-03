@@ -13,6 +13,8 @@ import {accessControlLocales,accessControlSupportedLocales,accessControlCaseIds,
 import {assertPluginUiBrowserReport,assertHostAuthenticationUiReports,committedPluginUiHashes,aggregateUiHashes,assertStablePopupReferenceCases} from './published-ui-browser-evidence.mjs'
 import {checkPublishedTranslationSources} from './access-control-translation-coverage.mjs'
 import {classifyAccessControlDiagnostics} from './access-control-browser-diagnostics.mjs'
+import {assertRbacOnboardingReport,classifyRbacOnboardingDiagnostics,scopedRbacOnboardingEvents} from './rbac-onboarding-browser.mjs'
+import {assertHostInitialAccountReports,assertHostOnboardingBrowserEvidence,committedHostOnboardingSources,assertHostOnboardingDiagnostics} from './rbac-onboarding-published-evidence.mjs'
 
 const [file, image, jarSha256, rootCommit, overlayCommit, pluginCommit] = process.argv.slice(2)
 assert(file && /^ghcr\.io\/ai-specs\/kestra-overlay@sha256:[0-9a-f]{64}$/.test(image ?? ''), 'Explicit immutable image required')
@@ -49,8 +51,64 @@ for(const derived of deriveAccessControlGates(report)) {
 }
 for(const resource of ['containers','networks','volumes'])assert.equal(report.resources.cleanupInventory[resource],0,'Owned acceptance '+resource+' remain')
 assert(report.stages?.some(stage => stage.id === 'publication-gate' && stage.status === 'passed'), 'Formal artifact publication gate missing')
+const onboardingStage=report.stages.find(stage=>stage.id==='automatic-rbac-new-user-installation'&&stage.status==='passed')
+assert(onboardingStage,'Actual automatic first-install production journey is missing')
+assert.deepEqual(onboardingStage.evidence,report.fragments.onboarding)
+assertRbacOnboardingReport(onboardingStage.evidence,report.inputs)
+assert.equal(onboardingStage.evidence.scenario,'missing-jar')
+const onboardingDirectories=[resolve(dirname(file),'onboarding/diagnostics'),resolve(dirname(report.resources.composeFile),'onboarding/diagnostics')]
+const onboardingReference=onboardingStage.evidence.diagnostics.reference
+if(typeof onboardingReference.path==='string'&&resolve(onboardingReference.path).startsWith(resolve(dirname(report.resources.composeFile))+sep)
+  &&dirname(onboardingReference.path).endsWith(sep+'diagnostics'))onboardingDirectories.push(dirname(onboardingReference.path))
+const onboardingDiagnostics=readBrowserDiagnosticEvidence(onboardingReference,onboardingDirectories)
+const onboardingCheckpoint=readBrowserDiagnosticEvidence(onboardingStage.evidence.diagnostics.checkpoint,onboardingDirectories)
+assert.equal(onboardingDiagnostics.integrity.length,0)
+const onboardingReview=classifyRbacOnboardingDiagnostics({events:scopedRbacOnboardingEvents(onboardingDiagnostics,onboardingCheckpoint),base:report.resources.base,
+  requests:onboardingStage.evidence.requests,restartWindows:onboardingStage.evidence.restartWindows})
+assert.equal(onboardingReview.errors.length,0,'First-install browser retains unknown errors')
+assert.deepEqual(onboardingReview.classifications,onboardingStage.evidence.diagnostics.classifications)
+const normalOnboardingStage=report.stages.find(stage=>stage.id==='automatic-rbac-normal-installation'&&stage.status==='passed')
+assert(normalOnboardingStage,'Ordinary first installation with jar present at startup is missing')
+assert.deepEqual(normalOnboardingStage.evidence,report.fragments.normalOnboarding)
+assertRbacOnboardingReport(normalOnboardingStage.evidence,report.inputs)
+assert.equal(normalOnboardingStage.evidence.scenario,'normal')
+const normalReference=normalOnboardingStage.evidence.diagnostics.reference
+const normalDirectories=[resolve(dirname(file),'onboarding-normal/diagnostics'),resolve(dirname(report.resources.composeFile),'onboarding-normal/diagnostics')]
+if(typeof normalReference.path==='string'&&resolve(normalReference.path).startsWith(resolve(dirname(report.resources.composeFile))+sep)
+  &&dirname(normalReference.path).endsWith(sep+'diagnostics'))normalDirectories.push(dirname(normalReference.path))
+const normalDiagnostics=readBrowserDiagnosticEvidence(normalReference,normalDirectories)
+const normalCheckpoint=readBrowserDiagnosticEvidence(normalOnboardingStage.evidence.diagnostics.checkpoint,normalDirectories)
+assert.equal(normalDiagnostics.integrity.length,0)
+const normalReview=classifyRbacOnboardingDiagnostics({events:scopedRbacOnboardingEvents(normalDiagnostics,normalCheckpoint),base:report.resources.base,
+  requests:normalOnboardingStage.evidence.requests,restartWindows:normalOnboardingStage.evidence.restartWindows})
+assert.equal(normalReview.errors.length,0,'Ordinary first-install browser retains unknown errors')
+assert.deepEqual(normalReview.classifications,normalOnboardingStage.evidence.diagnostics.classifications)
+assert.deepEqual(report.onboardingSummary,{missingJar:onboardingStage.evidence.summary,normal:normalOnboardingStage.evidence.summary})
+const initialHostGate=report.sources?.overlay?.downloadedInitialAccountGate
+assert.equal(initialHostGate?.commit,overlayCommit);assert.equal(initialHostGate.image,image)
+assert(Number.isSafeInteger(initialHostGate.runId)&&initialHostGate.runId>0)
+assert(Number.isSafeInteger(initialHostGate.artifactId)&&initialHostGate.artifactId>0)
+assert.equal(initialHostGate.sha256,createHash('sha256').update(JSON.stringify(initialHostGate.rawReports)).digest('hex'))
+assert.deepEqual(initialHostGate.validation,assertHostInitialAccountReports(initialHostGate.rawReports))
 const sdkGate=report.sources?.overlay?.downloadedSdkBrowserGate
 const originGate=report.sources?.overlay?.downloadedHttpOriginGate
+const onboardingHostBrowser=report.sources?.overlay?.downloadedOnboardingBrowserGate
+assert.equal(onboardingHostBrowser?.commit,overlayCommit);assert.equal(onboardingHostBrowser.image,image)
+assert.equal(onboardingHostBrowser.runId,sdkGate.runId)
+assert(Number.isSafeInteger(onboardingHostBrowser.artifactId)&&onboardingHostBrowser.artifactId>0)
+assert.equal(onboardingHostBrowser.sha256,createHash('sha256').update(onboardingHostBrowser.rawReport).digest('hex'))
+assert.equal(onboardingHostBrowser.inputsSha256,createHash('sha256').update(onboardingHostBrowser.rawInputs).digest('hex'))
+assert.equal(onboardingHostBrowser.rawInputs,onboardingHostBrowser.rawFinalInputs,'Published onboarding inputs changed during execution')
+assert.equal(onboardingHostBrowser.diagnosticsSha256,createHash('sha256').update(onboardingHostBrowser.rawDiagnostics).digest('hex'))
+assert.deepEqual(onboardingHostBrowser.diagnosticsValidation,assertHostOnboardingDiagnostics(JSON.parse(onboardingHostBrowser.rawDiagnostics)))
+assert.deepEqual(onboardingHostBrowser.expectedSourceHashes,committedHostOnboardingSources(fileURLToPath(new URL('../kestra-overlay/',import.meta.url)),overlayCommit))
+assert.deepEqual(onboardingHostBrowser.validation,assertHostOnboardingBrowserEvidence(JSON.parse(onboardingHostBrowser.rawReport),JSON.parse(onboardingHostBrowser.rawInputs),
+  {commit:overlayCommit,expectedSourceHashes:onboardingHostBrowser.expectedSourceHashes}))
+assert.equal(report.resources.onboardingUi?.source,'actual-running-formal-host-executable')
+assert.equal(report.resources.onboardingUi.hostExecutableSha256,report.resources.hostExecutableSha256)
+assert.deepEqual(report.resources.onboardingUi.files,onboardingHostBrowser.validation.uiAssets)
+assert.equal(initialHostGate.runId,sdkGate.runId,'First-install and SDK reports must bind the same final host run')
+assert.equal(initialHostGate.artifactId,originGate.artifactId,'First-install and HTTP-origin reports must bind the same downloaded host artifact')
 assert.equal(originGate?.commit,overlayCommit,'Published HTTP origin regression commit differs')
 assert.equal(originGate.runId,sdkGate.runId)
 assert.equal(originGate.sha256,createHash('sha256').update(originGate.xml).digest('hex'))
@@ -163,6 +221,13 @@ assert.equal(lifecycleGate.hostExecutableSha256,report.resources.hostExecutableS
 assert(Number.isSafeInteger(lifecycleGate.tests)&&lifecycleGate.tests>=6)
 assert(Number.isSafeInteger(lifecycleGate.additionalTests)&&lifecycleGate.additionalTests>0)
 for(const field of ['failures','errors','skipped'])assert.equal(lifecycleGate[field],0)
+const initialAccountGate=lifecycleGate.initialAccount
+assert.equal(initialAccountGate?.backend,'PostgreSQL')
+assert.equal(initialAccountGate.hostAdapter,'published-initial-account-participant')
+assert.equal(initialAccountGate.hostImage,image)
+assert.equal(initialAccountGate.hostExecutableSha256,report.resources.hostExecutableSha256)
+assert.equal(initialAccountGate.tests,6)
+for(const field of ['failures','errors','skipped'])assert.equal(initialAccountGate[field],0)
 for(const phase of ['unit','postgres','lifecycle']) {
   const actual=report.sources.plugin.downloadedTestResultsByPhase?.[phase]
   assert(actual&&actual.commit===pluginCommit,'Final downloaded plugin phase missing: '+phase)

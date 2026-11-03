@@ -29,6 +29,8 @@ export const applicationGroupPluginClasses=Object.freeze([
   'io/kestra/extensions/rbac/management/ManagementAuditController.class',
   'io/kestra/extensions/rbac/store/ManagementAuditStore.class',
   'io/kestra/extensions/rbac/store/ManagementAuditSchemaCommand.class',
+  'io/kestra/extensions/rbac/InitialApplicationGroupParticipant.class',
+  'io/kestra/extensions/rbac/applicationgroup/InitialApplicationGroupPlan.class',
 ])
 
 export function assertApplicationGroupPluginEntries(entries) {

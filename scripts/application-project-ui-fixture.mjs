@@ -387,7 +387,13 @@ export async function runZeroGrantBrowser(page,base,fixture) {
   const login=async account=>{
     await page.fill('input[name="username"]',account.username);await page.fill('input[name="password"]',account.password);await page.click('button[type="submit"]')
   }
-  await signOut(false)
+  const initialClicked=await signOut(false)
+  const initialAnonymousDocument=await source()
+  const initialEvents=(await page.diagnostics()).events
+  initialAnonymousDocument.documentId=[...initialEvents].reverse().find(event=>['document-navigation','document-route'].includes(event.kind)&&sameDocumentPath(event,initialAnonymousDocument))?.documentId
+  assert(initialAnonymousDocument.documentId,'initial anonymous login document identity missing')
+  const initialAnonymous=await page.evaluate(async()=>{const response=await fetch('/api/v1/main/flows/search?size=1',{credentials:'same-origin',redirect:'manual'});await response.body?.cancel();return {status:response.status}})
+  assert.equal(initialAnonymous.status,401,'initial logout must clear the previous account before zero-account login')
   await login(fixture.zeroAccount)
   await page.waitForFunction(()=>location.pathname==='/ui/access-denied'&&!document.querySelector('input[name="password"]')&&Boolean(document.querySelector('[data-testid="return-to-login"]')))
   const rejectedDocument=await source()
@@ -412,8 +418,9 @@ export async function runZeroGrantBrowser(page,base,fixture) {
   const events=(await page.diagnostics()).events.filter(event=>!previous.has(event.id))
   const expectedUrl=base+path
   const errors=events.filter(event=>['console-error','page-error','request-failed','http-error','diagnostic-integrity-error'].includes(event.kind))
-  const expectedHttp=errors.filter(event=>event.kind==='http-error'&&event.url===expectedUrl&&((event.status===403&&event.documentId===rejectedDocument.documentId)||(anonymous.status===401&&event.status===401&&event.documentId===anonymousDocument.documentId)))
-  const logoutCapabilityDenial=loggedOutCapabilityDenials({events,base,anonymousDocument,anonymousStatus:anonymous.status,realSignOutClicked:clicked})
+  const expectedHttp=errors.filter(event=>event.kind==='http-error'&&event.url===expectedUrl&&((event.status===403&&event.documentId===rejectedDocument.documentId)||(anonymous.status===401&&event.status===401&&event.documentId===anonymousDocument.documentId)||(event.status===401&&event.documentId===initialAnonymousDocument.documentId)))
+  const logoutCapabilityDenial=[...loggedOutCapabilityDenials({events,base,anonymousDocument,anonymousStatus:anonymous.status,realSignOutClicked:clicked}),
+    ...loggedOutCapabilityDenials({events,base,anonymousDocument:initialAnonymousDocument,anonymousStatus:initialAnonymous.status,realSignOutClicked:initialClicked})]
   const zeroLoginConfigDenial=errors.filter(event=>event.kind==='http-error'&&event.status===403&&event.method==='GET'&&event.url===base+'/'+['api','v1','configs'].join('/')&&event.documentUrl===base+'/'+['ui',''].join('/'))
   const classifiedConsole=errors.filter(event=>event.kind==='console-error'&&event.source==='network'&&event.requestId&&/^Failed to load resource: the server responded with a status of (401|403) /.test(event.message)&&[...expectedHttp,...zeroLoginConfigDenial,...logoutCapabilityDenial].some(http=>http.requestId===event.requestId&&http.documentId===event.documentId&&http.url===event.url))
   const teardownPaths=[path,'/'+['api','v1','main','extensions','rbac','capabilities'].join('/'),'/'+['api','v1','main','dashboards','charts','preview'].join('/')]
@@ -421,7 +428,7 @@ export async function runZeroGrantBrowser(page,base,fixture) {
   const teardownConsole=errors.filter(event=>event.kind==='console-error'&&event.url.startsWith(base+'/'+['ui','main','dashboards'].join('/'))&&event.message.includes('TypeError: Failed to fetch')&&abortedNavigation.some(item=>item.documentId===event.documentId))
   const unexpected=errors.filter(event=>!expectedHttp.includes(event)&&!zeroLoginConfigDenial.includes(event)&&!logoutCapabilityDenial.includes(event)&&!classifiedConsole.includes(event)&&!abortedNavigation.includes(event)&&!teardownConsole.includes(event))
   assert.equal(unexpected.length,0,'zero-grant browser has unclassified document/request errors: '+JSON.stringify(unexpected))
-  return {case:'ui-zero-grant-logout-switch',passed:true,status:'passed',evidence:{subject:fixture.zeroAccount.subject,rejectedDocument,businessStatus:denial.status,realSignOutClicked:clicked,anonymousStatus:anonymous.status,anonymousDocument,replacementSubject:verified.body.subject,final:await source(),expectedErrorEventIds:[...expectedHttp,...zeroLoginConfigDenial,...logoutCapabilityDenial,...classifiedConsole,...abortedNavigation,...teardownConsole].map(event=>event.id),events}}
+  return {case:'ui-zero-grant-logout-switch',passed:true,status:'passed',evidence:{subject:fixture.zeroAccount.subject,rejectedDocument,businessStatus:denial.status,initialSignOutClicked:initialClicked,initialAnonymousStatus:initialAnonymous.status,initialAnonymousDocument,realSignOutClicked:clicked,anonymousStatus:anonymous.status,anonymousDocument,replacementSubject:verified.body.subject,final:await source(),expectedErrorEventIds:[...expectedHttp,...zeroLoginConfigDenial,...logoutCapabilityDenial,...classifiedConsole,...abortedNavigation,...teardownConsole].map(event=>event.id),events}}
 }
 
 export async function runPreparedApplicationProjectUi(adapter,base,fixture,record) {

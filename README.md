@@ -122,74 +122,30 @@ kestra-monorepo/
 
 无需任何额外操作。Kestra 标准 OIDC 认证可用，但不提供细粒度资源授权。
 
-### 模式 B：使用 RBAC（当前手动流程）
+### 模式 B：使用 RBAC（自动首装，最终组合验收中）
 
-`.env` 中 `KESTRA_RBAC_ENABLED=true`。当前需要手动完成以下步骤：
+使用本仓选定的正式 overlay 镜像与兼容插件 jar。空数据库首次部署只需：
 
-1. **找到与当前 KESTRA_IMAGE 匹配的插件 CI run**
+1. 从下方明确列出的成功插件 CI run 下载正式 artifact，将其中的
+   `build/libs/kestra-rbac-authorizer.jar` 放到本仓 `deployment/libs/kestra-rbac-authorizer.jar`。
+   按下方已核对的 SHA-256 验证文件；不编译宿主或插件。
+2. 在 `.env` 中设置 `KESTRA_RBAC_ENABLED=true`。默认 UI scopes 保持原值，宿主自动补充应用组选择 scope。
+3. 运行 `docker compose up -d`，打开 `http://localhost:8080/ui/`。
+4. 在首装页阅读“已启用细粒度访问控制”提示，填写账号并创建。账号、应用组、初始权限及首账号授予在一个事务中完成，不需要 JSON 或 Java CLI。
+5. 使用新账号登录，进入 dashboard；从导航进入访问控制管理，复核初始 `main` 应用组及 `admin` scope。
 
-   插件 jar 必须与 overlay 镜像版本兼容。先确认当前 `.env` 中的 `KESTRA_IMAGE` digest 对应哪个 overlay commit，再到 `kestra-plugin-rbac` 仓找到消费了该镜像的成功 CI run：
+初始业务资源范围为 `company` 及子命名空间；管理授权、精确动作与修改方法见插件README。账号名不产生管理员权限，普通后续账号不自动继承首账号授权。
 
-   ```bash
-   gh run list -R ai-specs/kestra-plugin-rbac --limit 10
-   ```
+缺 jar 时，首装页显示明确的下载与放置位置并阻止创建半成品账号。补放 jar 后运行
+`docker compose restart kestra`，原页面会自动等待恢复并重新获取表单；不会存储密码或自动重放创建请求。
+正常在启动前已放好 jar 的首装全程无需重启。
 
-   选择最新状态为 success 的 run。
+已经完成安装的数据库不会再次开放首装或自动补授管理员。不得删除安装凭据或清空用户来重复首装；已有部署按插件公开维护流程处理，先保护原数据。
 
-2. **下载 jar**
+> 宿主 c4a1eb22/CI41628600618、插件 6ec194ad/CI41638334994 已分别通过独立发布门。
+> 正式 jar 已下载核对；根仓最终提交的组合验收与 CI 尚在进行，不宣称已完成交付。
 
-   ```bash
-   gh run download -R ai-specs/kestra-plugin-rbac <成功构建的run-id> \
-     --name kestra-rbac-authorizer --dir /tmp/kestra-rbac-artifact
-   ```
-   ```powershell
-   # Windows PowerShell
-   gh run download -R ai-specs/kestra-plugin-rbac <成功构建的run-id> `
-     --name kestra-rbac-authorizer --dir $env:TEMP\kestra-rbac-artifact
-   ```
-
-   下载后 jar 位于 `<目标目录>/build/libs/kestra-rbac-authorizer.jar`。
-
-3. **放置 jar**
-
-   将下载的 jar 复制到本仓 `deployment/libs/kestra-rbac-authorizer.jar`。文件名必须严格为 `kestra-rbac-authorizer.jar`，宿主按此约定路径加载。
-
-   放置后验证 SHA-256 与 CI 记录一致（CI run 产物中包含 `.integration/host-provenance.json`，其中记录了 jar hash）。
-
-4. **修改 .env**：
-   ```
-   KESTRA_RBAC_ENABLED=true
-   KESTRA_OIDC_UI_SCOPES=openid,profile,email,kestra:application-group-scopes
-   ```
-
-5. **初始化数据库**：在 JVM 运行时执行插件安装 CLI（详见插件 README）
-   - `ApplicationGroupDirectoryCommand preview/apply`
-   - `ApplicationGroupPolicyCommand initialize`
-
-6. **重启容器**：`docker compose up -d`
-
-> ⚠️ 如果未完成第 5 步就启用 RBAC，所有请求将被 fail-closed 拒绝，页面无法登录。
->
-> ⚠️ 不要使用未验证的候选 jar 或本地编译 jar。jar 与 overlay 镜像的兼容性由 CI 验证保障。
-
-启用后管理页面位于 `/ui/main/extensions/rbac`。
-
-### 目标体验：自动化 RBAC 初始化（规划中）
-
-> **状态：提案，未实现**
->
-> 目标是让模式 B 的流程自动化：`/oidc/setup` 页面自动检查 jar 是否存在、
-> 缺失时阻断并提示、创建账号时自动完成数据库初始化，无需手动执行 CLI
-> 和重启容器。
-
-详细的改造方案、三个项目各自的改造面和技术决策点见：
-[docs/rbac-onboarding-experience.md](docs/rbac-onboarding-experience.md)
-
-| 项目 | 改造职责 |
-|---|---|
-| kestra-overlay | setup 页面 jar 检查、RBAC 提示、初始化钩子 |
-| kestra-plugin-rbac | 暴露运行时初始化 API、幂等状态查询 |
-| kestra-monorepo | README 文档、.env 模板 |
+详细边界与验收条件见 [RBAC 首次安装体验](docs/rbac-onboarding-experience.md)。
 
 ---
 
@@ -215,7 +171,7 @@ kestra-monorepo/
 | [docs/application-group-target-model.md](docs/application-group-target-model.md) | 应用组概念模型 |
 | [docs/rbac-ui-contract.md](docs/rbac-ui-contract.md) | RBAC UI 授权契约 |
 | [docs/access-control-ui-requirements.md](docs/access-control-ui-requirements.md) | 访问控制管理 UI 需求规格 |
-| [docs/rbac-onboarding-experience.md](docs/rbac-onboarding-experience.md) | RBAC 首次安装体验改造提案（规划中） |
+| [docs/rbac-onboarding-experience.md](docs/rbac-onboarding-experience.md) | RBAC 首次安装目标体验与验收条件（实施中，未发布） |
 | [docs/rbac-acceptance.md](docs/rbac-acceptance.md) | 组合验收记录（历史） |
 | [implementation-gap-report.md](implementation-gap-report.md) | 实施差异报告（历史） |
 | [deprecated.md](deprecated.md) | 已归档的历史验收记录 |

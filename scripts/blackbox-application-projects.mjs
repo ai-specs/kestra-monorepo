@@ -26,6 +26,9 @@ import {checkPublishedTranslationSources} from './access-control-translation-cov
 import {initialEvidence,runIntegration} from './application-project-integration-cases.mjs'
 import {ProductionOAuthClient} from './production-oauth-client.mjs'
 import {ProjectSideEffects} from './application-project-effects.mjs'
+import {runRbacOnboardingDeployment} from './rbac-onboarding-deployment.mjs'
+import {hostInitialAccountCases,assertHostInitialAccountReports,assertHostOnboardingBrowserEvidence,committedHostOnboardingSources,assertHostOnboardingDiagnostics} from './rbac-onboarding-published-evidence.mjs'
+import {rbacOnboardingCaseIds,rbacNormalOnboardingCaseIds} from './rbac-onboarding-browser.mjs'
 import {planFixture,planRestResources,directoryActivationPlan,provisionFixture,fixtureGaps,applicationProjectFeature,mcpProtocolEvidence,missingExtensionTopology,ApplicationGroupManagement} from './application-project-fixture.mjs'
 import {applicationPermissionRecords} from './application-project-policy.mjs'
 import {runLoginClientMaintenance} from './access-control-v3-maintenance.mjs'
@@ -104,6 +107,10 @@ export async function main(argv=process.argv.slice(2),runtime={}) {
       const rows=[...report.matrix,...report.checks,...report.ui]
       report.notRun=rows.filter(row=>row.status==='not_run').length
       report.failures=rows.filter(row=>row.status==='failed').length+report.stages.filter(row=>row.status==='failed').length
+      report.onboardingSummary=Object.fromEntries([
+        ['missingJar',report.fragments.onboarding,rbacOnboardingCaseIds],
+        ['normal',report.fragments.normalOnboarding,rbacNormalOnboardingCaseIds],
+      ].map(([name,fragment,ids])=>[name,fragment?.summary??{planned:ids.length,passed:0,failed:0,notRun:ids.length,skipped:0}]))
       // Never infer acceptance from static checks or an empty fragment.
       report.completed=!report.nonFinal&&mode==='run'&&report.stages.some(row=>row.id==='final-report-check'&&row.status==='passed')&&report.notRun===0&&report.failures===0
       report.blockers=report.completed?[]:[...fixtureGaps,...(legacyMigration?['explicit legacy-migration profile requires its historical credential and physical rollback checks']:[])]
@@ -133,6 +140,7 @@ export async function main(argv=process.argv.slice(2),runtime={}) {
       if(mode==='run')assertApplicationProjectSources(report.sources,{allowDirtyRoot:options['--allow-dirty-root']===true})
       report.executionSources=Object.fromEntries(['application-group-artifact-contract.mjs','blackbox-application-projects.sh','blackbox-application-projects.mjs','application-project-fixture.mjs','application-project-integration-cases.mjs','application-project-ui-fixture.mjs','application-project-browser-ci.cjs','application-project-migration-cases.mjs','application-project-security-cases.mjs','application-project-oauth-cases.mjs','application-project-aggregate-cases.mjs','application-project-target-ui.mjs'].map(name=>[name,hash(readFileSync(join(repository,'scripts',name)))]))
       for(const name of ['ui-client-ownership-evidence.mjs','browser-diagnostic-evidence.mjs','access-control-browser-diagnostics.mjs','access-control-translation-coverage.mjs','check-access-control-prototype.py','access-control-v3-ui.mjs','access-control-v3-rest-cases.mjs','access-control-v3-maintenance.mjs','access-control-v3-frozen.mjs','access-control-v3-dependency.mjs','access-control-v3-gates.mjs','access-control-v3-transactions.mjs','access-control-v3-ui-controls.mjs','access-control-v3-browser-runtime.mjs','application-project-policy.mjs','application-project-browser-adapters.mjs','production-oauth-client.mjs'])report.executionSources[name]=hash(readFileSync(join(repository,'scripts',name)))
+      for(const name of ['rbac-onboarding-browser.mjs','rbac-onboarding-deployment.mjs','rbac-onboarding-published-evidence.mjs'])report.executionSources[name]=hash(readFileSync(join(repository,'scripts',name)))
       return {actualPlatform:process.platform,node:process.version,commits:structuredClone(report.inputs)}
     })
     await stage('access-control-prototype',async()=>JSON.parse(command('python3',[join(repository,'scripts/check-access-control-prototype.py')])) )
@@ -141,7 +149,7 @@ export async function main(argv=process.argv.slice(2),runtime={}) {
         command('node',['--check',join(repository,'scripts',file)])
         report.staticChecks.push({file,sha256:hash(readFileSync(join(repository,'scripts',file))),syntax:true})
       }
-      for(const file of ['access-control-v3-ui.mjs','access-control-ci-ownership.mjs','published-ui-browser-evidence.mjs','access-control-v3-rest-cases.mjs','access-control-v3-maintenance.mjs','access-control-v3-frozen.mjs','access-control-v3-dependency.mjs','access-control-v3-gates.mjs','access-control-v3-transactions.mjs','access-control-v3-ui-controls.mjs','access-control-v3-browser-runtime.mjs']) {
+      for(const file of ['access-control-v3-ui.mjs','access-control-ci-ownership.mjs','published-ui-browser-evidence.mjs','access-control-v3-rest-cases.mjs','access-control-v3-maintenance.mjs','access-control-v3-frozen.mjs','access-control-v3-dependency.mjs','access-control-v3-gates.mjs','access-control-v3-transactions.mjs','access-control-v3-ui-controls.mjs','access-control-v3-browser-runtime.mjs','rbac-onboarding-browser.mjs','rbac-onboarding-deployment.mjs']) {
         command('node',['--check',join(repository,'scripts',file)])
         report.staticChecks.push({file,sha256:hash(readFileSync(join(repository,'scripts',file))),syntax:true})
       }
@@ -293,6 +301,20 @@ export async function main(argv=process.argv.slice(2),runtime={}) {
       const authReports=Object.fromEntries(['auth-theme-env.json','auth-theme-setup.json','auth-i18n-env.json','auth-i18n-setup.json'].map(name=>[name,readFileSync(join(authDirectory,name),'utf8')]))
       const authValidation=assertHostAuthenticationUiReports(authReports)
       report.sources.overlay.downloadedAuthenticationUiGate={runId:evidence.overlayRunId,artifactId:authArtifact.id,commit:report.inputs.overlayCommit,image:report.inputs.image,sha256:hash(JSON.stringify(authReports)),rawReports:authReports,validation:authValidation}
+      const onboardingArtifacts=sdkArtifactList.artifacts.filter(item=>item.name==='onboarding-browser'&&!item.expired)
+      assert.equal(onboardingArtifacts.length,1,'Published host onboarding browser artifact missing or ambiguous')
+      assert.equal(onboardingArtifacts[0].workflow_run.head_sha,report.inputs.overlayCommit)
+      const onboardingDirectory=join(output,'downloaded-host-onboarding');mkdirSync(onboardingDirectory,{mode:0o700})
+      command('gh',['run','download',String(evidence.overlayRunId),'-R','ai-specs/kestra-overlay','--name','onboarding-browser','--dir',onboardingDirectory],{timeout:180000})
+      const onboardingRawReport=readFileSync(join(onboardingDirectory,'report.json'),'utf8'),onboardingRawInputs=readFileSync(join(onboardingDirectory,'inputs.json'),'utf8')
+      const onboardingRawFinalInputs=readFileSync(join(onboardingDirectory,'final-inputs.json'),'utf8')
+      const onboardingRawDiagnostics=readFileSync(join(onboardingDirectory,'report.json.diagnostics.json'),'utf8')
+      assert.equal(onboardingRawFinalInputs,onboardingRawInputs,'Onboarding browser source or resource input changed during execution')
+      const onboardingSourceHashes=committedHostOnboardingSources(report.sources.overlay.path,report.inputs.overlayCommit)
+      report.sources.overlay.downloadedOnboardingBrowserGate={runId:evidence.overlayRunId,artifactId:onboardingArtifacts[0].id,commit:report.inputs.overlayCommit,
+        image:report.inputs.image,rawReport:onboardingRawReport,rawInputs:onboardingRawInputs,rawFinalInputs:onboardingRawFinalInputs,
+        rawDiagnostics:onboardingRawDiagnostics,diagnosticsSha256:hash(onboardingRawDiagnostics),diagnosticsValidation:assertHostOnboardingDiagnostics(JSON.parse(onboardingRawDiagnostics)),sha256:hash(onboardingRawReport),inputsSha256:hash(onboardingRawInputs),
+        expectedSourceHashes:onboardingSourceHashes,validation:assertHostOnboardingBrowserEvidence(JSON.parse(onboardingRawReport),JSON.parse(onboardingRawInputs),{commit:report.inputs.overlayCommit,expectedSourceHashes:onboardingSourceHashes})}
       assert(Number.isSafeInteger(evidence.pluginArtifactId),'explicit plugin artifact ID required')
       const artifact=JSON.parse(command('gh',['api','repos/ai-specs/kestra-plugin-rbac/actions/artifacts/'+evidence.pluginArtifactId]))
       assert.equal(artifact.name,'kestra-rbac-authorizer');assert.equal(artifact.expired,false)
@@ -348,6 +370,11 @@ export async function main(argv=process.argv.slice(2),runtime={}) {
       const hostDirectory=hostCached??join(output,'downloaded-host-lifecycle')
       if(!hostCached){mkdirSync(hostDirectory,{mode:0o700});command('gh',['run','download',String(evidence.overlayRunId),'-R','ai-specs/kestra-overlay','--name','host-scoped-tests','--dir',hostDirectory],{timeout:180000})}
       const originXml=readFileSync(join(hostDirectory,'test-results/test/TEST-io.kestra.webserver.rbac.AuthorizationHttpOriginBoundaryTest.xml'),'utf8')
+      const initialRawReports=Object.fromEntries(Object.keys(hostInitialAccountCases).map(name=>[name,
+        readFileSync(join(hostDirectory,'test-results/test/TEST-io.kestra.webserver.oidc.'+name+'.xml'),'utf8')]))
+      report.sources.overlay.downloadedInitialAccountGate={commit:report.inputs.overlayCommit,runId:evidence.overlayRunId,
+        artifactId:hostArtifact.id,image:report.inputs.image,sha256:hash(JSON.stringify(initialRawReports)),rawReports:initialRawReports,
+        validation:assertHostInitialAccountReports(initialRawReports)}
       report.sources.overlay.downloadedHttpOriginGate={commit:report.inputs.overlayCommit,runId:evidence.overlayRunId,artifactId:hostArtifact.id,sha256:hash(originXml),xml:originXml,...assertHostHttpOriginReport(originXml)}
       for(const [repository,directory,artifactId,runId,workflow]of [
         ['overlay',join(hostDirectory,'test-results/test'),hostArtifact.id,evidence.overlayRunId,runs.overlay],
@@ -465,6 +492,22 @@ export async function main(argv=process.argv.slice(2),runtime={}) {
       const mount=composeConfig.services.kestra.volumes.find(item=>item.target==='/app/libs/kestra-rbac-authorizer.jar');mount.source=jar;saveCompose()
       return {overlayRunId:evidence.overlayRunId,pluginRunId:evidence.pluginRunId,artifactId:artifact.id,downloadedJar:jar,jarSha256:report.inputs.jarSha256,hostExecutableSha256:provenance.sha256,promoted:true}
     })
+    await stage('automatic-rbac-new-user-installation',async()=>{
+      composeStarted=true;report.resources.startAttempted=true
+      compose('pull','kestra')
+      const publication=report.stages.find(row=>row.id==='publication-gate'&&row.status==='passed')
+      assert(publication,'Automatic installation requires formal published inputs')
+      return runRbacOnboardingDeployment({configuration:composeConfig,compose,saveConfiguration:saveCompose,command,output,
+        project,base:planned.base,inputs:report.inputs,formalJar:publication.evidence.downloadedJar,uiAdapter:runtime.uiAdapter,
+        record:async fragment=>{report.fragments.onboarding=fragment;await persist()}})
+    })
+    await stage('automatic-rbac-normal-installation',async()=>{
+      const publication=report.stages.find(row=>row.id==='publication-gate'&&row.status==='passed')
+      assert(publication,'Normal first installation requires formal published inputs')
+      return runRbacOnboardingDeployment({configuration:composeConfig,compose,saveConfiguration:saveCompose,command,output,
+        project,base:planned.base,inputs:report.inputs,formalJar:publication.evidence.downloadedJar,uiAdapter:runtime.uiAdapter,scenario:'normal',
+        record:async fragment=>{report.fragments.normalOnboarding=fragment;await persist()}})
+    })
     await stage('feature-off-production-install',async()=>{
       composeStarted=true;report.resources.startAttempted=true
       compose('pull','kestra')
@@ -491,6 +534,11 @@ export async function main(argv=process.argv.slice(2),runtime={}) {
       const runtimeSdkSha256=aggregateUiHashes(sdkFiles)
       assert.equal(runtimeSdkSha256,report.sources.plugin.downloadedBrowserUiGate.expectedHashes.sdkSha256,'Plugin browser SDK differs from actual selected host executable')
       report.resources.uiSdk={source:'actual-running-formal-host-executable',hostExecutableSha256:hostSha,files:sdkFiles,sha256:runtimeSdkSha256}
+      const expectedOnboardingAssets=report.sources.overlay.downloadedOnboardingBrowserGate.validation.uiAssets
+      const actualOnboardingAssets=JSON.parse(command('python3',['-c',
+        'import hashlib,json,sys,zipfile\npaths=json.loads(sys.argv[2])\nwith zipfile.ZipFile(sys.argv[1]) as z:\n result={p:hashlib.sha256(z.read("ui/"+p)).hexdigest() for p in paths}\nprint(json.dumps(result))',hostExecutable,JSON.stringify(Object.keys(expectedOnboardingAssets))]))
+      assert.deepEqual(actualOnboardingAssets,expectedOnboardingAssets,'Host onboarding browser loaded resources differ from selected formal runtime')
+      report.resources.onboardingUi={source:'actual-running-formal-host-executable',hostExecutableSha256:hostSha,files:actualOnboardingAssets}
       const runningEnvironment=JSON.parse(command('docker',['inspect','-f','{{json .Config.Env}}',ids.kestra]))
       assert(runningEnvironment.includes('KESTRA_JDBC_QUEUE_CLEANER_RETENTION=24h'),'long-running acceptance must preserve queue evidence for24h')
       assert(!runningEnvironment.some(value=>/^KESTRA_JDBC_QUEUE_CLEANER_(?:INITIAL_DELAY|FIXED_DELAY)=/.test(value)),'queue cleaner schedule must remain enabled and unchanged')
@@ -1077,6 +1125,14 @@ export async function main(argv=process.argv.slice(2),runtime={}) {
         if(host){report.fragments.hostRuntimeState=JSON.parse(command('docker',['inspect','-f','{{json .State}}',host]));const logs=spawnSync('docker',['logs',host],{encoding:'utf8',timeout:20000,maxBuffer:128*1024*1024});if(logs.status!==0)report.stages.push({id:'host-diagnostics',status:'failed',error:'owned host diagnostic collection failed'});else report.fragments.hostMcpDiagnostics=(logs.stdout+logs.stderr).split('\n').filter(line=>line.includes('MCP_TOOL_CALL_FAILED exception=')).map(line=>line.slice(line.indexOf('MCP_TOOL_CALL_FAILED exception=')))}
         if(host){const diagnostic=spawnSync('docker',['logs',host],{encoding:'utf8',timeout:20000,maxBuffer:128*1024*1024});report.fragments.hostFatalDiagnostics=applicationProjectFatalDiagnostics(diagnostic.stdout+diagnostic.stderr);report.fragments.hostExitDiagnostics=(diagnostic.stdout+diagnostic.stderr).replace(/eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+/g,'[redacted-jwt]').split('\n').slice(-200).filter(line=>/shutdown|shutting|stopping|stopped|fatal|outofmemory|exception|error|signal/i.test(line))}
         compose('down','--volumes')
+        // Compose omits volumes no longer mounted after restoring the main host.
+        // Remove only this run's detached first-install storage volumes.
+        for(const volume of command('docker',['volume','ls','--filter','label=owner='+project,'-q']).split('\n').filter(Boolean)) {
+          assert.equal(command('docker',['volume','inspect','-f','{{index .Labels "owner"}}',volume]),project)
+          assert.equal(command('docker',['volume','inspect','-f','{{index .Labels "com.docker.compose.project"}}',volume]),project)
+          assert.equal(command('docker',['ps','-a','--filter','volume='+volume,'-q']),'','Owned storage is still mounted')
+          command('docker',['volume','rm',volume])
+        }
         report.resources.cleaned=true
       }catch(error){report.resources.cleaned=false;report.resources.cleanupError='own Compose cleanup failed';report.stages.push({id:'cleanup',status:'failed',error:'own Compose resources require inspection'});process.exitCode=1}
       await persist()
