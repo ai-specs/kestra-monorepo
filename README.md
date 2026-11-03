@@ -124,6 +124,34 @@ kestra-monorepo/
 
 ### 模式 B：使用 RBAC（自动首装，最终组合验收中）
 
+本仓当前选定插件提交 `6ec194ad`，成功 CI run `41638334994`，正式 jar SHA-256：
+`bfc5ea876698565f4a8a07ee41e4e51c647c9361282ec53fd99c705558807e89`。
+先安装并登录 GitHub CLI（`gh auth login`），账号须能读取插件仓 Actions artifact：
+
+```bash
+# macOS / Linux；在本仓根目录执行
+mkdir -p .work/rbac-release deployment/libs
+gh run download 41638334994 -R ai-specs/kestra-plugin-rbac \
+  --name kestra-rbac-authorizer --dir .work/rbac-release
+cp .work/rbac-release/build/libs/kestra-rbac-authorizer.jar deployment/libs/kestra-rbac-authorizer.jar
+# macOS
+shasum -a 256 deployment/libs/kestra-rbac-authorizer.jar
+# Linux
+sha256sum deployment/libs/kestra-rbac-authorizer.jar
+```
+
+```powershell
+# Windows PowerShell；在本仓根目录执行
+New-Item -ItemType Directory -Force .work/rbac-release, deployment/libs | Out-Null
+gh run download 41638334994 -R ai-specs/kestra-plugin-rbac `
+  --name kestra-rbac-authorizer --dir .work/rbac-release
+Copy-Item .work/rbac-release/build/libs/kestra-rbac-authorizer.jar deployment/libs/kestra-rbac-authorizer.jar
+(Get-FileHash deployment/libs/kestra-rbac-authorizer.jar -Algorithm SHA256).Hash.ToLower()
+```
+
+将命令输出与上方 SHA-256 比较；不匹配时不要启动。下载目录已存在文件时，先确认它们
+是否属于同一正式 run，不覆盖其他版本。已有部署替换 jar 前保留旧正式文件和数据备份。
+
 使用本仓选定的正式 overlay 镜像与兼容插件 jar。空数据库首次部署只需：
 
 1. 从下方明确列出的成功插件 CI run 下载正式 artifact，将其中的
@@ -145,7 +173,8 @@ kestra-monorepo/
 > 宿主 c4a1eb22/CI41628600618、插件 6ec194ad/CI41638334994 已分别通过独立发布门。
 > 正式 jar 已下载核对；根仓最终提交的组合验收与 CI 尚在进行，不宣称已完成交付。
 
-详细边界与验收条件见 [RBAC 首次安装体验](docs/rbac-onboarding-experience.md)。
+默认初始业务范围为 `company` 及子命名空间，其他命名空间仍拒绝；范围可在访问控制页面
+由获准管理员显式调整。详细边界与验收条件见 [RBAC 首次安装体验](docs/rbac-onboarding-experience.md)。
 
 ---
 

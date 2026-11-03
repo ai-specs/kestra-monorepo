@@ -6,12 +6,12 @@
 > 原提案中的实现细节按下文裁决修订；不能把原提案、源码或旧绿色 CI 当作已交付。
 > 宿主公开契约归 overlay，实际目录、初始权限与存储设计归 plugin。
 
-## 1. 问题
+## 1. 改造前的问题（历史手动流程）
 
-当前启用 RBAC 的流程：
+以下是改造前流程，不再作为新空库网页首装步骤：
 
 1. 手动从插件 CI 下载 `kestra-rbac-authorizer.jar` 到 `deployment/libs/`
-2. 修改 `.env`：`KESTRA_RBAC_ENABLED=true` + 修改 OIDC scopes
+2. 手工修改 RBAC 与 OAuth scopes 配置（新宿主会自动补充 UI selector）
 3. 停止 kestra JVM
 4. 在宿主已创建真实账号和 UI client 后，手动准备计划并执行 `ApplicationGroupDirectoryCommand preview/apply`
 5. 当前统一目录命令已经一次保存全部权限；旧提案中的额外策略初始化命令不再适用
