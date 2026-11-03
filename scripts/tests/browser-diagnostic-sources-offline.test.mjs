@@ -7,6 +7,26 @@ const request=event('r','request',{frameId:'frame',observedAt:time(0)})
 const abort=event('a','request-failed',{message:'net::ERR_ABORTED',cancelled:true})
 const navigation=event('n','document-navigation',{documentId:'new',frameId:'frame',url:base+'/ui/main/kv',observedAt:time(110),requestId:undefined})
 const run=(events,extra={})=>classify({events,base,...extra})
+function oldWorker() {
+  const source={url:base+'/ui/assets/editor.worker-hash123.js',documentUrl:base+'/ui/main/preferences'}
+  return [event('worker-request','request',{...source,frameId:'frame',resourceType:'Script',observedAt:time(0)}),
+    event('next','document-navigation',{documentId:'new',frameId:'frame',url:base+'/ui/main/extensions/rbac/application-groups',observedAt:time(128),requestId:undefined}),
+    event('worker-failed','request-failed',{...source,resourceType:'Other',message:'net::ERR_BLOCKED_BY_RESPONSE',blockedReason:'coep-frame-resource-needs-coep-header',cancelled:false,observedAt:time(212)})]
+}
+test('only exact old preference editor worker after proven same-frame document unload is classified',()=>{
+  const result=run(oldWorker());assert.equal(result.errors.length,0)
+  assert.equal(result.classifications[0].reason,'old-preferences-editor-worker-blocked-after-document-unload')
+})
+for(const [name,mutate] of [
+  ['no source request',x=>x.shift()],['no replacement document',x=>x.splice(1,1)],
+  ['same current document',x=>{x[1].documentId='old'}],['different frame',x=>{x[1].frameId='other'}],
+  ['failure before unload',x=>{x[1].observedAt=time(220);x.push(x.splice(1,1)[0])}],
+  ['unrelated later error',x=>{x[2].observedAt=time(1500)}],
+  ['another worker',x=>{x[0].url=x[2].url=base+'/ui/assets/yaml.worker-hash.js'}],
+  ['other blocked reason',x=>{x[2].blockedReason='corp-not-same-origin'}],
+  ['business source page',x=>{x[0].documentUrl=x[2].documentUrl=base+'/ui/main/flows'}],
+  ['new source document',x=>{x[2].documentId='new'}],
+])test('worker diagnostic stays unknown: '+name,()=>{const events=oldWorker();mutate(events);assert.equal(run(events).errors.length,1)})
 test('same request, old document and same frame unload identify a cancelled GET',()=>{
   const result=run([request,abort,navigation]);assert.equal(result.errors.length,0);assert.equal(result.classifications[0].evidence.navigationEventId,'n')
 })

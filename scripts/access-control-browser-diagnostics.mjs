@@ -12,6 +12,20 @@ export function classifyAccessControlDiagnostics({events,base,requests=[],expect
   for(const event of events) {
     const related=byRequest.get(event.requestId)??[]
     const original=related.find(request=>request.kind==='request'&&same(request,event)&&request.method===event.method)
+    if(event.kind==='request-failed'&&original&&event.method==='GET'&&original.resourceType==='Script'
+      &&event.resourceType==='Other'&&event.cancelled===false&&event.message==='net::ERR_BLOCKED_BY_RESPONSE'
+      &&event.blockedReason==='coep-frame-resource-needs-coep-header'
+      &&event.documentUrl===base+'/ui/main/preferences'&&original.documentUrl===event.documentUrl
+      &&new URL(event.url).origin===base&&/^\/ui\/assets\/editor\.worker-[A-Za-z0-9_-]+\.js$/.test(new URL(event.url).pathname)
+      &&at(event)>=at(original)&&at(event)-at(original)<=1000) {
+      const replacement=navigation.find(next=>next.frameId===original.frameId&&next.documentId!==event.documentId
+        &&order.get(next.id)>order.get(original.id)&&order.get(next.id)<order.get(event.id)
+        &&at(event)>=at(next)&&at(event)-at(next)<=100
+        &&new URL(next.url).origin===base&&new URL(next.url).pathname==='/ui/main/extensions/rbac/application-groups')
+      if(replacement){add(event,'old-preferences-editor-worker-blocked-after-document-unload',
+        {requestId:event.requestId,documentId:event.documentId,navigationEventId:replacement.id,nextDocumentId:replacement.documentId,
+          blockedReason:event.blockedReason});continue}
+    }
     if(['http-error','request-failed'].includes(event.kind)&&new URL(event.url).origin==='https://api.kestra.io'&&new URL(event.documentUrl??'').pathname!=='/ui/main/extensions/rbac'){add(event,'host-telemetry-external-error',{requestId:event.requestId,documentId:event.documentId,status:event.status??null,message:event.message});continue}
     if(event.kind==='http-error'&&original&&exactRequests(event)){add(event,'explicit-business-denial',{requestId:event.requestId,documentId:event.documentId});continue}
     if(event.kind==='request-failed'&&expectedTransportFailures.some(item=>item.case==='ui-secret-response-lost-once'&&same(item,event)&&item.message===event.message)){add(event,'explicit-once-only-response-drop',{requestId:event.requestId,documentId:event.documentId});continue}

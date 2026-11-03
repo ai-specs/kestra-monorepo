@@ -1,5 +1,18 @@
 # 应用组目标模型实施差异报告
 
+## 2026-11-04 最后文档提交的诊断增量
+
+文档提交a6342b5的CI41679243571实际报告已下载，ZIP大小/hash/head核对通过。
+两首装21、REST56及87/88UI通过，完整门失败于一笔旧preferences文档的原生编辑器
+worker限制。事件365发出精确editor.worker GET，事件368同frame导航到新应用组文档，
+事件406在新导航84ms后报告coep-frame-resource-needs-coep-header。不是当前页错误。
+仅按实际request/document/frame/时序/精确worker路径和blockedReason作来源归类，
+不忽略当前页/其他worker/其他COEP/业务请求，不改宿主或授权。10个负例及实际完整
+失败事件只读重放通过，未知错误0；原失败报告仍保留失败。四次隔离生产登录检查的
+HTTP头无COEP、原生service worker激活后偏好页无worker/page错误仅作辅助调查，
+不把它们冒充完整组合验收。新最终提交仍须完整CI成功及下载复核。
+
+
 ## 2026-11-04 已下载核对的正式组合结果
 
 正式宿主 c4a1eb22/CI41628600618、插件6ec194ad/CI41638334994与根仓
