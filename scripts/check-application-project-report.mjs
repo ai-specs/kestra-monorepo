@@ -98,6 +98,7 @@ assert.deepEqual(normalReview.classifications,normalOnboardingStage.evidence.dia
 assert.deepEqual(report.onboardingSummary,{missingJar:onboardingStage.evidence.summary,normal:normalOnboardingStage.evidence.summary})
 const restoredSession=normalOnboardingStage.evidence.cases.find(row=>row.id==='formal-jar-ready-without-restart').evidence.priorSession
 assert.deepEqual({...restoredSession,restored:undefined},{...onboardingStage.evidence.sessionExport,restored:undefined})
+assert.equal(restoredSession.subject,onboardingStage.evidence.cases.find(row=>row.id==='first-account-creation-through-ui').evidence.subject)
 assert.equal(restoredSession.issuer,report.resources.base)
 assert.notEqual(restoredSession.subject,normalOnboardingStage.evidence.cases.find(row=>row.id==='first-account-creation-through-ui').evidence.subject,
   'Reset-installation recovery must create a new account rather than reusing the prior identity')
