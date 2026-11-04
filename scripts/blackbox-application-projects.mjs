@@ -296,16 +296,18 @@ export async function main(argv=process.argv.slice(2),runtime={}) {
       const authArtifacts=sdkArtifactList.artifacts.filter(item=>item.name==='authentication-theme-browser'&&!item.expired)
       assert.equal(authArtifacts.length,1,'Required host authentication UI browser evidence missing')
       const authArtifact=authArtifacts[0];assert.equal(authArtifact.workflow_run?.head_sha,report.inputs.overlayCommit)
-      const authDirectory=join(output,'downloaded-host-auth-ui');mkdirSync(authDirectory,{mode:0o700})
-      command('gh',['run','download',String(evidence.overlayRunId),'-R','ai-specs/kestra-overlay','--name','authentication-theme-browser','--dir',authDirectory],{timeout:180000})
+      const authCached=previouslyDownloadedHostArtifact('authentication-theme-browser',authArtifacts[0])
+      const authDirectory=authCached??join(output,'downloaded-host-auth-ui')
+      if(!authCached){mkdirSync(authDirectory,{mode:0o700});command('gh',['run','download',String(evidence.overlayRunId),'-R','ai-specs/kestra-overlay','--name','authentication-theme-browser','--dir',authDirectory],{timeout:180000})}
       const authReports=Object.fromEntries(['auth-theme-env.json','auth-theme-setup.json','auth-i18n-env.json','auth-i18n-setup.json'].map(name=>[name,readFileSync(join(authDirectory,name),'utf8')]))
       const authValidation=assertHostAuthenticationUiReports(authReports)
       report.sources.overlay.downloadedAuthenticationUiGate={runId:evidence.overlayRunId,artifactId:authArtifact.id,commit:report.inputs.overlayCommit,image:report.inputs.image,sha256:hash(JSON.stringify(authReports)),rawReports:authReports,validation:authValidation}
       const onboardingArtifacts=sdkArtifactList.artifacts.filter(item=>item.name==='onboarding-browser'&&!item.expired)
       assert.equal(onboardingArtifacts.length,1,'Published host onboarding browser artifact missing or ambiguous')
       assert.equal(onboardingArtifacts[0].workflow_run.head_sha,report.inputs.overlayCommit)
-      const onboardingDirectory=join(output,'downloaded-host-onboarding');mkdirSync(onboardingDirectory,{mode:0o700})
-      command('gh',['run','download',String(evidence.overlayRunId),'-R','ai-specs/kestra-overlay','--name','onboarding-browser','--dir',onboardingDirectory],{timeout:180000})
+      const onboardingCached=previouslyDownloadedHostArtifact('onboarding-browser',onboardingArtifacts[0])
+      const onboardingDirectory=onboardingCached??join(output,'downloaded-host-onboarding')
+      if(!onboardingCached){mkdirSync(onboardingDirectory,{mode:0o700});command('gh',['run','download',String(evidence.overlayRunId),'-R','ai-specs/kestra-overlay','--name','onboarding-browser','--dir',onboardingDirectory],{timeout:180000})}
       const onboardingRawReport=readFileSync(join(onboardingDirectory,'report.json'),'utf8'),onboardingRawInputs=readFileSync(join(onboardingDirectory,'inputs.json'),'utf8')
       const onboardingRawFinalInputs=readFileSync(join(onboardingDirectory,'final-inputs.json'),'utf8')
       const onboardingRawDiagnostics=readFileSync(join(onboardingDirectory,'report.json.diagnostics.json'),'utf8')
@@ -318,8 +320,9 @@ export async function main(argv=process.argv.slice(2),runtime={}) {
       const recoveryArtifacts=sdkArtifactList.artifacts.filter(item=>item.name==='auth-recovery-browser'&&!item.expired)
       assert.equal(recoveryArtifacts.length,1,'Published host authentication recovery browser evidence missing or ambiguous')
       assert.equal(recoveryArtifacts[0].workflow_run.head_sha,report.inputs.overlayCommit)
-      const recoveryDirectory=join(output,'downloaded-host-auth-recovery');mkdirSync(recoveryDirectory,{mode:0o700})
-      command('gh',['run','download',String(evidence.overlayRunId),'-R','ai-specs/kestra-overlay','--name','auth-recovery-browser','--dir',recoveryDirectory],{timeout:180000})
+      const recoveryCached=previouslyDownloadedHostArtifact('auth-recovery-browser',recoveryArtifacts[0])
+      const recoveryDirectory=recoveryCached??join(output,'downloaded-host-auth-recovery')
+      if(!recoveryCached){mkdirSync(recoveryDirectory,{mode:0o700});command('gh',['run','download',String(evidence.overlayRunId),'-R','ai-specs/kestra-overlay','--name','auth-recovery-browser','--dir',recoveryDirectory],{timeout:180000})}
       const recoveryRaw=readFileSync(join(recoveryDirectory,'report.json'),'utf8')
       const recoveryRunnerSha256=hash(command('git',['-C',report.sources.overlay.path,'show',report.inputs.overlayCommit+':scripts/auth-recovery-browser.mjs'])+'\n')
       report.sources.overlay.downloadedAuthenticationRecoveryBrowserGate={runId:evidence.overlayRunId,artifactId:recoveryArtifacts[0].id,
