@@ -9,11 +9,11 @@ const fixture=()=>{
     'ui/src/components/extensions/ExtensionPage.vue'].map(path=>[path,sha]))
   return {completed:true,environment:'real-chromium-host-http-substitute',productionFirstInstall:false,
     sourceFiles,finalSourceFiles:{...sourceFiles},runnerSha256:sha,errors:[],
-    checks:[403,503,401].map(status=>({name:'host-context-request-'+status+'-single-write',status,passed:true,
-      counts:{writes:1,reads:1,logins:status===401?1:0}}))}
+    checks:[...[403,503,401].map(status=>({name:'host-context-request-'+status+'-single-write',status,passed:true,
+      counts:{writes:1,reads:1,logins:status===401?1:0}})),{name:'logout-pending-401',status:401,passed:true,logoutRequests:1,counts:{writes:1,reads:1,logins:0}}]}
 }
 test('published host recovery requires three exact browser checks and unchanged source inputs',()=>{
-  assert.equal(check(JSON.stringify(fixture()),sha).cases,3)
+  assert.equal(check(JSON.stringify(fixture()),sha).cases,4)
 })
 for(const [name,change] of [
   ['wrong runner',r=>{r.runnerSha256='b'.repeat(64)}],

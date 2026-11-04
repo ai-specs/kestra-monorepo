@@ -34,14 +34,19 @@ export function assertHostAuthenticationRecoveryBrowserReport(raw,runnerSha256) 
   assert.deepEqual(report.finalSourceFiles,report.sourceFiles)
   assert.deepEqual(report.errors,[])
   assert.equal(report.error,undefined)
-  assert.deepEqual(report.checks.map(row=>row.name),[403,503,401].map(status=>'host-context-request-'+status+'-single-write'))
+  assert.deepEqual(report.checks.map(row=>row.name),[...[403,503,401].map(status=>'host-context-request-'+status+'-single-write'),'logout-pending-401'])
   for(const [index,status] of [403,503,401].entries()) {
     const row=report.checks[index]
     assert.equal(row.status,status)
     assert.equal(row.passed,true)
     assert.deepEqual(row.counts,{writes:1,reads:1,logins:status===401?1:0})
   }
-  return {passed:true,cases:3,failures:0,skipped:0,notRun:0,sha256:digest(raw),runnerSha256}
+  const logout=report.checks[3]
+  assert.equal(logout.passed,true)
+  assert.equal(logout.status,401)
+  assert.equal(logout.logoutRequests,1)
+  assert.deepEqual(logout.counts,{writes:1,reads:1,logins:0})
+  return {passed:true,cases:4,failures:0,skipped:0,notRun:0,sha256:digest(raw),runnerSha256}
 }
 export const aggregateUiHashes=files=>digest(Object.entries(files).sort(([a],[b])=>a<b?-1:a>b?1:0).map(([path,sha])=>path+'\0'+sha).join('\n'))
 export const stablePopupReferenceCaseName='stable-native-popup-reference-toggle-after-scroll'
