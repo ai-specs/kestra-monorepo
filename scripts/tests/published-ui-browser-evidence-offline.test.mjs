@@ -8,11 +8,13 @@ import {createHash} from 'node:crypto'
 import {pluginUiExpectedIds,assertPluginUiBrowserReport,assertHostAuthenticationUiReports,hostAuthThemeIds,hostAuthLocaleIds,committedPluginUiHashes,aggregateUiHashes} from '../published-ui-browser-evidence.mjs'
 const commit='a'.repeat(40),image='ghcr.io/ai-specs/kestra-overlay@sha256:'+'b'.repeat(64),hash='c'.repeat(64)
 const caseMetadata=id=>{const [,theme,locale,width,behavior]=id.split('/');return{id,theme,locale,width:Number(width),behavior}}
-const fixture=()=>{const inputs={sourceCommit:commit,image,hostExecutableSha256:hash,sourceSha256:hash,lockSha256:hash,bundleSha256:hash,sdkSha256:hash,harnessSha256:hash};return {report:{schemaVersion:1,gate:'plugin-ui-chromium',gatePassed:true,errors:[],inputs,finalInputs:{...inputs},summary:{planned:720,executed:720,passed:720,failed:0,notRun:0,skipped:0},cases:pluginUiExpectedIds.map(id=>({...caseMetadata(id),status:'passed',durationMs:1,errors:[],attachments:[]}))},manifest:{schemaVersion:1,gate:'plugin-ui-chromium',cases:pluginUiExpectedIds.map(caseMetadata)}}}
+const fixture=()=>{const inputs={sourceCommit:commit,image,hostExecutableSha256:hash,sourceSha256:hash,lockSha256:hash,bundleSha256:hash,sdkSha256:hash,harnessSha256:hash};return {report:{schemaVersion:1,gate:'plugin-ui-chromium',gatePassed:true,errors:[],inputs,finalInputs:{...inputs},summary:{planned:840,executed:840,passed:840,failed:0,notRun:0,skipped:0},cases:pluginUiExpectedIds.map(id=>({...caseMetadata(id),status:'passed',durationMs:1,errors:[],attachments:[]}))},manifest:{schemaVersion:1,gate:'plugin-ui-chromium',cases:pluginUiExpectedIds.map(caseMetadata)}}}
 const check=x=>assertPluginUiBrowserReport(JSON.stringify(x.report),{commit,image,hostExecutableSha256:hash,manifestRaw:JSON.stringify(x.manifest),expectedHashes:{sourceSha256:hash,lockSha256:hash,sdkSha256:hash,bundleSha256:hash,harnessSha256:hash}})
-test('published plugin browser plan requires all actual 720 owner cases with immutable inputs',()=>assert.equal(check(fixture()).cases,720))
+test('published plugin browser plan requires all actual 840 owner cases with immutable inputs',()=>assert.equal(check(fixture()).cases,840))
 for(const [name,mutate]of [
  ['old commit',x=>{x.report.inputs.sourceCommit='d'.repeat(40)}],
+ ['old 720 summary',x=>{x.report.summary={planned:720,executed:720,passed:720,failed:0,notRun:0,skipped:0}}],
+ ['old 720 plan',x=>{x.report.cases=x.report.cases.filter(row=>!row.behavior.startsWith('default-'));x.manifest.cases=x.manifest.cases.filter(row=>!row.behavior.startsWith('default-'))}],
  ['different image',x=>{x.report.inputs.image='other'}],
  ['unpublished host',x=>{x.report.inputs.hostExecutableSha256='d'.repeat(64)}],
  ['missing row',x=>{x.report.cases.pop()}],

@@ -60,8 +60,10 @@ services:
             policy-source: database
             application-groups:
               enabled: ${KESTRA_RBAC_ENABLED:-false}
-          telemetry:
-            enabled: false   # 关闭上游遥测，避免 api.kestra.io 500 错误
+          anonymous-usage-report:
+            enabled: false
+          ui-anonymous-usage-report:
+            enabled: false
           oidc:
             enabled: true
             issuer: http://localhost:8080

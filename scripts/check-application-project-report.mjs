@@ -10,7 +10,7 @@ import {dirname,resolve,sep} from 'node:path'
 import {readBrowserDiagnosticEvidence,canonicalDiagnosticLabels} from './browser-diagnostic-evidence.mjs'
 import {assertUiClientOwnership} from './ui-client-ownership-evidence.mjs'
 import {accessControlLocales,accessControlSupportedLocales,accessControlCaseIds,accessControlTransferredUiCases} from './access-control-v3-ui.mjs'
-import {assertPluginUiBrowserReport,assertHostAuthenticationUiReports,committedPluginUiHashes,aggregateUiHashes,assertStablePopupReferenceCases} from './published-ui-browser-evidence.mjs'
+import {assertPluginUiBrowserReport,assertHostAuthenticationUiReports,assertHostAuthenticationRecoveryBrowserReport,committedPluginUiHashes,aggregateUiHashes,assertStablePopupReferenceCases} from './published-ui-browser-evidence.mjs'
 import {checkPublishedTranslationSources} from './access-control-translation-coverage.mjs'
 import {classifyAccessControlDiagnostics} from './access-control-browser-diagnostics.mjs'
 import {assertRbacOnboardingReport,classifyRbacOnboardingDiagnostics,scopedRbacOnboardingEvents} from './rbac-onboarding-browser.mjs'
@@ -82,8 +82,25 @@ assert.equal(normalDiagnostics.integrity.length,0)
 const normalReview=classifyRbacOnboardingDiagnostics({events:scopedRbacOnboardingEvents(normalDiagnostics,normalCheckpoint),base:report.resources.base,
   requests:normalOnboardingStage.evidence.requests,restartWindows:normalOnboardingStage.evidence.restartWindows})
 assert.equal(normalReview.errors.length,0,'Ordinary first-install browser retains unknown errors')
+for(const [fragment,diagnostic,checkpoint] of [
+  [onboardingStage.evidence,onboardingDiagnostics,onboardingCheckpoint],
+  [normalOnboardingStage.evidence,normalDiagnostics,normalCheckpoint],
+]) {
+  const requests=scopedRbacOnboardingEvents(diagnostic,checkpoint).filter(event=>{
+    if(event.kind!=='request')return false
+    const url=new URL(event.url)
+    return url.hostname==='api.kestra.io'&&url.pathname==='/v1/reports/events'
+  }).map(({id,requestId,documentId,url})=>({id,requestId,documentId,url}))
+  assert.deepEqual(requests,[])
+  assert.deepEqual(fragment.telemetryRequests,requests)
+}
 assert.deepEqual(normalReview.classifications,normalOnboardingStage.evidence.diagnostics.classifications)
 assert.deepEqual(report.onboardingSummary,{missingJar:onboardingStage.evidence.summary,normal:normalOnboardingStage.evidence.summary})
+const restoredSession=normalOnboardingStage.evidence.cases.find(row=>row.id==='formal-jar-ready-without-restart').evidence.priorSession
+assert.deepEqual({...restoredSession,restored:undefined},{...onboardingStage.evidence.sessionExport,restored:undefined})
+assert.equal(restoredSession.issuer,report.resources.base)
+assert.notEqual(restoredSession.subject,normalOnboardingStage.evidence.cases.find(row=>row.id==='first-account-creation-through-ui').evidence.subject,
+  'Reset-installation recovery must create a new account rather than reusing the prior identity')
 const initialHostGate=report.sources?.overlay?.downloadedInitialAccountGate
 assert.equal(initialHostGate?.commit,overlayCommit);assert.equal(initialHostGate.image,image)
 assert(Number.isSafeInteger(initialHostGate.runId)&&initialHostGate.runId>0)
@@ -93,6 +110,11 @@ assert.deepEqual(initialHostGate.validation,assertHostInitialAccountReports(init
 const sdkGate=report.sources?.overlay?.downloadedSdkBrowserGate
 const originGate=report.sources?.overlay?.downloadedHttpOriginGate
 const onboardingHostBrowser=report.sources?.overlay?.downloadedOnboardingBrowserGate
+const hostRecovery=report.sources?.overlay?.downloadedAuthenticationRecoveryBrowserGate
+assert.equal(hostRecovery?.commit,overlayCommit);assert.equal(hostRecovery.image,image)
+assert(Number.isSafeInteger(hostRecovery.runId)&&hostRecovery.runId>0)
+assert(Number.isSafeInteger(hostRecovery.artifactId)&&hostRecovery.artifactId>0)
+assert.deepEqual(assertHostAuthenticationRecoveryBrowserReport(hostRecovery.rawReport,hostRecovery.runnerSha256),hostRecovery.validation)
 assert.equal(onboardingHostBrowser?.commit,overlayCommit);assert.equal(onboardingHostBrowser.image,image)
 assert.equal(onboardingHostBrowser.runId,sdkGate.runId)
 assert(Number.isSafeInteger(onboardingHostBrowser.artifactId)&&onboardingHostBrowser.artifactId>0)

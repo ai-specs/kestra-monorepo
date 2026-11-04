@@ -10,12 +10,39 @@ export const pluginUiBehaviors=Object.freeze([
   'filter-popup-buttons-reopen-scroll','state-normal','state-empty','state-loading',
   'state-error-retry','state-denied','state-reauthentication','user-edit-save',
   'inline-discard','credential-copy-retry','theme-switch-refresh-system',
+  'default-application-continuity-query','default-scope-continuity-query',
+  'default-selection-rejection-clears','default-selection-identity-change',
+  'default-selection-rapid-navigation',
 ])
 export const pluginUiExpectedIds=Object.freeze(['light','dark','dark-2','system'].flatMap(theme=>
   ['en','zh_CN'].flatMap(locale=>[1280,768,390].flatMap(width=>pluginUiBehaviors.map(behavior=>
     `plugin-ui/${theme}/${locale}/${width}/${behavior}`)))))
 const digest=value=>createHash('sha256').update(value).digest('hex')
 const hash=value=>assert(/^[a-f0-9]{64}$/.test(value),'Missing content SHA-256')
+export function assertHostAuthenticationRecoveryBrowserReport(raw,runnerSha256) {
+  const report=JSON.parse(raw)
+  assert.equal(report.completed,true)
+  assert.equal(report.environment,'real-chromium-host-http-substitute')
+  assert.equal(report.productionFirstInstall,false)
+  assert.equal(report.runnerSha256,runnerSha256)
+  hash(runnerSha256)
+  const sources=['ui/src/utils/authentication.ts','ui/src/utils/basicAuth.ts','ui/src/utils/csrf.ts',
+    'ui/src/override/utils/route.ts','ui/src/extensions/runtime.ts','ui/src/extensions/protocol.ts',
+    'ui/src/components/extensions/ExtensionPage.vue']
+  assert.deepEqual(Object.keys(report.sourceFiles).sort(),sources.sort())
+  for(const value of Object.values(report.sourceFiles))hash(value)
+  assert.deepEqual(report.finalSourceFiles,report.sourceFiles)
+  assert.deepEqual(report.errors,[])
+  assert.equal(report.error,undefined)
+  assert.deepEqual(report.checks.map(row=>row.name),[403,503,401].map(status=>'host-context-request-'+status+'-single-write'))
+  for(const [index,status] of [403,503,401].entries()) {
+    const row=report.checks[index]
+    assert.equal(row.status,status)
+    assert.equal(row.passed,true)
+    assert.deepEqual(row.counts,{writes:1,reads:1,logins:status===401?1:0})
+  }
+  return {passed:true,cases:3,failures:0,skipped:0,notRun:0,sha256:digest(raw),runnerSha256}
+}
 export const aggregateUiHashes=files=>digest(Object.entries(files).sort(([a],[b])=>a<b?-1:a>b?1:0).map(([path,sha])=>path+'\0'+sha).join('\n'))
 export const stablePopupReferenceCaseName='stable-native-popup-reference-toggle-after-scroll'
 export function assertStablePopupReferenceCases(checks) {
@@ -60,9 +87,10 @@ export function assertPluginUiBrowserReport(raw,{commit,image,hostExecutableSha2
     assert.deepEqual({theme:row.theme,locale:row.locale,width:row.width,behavior:row.behavior},{theme,locale,width:Number(width),behavior},'Published browser parameters differ from named case identity')
   }
   assert.equal(report.gatePassed,true)
-  assert.deepEqual(report.summary,{planned:720,executed:720,passed:720,failed:0,notRun:0,skipped:0})
+  assert.equal(pluginUiExpectedIds.length,840)
+  assert.deepEqual(report.summary,{planned:840,executed:840,passed:840,failed:0,notRun:0,skipped:0})
   assert(report.cases.every(row=>row.status==='passed'&&Array.isArray(row.errors)&&row.errors.length===0&&Number.isFinite(row.durationMs)&&row.durationMs>=0),'Plugin browser has errors, skipped or incomplete cases')
-  return {passed:true,cases:720,failures:0,notRun:0,skipped:0,reportSha256:digest(raw),manifestSha256:digest(manifestRaw),inputs:report.inputs}
+  return {passed:true,cases:840,failures:0,notRun:0,skipped:0,reportSha256:digest(raw),manifestSha256:digest(manifestRaw),inputs:report.inputs}
 }
 
 export const hostAuthThemeIds=Object.freeze([1280,390].flatMap(width=>[

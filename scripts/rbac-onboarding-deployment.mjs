@@ -7,7 +7,7 @@ import {createPlaywrightApplicationProjectAdapter} from './application-project-b
 import {runRbacOnboardingBrowser} from './rbac-onboarding-browser.mjs'
 import {applicationProjectFeature} from './application-project-fixture.mjs'
 
-export async function runRbacOnboardingDeployment({configuration,compose,saveConfiguration,command,output,project,base,inputs,formalJar,uiAdapter,scenario='missing-jar',record}) {
+export async function runRbacOnboardingDeployment({configuration,compose,saveConfiguration,command,output,project,base,inputs,formalJar,uiAdapter,scenario='missing-jar',sessionState,record}) {
   assert(['missing-jar','normal'].includes(scenario))
   assert(/^application-projects-bb-[0-9]+-[0-9]+$/.test(project))
   assert.equal(new URL(base).origin,base)
@@ -95,7 +95,12 @@ export async function runRbacOnboardingDeployment({configuration,compose,saveCon
     const standardConfiguration=applicationProjectFeature(originalHost.environment.KESTRA_CONFIGURATION,false)
     const rbacStart=standardConfiguration.indexOf('  rbac:'),rbacEnd=standardConfiguration.indexOf('  oidc:',rbacStart)
     assert(rbacStart>=0&&rbacEnd>rbacStart)
-    const rbac=standardConfiguration.slice(rbacStart,rbacEnd).replace(/^(\s+enabled: )false$/gm,'$1true')
+    let rbac=standardConfiguration.slice(rbacStart,rbacEnd)
+    for(const pattern of [/^(    enabled: )false$/m,/(    evaluation:\n      enabled: )false/,
+      /(    application-groups:\n      enabled: )false/]) {
+      assert(pattern.test(rbac),'Known first-install RBAC switch required')
+      rbac=rbac.replace(pattern,(_,prefix)=>prefix+'true')
+    }
     host.environment.KESTRA_CONFIGURATION=(standardConfiguration.slice(0,rbacStart)+rbac+standardConfiguration.slice(rbacEnd))
       .replaceAll('jdbc:postgresql://postgres:5432/kestra','jdbc:postgresql://postgres:5432/'+database)
     assert(host.environment.KESTRA_CONFIGURATION.includes('jdbc:postgresql://postgres:5432/'+database))
@@ -134,7 +139,18 @@ export async function runRbacOnboardingDeployment({configuration,compose,saveCon
       adapter=await createPlaywrightApplicationProjectAdapter(page,{artifactDirectory:join(directory,'screenshots'),
         diagnosticDirectory:join(directory,'diagnostics'),timeoutMs:60000,secrets:[account.password]})
     }
-    return await runRbacOnboardingBrowser(adapter,{base,account,inputs,controls,scenario,record:persist})
+    controls.restorePriorSession=async()=>{
+      assert(sessionState?.value,'Normal installation requires the preceding real production session')
+      return adapter.restoreOwnedSession(base,sessionState.value)
+    }
+    const result=await runRbacOnboardingBrowser(adapter,{base,account,inputs,controls,scenario,record:persist})
+    if(scenario==='missing-jar') {
+      assert(sessionState,'Production session transfer state is required')
+      sessionState.value=await adapter.captureOwnedSession(base)
+      result.sessionExport=sessionState.value.proof
+      await persist(result)
+    }
+    return result
   } finally {
     const failures=[]
     for(const [name,cleanup] of [

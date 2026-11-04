@@ -30,20 +30,24 @@ function completeReport() {
   evidence('atomic-directory-and-first-subject-grant').state={accounts:1,installations:1,groups:1,credentials:1,clients:1,builtInGroupId:'main',subjects:['initial-admin'],scopeKeys:['admin'],catalogRevision:1}
   evidence('atomic-directory-and-first-subject-grant').state.pluginTables=[...applicationGroupTables].sort()
   for(const id of ['first-production-login-to-dashboard','dashboard-refresh-retains-canonical-path'])evidence(id).path='/ui/main/dashboards'
+  evidence('first-production-login-to-dashboard').telemetry={status:200,isAnonymousUsageEnabled:false,isUiAnonymousUsageEnabled:false,eventRequests:[]}
   Object.assign(evidence('initial-group-description-save-and-readback'),{beforeDescription:'initial',description:'changed',readBackDescription:'changed',beforeRevision:1,afterRevision:2})
   Object.assign(evidence('actual-access-management-menu'),{href:'/ui/main/extensions/rbac',path:'/ui/main/extensions/rbac/application-groups'})
   evidence('completed-setup-get-and-post-closed').statuses=[404,404]
   report.diagnostics={integrity:0,unexpectedErrors:0,reference:{kind:'immutable-browser-diagnostics',sha256:'f'.repeat(64)}}
   report.diagnostics.checkpoint={kind:'immutable-browser-diagnostics',sha256:'e'.repeat(64)}
+  report.telemetryRequests=[]
   report.summary={planned:12,passed:12,failed:0,notRun:0,skipped:0};report.completed=true
   return report
 }
 function completeNormalReport() {
   const original=completeReport(),normal=initialRbacOnboardingReport(inputs,'normal')
   normal.cases=normal.cases.map(row=>row.id==='formal-jar-ready-without-restart'
-    ?{...row,status:'passed',passed:true,evidence:{source:'production-browser-and-owned-storage',restartCount:0,jarSha256:inputs.jarSha256,path:'/oidc/setup',form:true}}
+    ?{...row,status:'passed',passed:true,evidence:{source:'production-browser-and-owned-storage',restartCount:0,jarSha256:inputs.jarSha256,path:'/oidc/setup',form:true,
+      priorSession:{source:'previous-production-onboarding',issuer:'http://localhost:18128',subject:'initial-admin',sha256:'a'.repeat(64),restored:true}}}
     :structuredClone(original.cases.find(source=>source.id===row.id)))
   normal.requests=original.requests.slice(1);normal.diagnostics=original.diagnostics
+  normal.telemetryRequests=[]
   normal.summary={planned:9,passed:9,failed:0,notRun:0,skipped:0};normal.completed=true
   return normal
 }
@@ -66,6 +70,8 @@ for(const [name,mutate] of [
   ['unrequested restart',report=>{report.cases[0].evidence.restartCount=1}],
   ['different mounted jar',report=>{report.cases[0].evidence.jarSha256='0'.repeat(64)}],
   ['hidden wait state',report=>{report.cases[0].evidence.form=false}],
+  ['missing prior production session',report=>{delete report.cases[0].evidence.priorSession}],
+  ['session was not restored',report=>{report.cases[0].evidence.priorSession.restored=false}],
   ['reused recovery report',report=>{report.scenario='missing-jar'}],
 ])test('ordinary startup rejects '+name,()=>{const report=completeNormalReport();mutate(report);assert.throws(()=>assertRbacOnboardingReport(report,inputs))})
 for(const [name,mutate] of [
@@ -75,6 +81,10 @@ for(const [name,mutate] of [
   ['not run',report=>{report.cases[0].status='not_run'}],
   ['skip',report=>{report.summary.skipped=1}],
   ['unknown browser error',report=>{report.diagnostics.unexpectedErrors=1}],
+  ['late usage event',report=>{report.telemetryRequests.push({id:'late-event'})}],
+  ['usage reporting enabled',report=>{report.cases.find(row=>row.id==='first-production-login-to-dashboard').evidence.telemetry.isAnonymousUsageEnabled=true}],
+  ['UI reporting enabled',report=>{report.cases.find(row=>row.id==='first-production-login-to-dashboard').evidence.telemetry.isUiAnonymousUsageEnabled=true}],
+  ['event request escaped',report=>{report.cases.find(row=>row.id==='first-production-login-to-dashboard').evidence.telemetry.eventRequests.push('https://api.kestra.io/v1/reports/events')}],
   ['diagnostic loss',report=>{report.diagnostics.integrity=1}],
   ['wrong source',report=>{report.cases[0].evidence.source='mock'}],
   ['partial account creation',report=>{report.cases[1].evidence.after.accounts=1}],

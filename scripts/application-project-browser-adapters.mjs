@@ -30,6 +30,7 @@ import {mkdir, stat} from 'node:fs/promises'
 import {isAbsolute, join} from 'node:path'
 import {setTimeout as delay} from 'node:timers/promises'
 import {writeBrowserDiagnosticEvidence} from './browser-diagnostic-evidence.mjs'
+import {captureOwnedSession,restoreOwnedSession} from './owned-browser-session.mjs'
 
 export const applicationProjectAdapterHelperVersion='2026-10-27-response-stage-v2-clipboard-restore'
 
@@ -362,6 +363,8 @@ async function makeAdapter(raw,tools,options) {
   }
   const adapter = {
     helperVersion:applicationProjectAdapterHelperVersion,
+    captureOwnedSession:origin => captureOwnedSession(tools.send,origin),
+    restoreOwnedSession:(origin,session) => restoreOwnedSession(tools.send,origin,session),
     goto:url => action('goto',() => tools.goto(url,timeout)),
     reload:() => action('reload',() => tools.reload(timeout)),
     history:direction=>action('history',async()=>{

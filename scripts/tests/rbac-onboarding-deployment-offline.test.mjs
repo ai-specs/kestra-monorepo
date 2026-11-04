@@ -16,7 +16,7 @@ for(const scenario of ['missing-jar','normal'])test(scenario+': orchestration us
     const inputs={image,jarSha256:createHash('sha256').update(readFileSync(formalJar)).digest('hex'),rootCommit:'b'.repeat(40),overlayCommit:'c'.repeat(40),pluginCommit:'d'.repeat(40)}
     const configuration={services:{kestra:{image,environment:{KESTRA_CONFIGURATION:'datasources:\n  postgres:\n    url: jdbc:postgresql://postgres:5432/kestra\nkestra:\n  rbac:\n    enabled: false\n    evaluation:\n      enabled: false\n    application-groups:\n      enabled: false\n',KESTRA_OIDC_BOOTSTRAP_USERNAME:'old-account',KESTRA_OIDC_BOOTSTRAP_PASSWORD:'offline-private'},
       volumes:[{type:'volume',source:'kestra-data',target:'/app/storage'},{type:'bind',source:formalJar,target:'/app/libs/kestra-rbac-authorizer.jar',read_only:true}],ports:[]},postgres:{}},volumes:{'kestra-data':{labels:{owner:project}}}}
-    configuration.services.kestra.environment.KESTRA_CONFIGURATION+='  oidc:\n    enabled: true\nmicronaut:\n  security:\n    oauth2:\n      clients:\n        kestra:\n          scopes: [openid, profile, email]\n'
+    configuration.services.kestra.environment.KESTRA_CONFIGURATION+='  anonymous-usage-report:\n    enabled: false\n  ui-anonymous-usage-report:\n    enabled: false\n  oidc:\n    enabled: true\nmicronaut:\n  security:\n    oauth2:\n      clients:\n        kestra:\n          scopes: [openid, profile, email]\n'
     const original=structuredClone(configuration.services.kestra),snapshots=[],commands=[],composeCalls=[],reports=[]
     const postgres='1'.repeat(64),host='2'.repeat(64)
     const command=(program,args)=>{
@@ -39,12 +39,12 @@ for(const scenario of ['missing-jar','normal'])test(scenario+': orchestration us
       if(args[0]==='ps')return args.at(-1)==='postgres'?postgres:host
       return ''
     }
-    const adapter={redactSecrets(){},async diagnostics(){return {events:[],integrity:[]}},async goto(){throw new Error('deliberate first browser navigation failure')},
+    const adapter={redactSecrets(){},async restoreOwnedSession(){return {source:'previous-production-onboarding',restored:true}},async diagnostics(){return {events:[],integrity:[]}},async goto(){throw new Error('deliberate first browser navigation failure')},
       async captureFailure(){},async diagnosticEvidenceReference(){return writeBrowserDiagnosticEvidence({events:[],integrity:[]},join(output,'diagnostics'))}}
     const oldFetch=globalThis.fetch
     globalThis.fetch=async()=>({ok:true,body:{async cancel(){}}})
     try {
-      await assert.rejects(runRbacOnboardingDeployment({configuration,compose,command,output,project,base,inputs,formalJar,uiAdapter:adapter,scenario,
+      await assert.rejects(runRbacOnboardingDeployment({configuration,compose,command,output,project,base,inputs,formalJar,uiAdapter:adapter,scenario,sessionState:{value:{}},
         saveConfiguration:async()=>snapshots.push(structuredClone(configuration)),record:async report=>reports.push(report)}),/deliberate first browser navigation failure/)
     } finally {globalThis.fetch=oldFetch}
     assert.deepEqual(configuration.services.kestra,original)
@@ -55,6 +55,7 @@ for(const scenario of ['missing-jar','normal'])test(scenario+': orchestration us
     assert.equal(first.environment.KESTRA_OIDC_SETUP_ALLOWED,'true')
     assert(first.environment.KESTRA_CONFIGURATION.includes('application_group_acceptance_'))
     assert(first.environment.KESTRA_CONFIGURATION.includes('application-groups:\n      enabled: true'))
+    assert(first.environment.KESTRA_CONFIGURATION.includes('anonymous-usage-report:\n    enabled: false\n  ui-anonymous-usage-report:\n    enabled: false'))
     assert(!first.environment.KESTRA_CONFIGURATION.includes('kestra:application-group-scopes'))
     const storage=scenario==='normal'?'onboarding-normal-data':'onboarding-data'
     const directory=scenario==='normal'?'onboarding-normal':'onboarding'

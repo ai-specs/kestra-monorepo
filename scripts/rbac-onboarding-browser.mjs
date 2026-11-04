@@ -48,11 +48,17 @@ export function assertRbacOnboardingReport(report,inputs) {
   assert.match(report.diagnostics.reference.sha256,/^[a-f0-9]{64}$/)
   assert.equal(report.diagnostics?.checkpoint?.kind,'immutable-browser-diagnostics')
   assert.match(report.diagnostics.checkpoint.sha256,/^[a-f0-9]{64}$/)
+  assert.deepEqual(report.telemetryRequests,[],'Usage events must remain disabled throughout the production workflow')
   const find=id=>report.cases.find(row=>row.id===id).evidence
   if(normal) {
     const runtime=find('formal-jar-ready-without-restart')
     assert.equal(runtime.restartCount,0);assert.equal(runtime.jarSha256,inputs.jarSha256)
     assert.equal(runtime.path,'/oidc/setup');assert.equal(runtime.form,true)
+    assert.equal(runtime.priorSession?.source,'previous-production-onboarding')
+    assert.equal(runtime.priorSession.restored,true)
+    assert.match(runtime.priorSession.sha256,/^[a-f0-9]{64}$/)
+    assert.equal(typeof runtime.priorSession.subject,'string')
+    assert(runtime.priorSession.subject.length>0)
     assert.deepEqual(report.restartWindows,[])
   } else {
   const missing=find('missing-jar-guidance')
@@ -83,6 +89,11 @@ export function assertRbacOnboardingReport(report,inputs) {
   assert.equal(state.builtInGroupId,'main');assert.deepEqual(state.subjects,[find('first-account-creation-through-ui').subject])
   assert.deepEqual(state.scopeKeys,['admin']);assert.equal(state.catalogRevision,1)
   assert.equal(find('first-production-login-to-dashboard').path,'/ui/main/dashboards')
+  const telemetry=find('first-production-login-to-dashboard').telemetry
+  assert.equal(telemetry?.status,200)
+  assert.equal(telemetry.isAnonymousUsageEnabled,false)
+  assert.equal(telemetry.isUiAnonymousUsageEnabled,false)
+  assert.deepEqual(telemetry.eventRequests,[])
   assert.equal(find('dashboard-refresh-retains-canonical-path').path,'/ui/main/dashboards')
   const menu=find('actual-access-management-menu')
   assert.equal(new URL(menu.href,'http://localhost').pathname,'/ui/main/extensions/rbac')
@@ -195,10 +206,11 @@ export async function runRbacOnboardingBrowser(page,{base,account,inputs,control
         assert.equal(typeof controls.initialRuntime,'function')
         const runtime=await controls.initialRuntime()
         assert.equal(runtime.restartCount,0);assert.equal(runtime.jarSha256,inputs.jarSha256)
+        const priorSession=await controls.restorePriorSession()
         await page.goto(base+'/ui/')
         await page.waitForFunction(()=>location.pathname==='/oidc/setup'&&Boolean(document.querySelector('form[action="/oidc/setup"] input[name="csrf"]'))&&!document.querySelector('[data-setup-wait]'))
         await assertEmptyInstallation()
-        return {...runtime,form:true,path:await path()}
+        return {...runtime,priorSession,form:true,path:await path()}
       })
     } else {
     await check('missing-jar-guidance',async()=>{
@@ -263,7 +275,20 @@ export async function runRbacOnboardingBrowser(page,{base,account,inputs,control
       await page.fill('input[name="username"]',account.username);await page.fill('input[name="password"]',account.password)
       await page.click('button[type="submit"]')
       await page.waitForFunction(()=>location.pathname==='/ui/main/dashboards'&&Boolean(document.querySelector('#side-menu'))&&!document.querySelector('input[name="password"]'))
-      return {subject:account.username,path:await path()}
+      const telemetry=await page.evaluate(async()=>{
+        const response=await fetch('/api/v1/configs',{credentials:'same-origin',signal:AbortSignal.timeout(15000)})
+        const configs=await response.json()
+        return {status:response.status,isAnonymousUsageEnabled:configs.isAnonymousUsageEnabled,
+          isUiAnonymousUsageEnabled:configs.isUiAnonymousUsageEnabled,
+          eventRequests:performance.getEntriesByType('resource').map(entry=>entry.name).filter(value=>{
+            const url=new URL(value);return url.hostname==='api.kestra.io'&&url.pathname==='/v1/reports/events'
+          })}
+      })
+      assert.equal(telemetry.status,200)
+      assert.equal(telemetry.isAnonymousUsageEnabled,false)
+      assert.equal(telemetry.isUiAnonymousUsageEnabled,false)
+      assert.deepEqual(telemetry.eventRequests,[])
+      return {subject:account.username,path:await path(),telemetry}
     })
     await check('dashboard-refresh-retains-canonical-path',async()=>{
       await page.reload()
@@ -309,6 +334,12 @@ export async function runRbacOnboardingBrowser(page,{base,account,inputs,control
     const finalReference=await page.diagnosticEvidenceReference()
     const diagnostics=readBrowserDiagnosticEvidence(finalReference,[dirname(finalReference.path)])
     const events=scopedRbacOnboardingEvents(diagnostics,checkpoint)
+    report.telemetryRequests=events.filter(event=>{
+      if(event.kind!=='request')return false
+      const url=new URL(event.url)
+      return url.hostname==='api.kestra.io'&&url.pathname==='/v1/reports/events'
+    }).map(({id,requestId,documentId,url})=>({id,requestId,documentId,url}))
+    assert.deepEqual(report.telemetryRequests,[],'Production workflow sent disabled usage events')
     const classified=classifyRbacOnboardingDiagnostics({events,base,requests:report.requests,restartWindows:report.restartWindows})
     report.diagnostics={integrity:diagnostics.integrity.length,unexpectedErrors:classified.errors.length,
       classifications:classified.classifications,errors:classified.errors,checkpoint:checkpointReference,

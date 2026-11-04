@@ -124,6 +124,10 @@ kestra-monorepo/
 
 ### 模式 B：使用 RBAC（自动首装）
 
+Compose 默认关闭上游匿名用量与 UI 事件上报，使用
+`kestra.anonymous-usage-report.enabled: false` 和
+`kestra.ui-anonymous-usage-report.enabled: false`。这两个配置不影响 RBAC 授权或生产登录。
+
 本仓当前选定插件提交 `6ec194ad`，成功 CI run `41638334994`，正式 jar SHA-256：
 `bfc5ea876698565f4a8a07ee41e4e51c647c9361282ec53fd99c705558807e89`。
 先安装并登录 GitHub CLI（`gh auth login`），账号须能读取插件仓 Actions artifact：
