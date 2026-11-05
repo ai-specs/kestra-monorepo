@@ -375,7 +375,10 @@ export async function runAccessControlFrozenUi(page,base,{admin,applicationGroup
     assert(events.every(event=>event.id&&event.documentId&&event.url&&event.kind),'frozen diagnostics lack source identity')
     const denied=event=>event.kind==='http-error'&&event.method==='GET'&&[401,403].includes(event.status)&&[base+'/api/v1/configs',base+api+'/capabilities'].includes(event.url)&&typeof event.documentUrl==='string'&&new URL(event.documentUrl).pathname==='/ui/access-denied'
     const aborted=event=>event.kind==='request-failed'&&event.message==='net::ERR_ABORTED'&&(event.url.startsWith(base+'/ui/assets/')&&event.resourceType==='Script'||event.url.startsWith('https://api.kestra.io/v1/feeds?'))&&events.some(request=>request.kind==='request'&&request.requestId===event.requestId&&request.documentId===event.documentId&&request.url===event.url)&&events.some(next=>next.kind==='document-navigation'&&next.documentId!==event.documentId&&Math.abs(Date.parse(next.observedAt)-Date.parse(event.observedAt))<=1000)
-    const expectedDiagnostic=event=>denied(event)||aborted(event)||event.kind==='console-error'&&event.requestId&&events.some(response=>denied(response)&&response.requestId===event.requestId&&response.documentId===event.documentId&&response.url===event.url)
+    const sharedDiagnostics=classifyAccessControlDiagnostics({events,base,requests:report.requests})
+    const classifiedIds=new Set(sharedDiagnostics.classifications.map(item=>item.id))
+    const expectedDiagnostic=event=>classifiedIds.has(event.id)||denied(event)||aborted(event)||event.kind==='console-error'&&event.requestId&&events.some(response=>denied(response)&&response.requestId===event.requestId&&response.documentId===event.documentId&&response.url===event.url)
+    report.diagnostics.classifications=sharedDiagnostics.classifications
     report.diagnostics.expectedErrorIds=events.filter(expectedDiagnostic).map(event=>event.id)
     const errors=events.filter(event=>['console-error','page-error','request-failed','http-error','diagnostic-integrity-error'].includes(event.kind)&&!expectedDiagnostic(event))
     assert.equal(errors.length,0,'frozen browser has unclassified source-attributed errors')
