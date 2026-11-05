@@ -132,20 +132,61 @@ API 返回 401 → 前端拦截器捕获 → 清除本地 session/token → 自�
 5. 点击 "scopes" tab
 6. 观察：页面有两次渲染闪烁
 
+### 根因分析（代码证据）
+
+**当前流程**（`kestra-plugin-rbac/ui/src/App.vue` 第 243-250 行）：
+
+```javascript
+if (!selection.value && (scope || app)) {
+  const key = scope ? encodeURIComponent(scope.key) : encodeKey(app.clientId)
+  await navigateHost(groupBase.value + '/' + tab.value + '/' + key, {replace: true})
+}
+```
+
+**问题流程**：
+1. 用户点击 tab → 路由切换到列表页（如 `/applications`）
+2. 前端组件挂载 → 加载列表数据
+3. 自动选中第一个项
+4. 路由再次切换到详情页（如 `/applications/~a2VzdHJhLXVp`）
+5. 前端组件再次挂载 → 加载详情数据
+
+**结果**：路由切换了两次，导致两次渲染闪烁。
+
+### 优化方案
+
+**借鉴传统 SSR 思路：先确定选中项，再一次性渲染最终页面**
+
+**优化后流程**：
+1. 用户点击 tab
+2. **先在后台加载列表数据**（不切换路由）
+3. 知道第一个项是什么
+4. **一次性路由切换** → 直接跳转到详情页（如 `/applications/~a2VzdHJhLXVp`）
+5. 前端组件挂载 → 加载详情数据
+
+**好处**：路由只切换一次，没有中间的列表页闪烁。
+
+**用户体验**：
+- 点击 tab 后，页面保持当前状态，显示加载中
+- 数据加载完，直接跳转到第一个详情页
+- 没有闪烁感
+
 ### 预期行为
 
 - 路由切换时只有一次渲染
 - 没有闪烁感
+- 用户体验流畅
 
 ### 验收条件
 
-- [ ] tab 切换时只有一次渲染
+- [ ] tab 切换时只有一次路由跳转
 - [ ] 没有明显的闪烁
+- [ ] 最终 URL 正确（直接到详情页，不经过列表页）
+- [ ] 数据加载正常，内容完整
 
 ### 修复位置
 
-- 项目：`ai-specs/kestra-overlay`
-- 文件：`ui/src/components/extensions/ExtensionPage.vue`（0384 patch 已在处理扩展导航）
+- 项目：`ai-specs/kestra-plugin-rbac`
+- 文件：`ui/src/App.vue`（第 243-250 行附近的自动选中逻辑）
 - 优先级：中
 
 ---
