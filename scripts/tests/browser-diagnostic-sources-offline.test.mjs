@@ -165,3 +165,10 @@ test('dashboard 200 body-read abort requires unique exact preview response and a
  const events=[r,response,a,c,navigation];assert.equal(run(events).errors.length,0)
  for(const mutate of [e=>e.splice(1,1),e=>{e[1].status=403},e=>e.pop(),e=>{e[3].documentId='other'},e=>{e[3].stack[0].url=base+'/ui/assets/plugin.js'},e=>{e[3].observedAt=time(5000)},e=>{e[0].url=e[1].url=e[2].url=base+'/api/v1/main/flows'}]){const copy=structuredClone(events);mutate(copy);assert(run(copy).errors.length>0)}
 })
+
+test('native news CORS diagnostics require exact request document URL and vendor error',()=>{
+ const url='https://api.kestra.io/v1/feeds?iid=test',doc=base+'/ui/main/extensions/rbac/application-groups/kestra'
+ const events=[event('feed-request','request',{url,documentUrl:doc,method:'GET'}),event('feed-failed','request-failed',{url,documentUrl:doc,method:'GET',message:'net::ERR_FAILED'}),event('cors','console-error',{requestId:undefined,documentUrl:doc,source:'javascript',message:`Access to XMLHttpRequest at '${url}' from origin '${base}' has been blocked by CORS policy: No 'Access-Control-Allow-Origin' header is present on the requested resource.`}),event('network','console-error',{url,documentUrl:doc,source:'network',message:'Failed to load resource: net::ERR_FAILED'}),event('axios','page-error',{documentUrl:doc,requestId:undefined,message:'AxiosError: Network Error\n    at h.onerror (vendor)',scriptUrl:base+'/ui/assets/vendor-hash.js',stack:[{url:base+'/ui/assets/vendor-hash.js',functionName:'h.onerror'}]})]
+ assert.equal(run(events).errors.length,0)
+ for(const mutate of [x=>x.splice(0,1),x=>x.splice(2,1),x=>{x[4].documentId='other'},x=>{x[4].stack[0].url=base+'/ui/assets/plugin.js'},x=>{x[4].observedAt=time(1000)}]){const rows=structuredClone(events);mutate(rows);assert(run(rows).errors.length>0)}
+})
