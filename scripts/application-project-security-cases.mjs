@@ -553,7 +553,7 @@ export async function runApplicationProjectSecurity(base,fixture={},record) {
       const observer=await manager()
       assert.equal((await request(observer,toolPath)).status,404)
       const created=await observer.request('/api/v1/main/flows',{method:'POST',headers:{'Content-Type':'application/x-yaml'},body:mcpFlowSource(namespaceDomains.b,toolId,toolName),signal:AbortSignal.timeout(20000)})
-      assert([200,201].includes(created.status));toolCreated=true;await created.body?.cancel()
+      assert([200,201].includes(created.status));toolCreated=true;await created.arrayBuffer()
       assert.equal((await get(observer,toolPath+'?source=true')).id,toolId)
       const issued=await client.issueMcpScopes(['openid','mcp:flows:read','mcp:executions:write',scopeNames.writeB],async registration=>{
         membershipPath=groupPath+'/applications/'+key(registration.clientId)
@@ -653,11 +653,11 @@ export async function runApplicationProjectSecurity(base,fixture={},record) {
       const allowedSource=original.source.replace(/^description:.*$/m,'description: trusted issuer actual write baseline')
       try{
         const allowed=await client.request(path,{method:'PUT',headers:{'Content-Type':'application/x-yaml'},body:allowedSource,signal:AbortSignal.timeout(20000)})
-        assert.equal(allowed.status,200);await allowed.body?.cancel()
+        assert.equal(allowed.status,200);await allowed.arrayBuffer()
         assert.equal((await get(client,path+'?source=true')).description,'trusted issuer actual write baseline')
       }finally{await restore('trusted-issuer-baseline-source',async()=>{
         const restored=await client.request(path,{method:'PUT',headers:{'Content-Type':'application/x-yaml'},body:original.source,signal:AbortSignal.timeout(20000)})
-        assert.equal(restored.status,200);await restored.body?.cancel();assert.equal((await get(client,path+'?source=true')).source,original.source)
+        assert.equal(restored.status,200);await restored.arrayBuffer();assert.equal((await get(client,path+'?source=true')).source,original.source)
       })}
       await quiesceBusiness('trusted-issuer-baseline-restored')
       await step('allow-baseline',{mainIssuer:base,readStatus:200,persistedChangedFieldWriteStatus:200,foreignIdentity:identity,foreignLogin:signedIn.authenticated,cookieSha256:hash(jwtCookie),rawCookieReplay:true})
@@ -665,7 +665,7 @@ export async function runApplicationProjectSecurity(base,fixture={},record) {
       for(const [method,body]of [['GET',undefined],['PUT',changed]]) {
         const before=securitySnapshot();let denied
         try{denied=await effects.observeDenied(()=>replay.request(path,{method,headers:{Cookie:jwtCookie,Accept:'application/json',Origin:base,...(body===undefined?{}:{'Content-Type':'application/x-yaml',...(csrf?{'X-CSRF-TOKEN':csrf}:{})})},body,signal:AbortSignal.timeout(20000)},false),async response=>{
-          assert([401,403].includes(response.status),'foreign signed issuer cookie was accepted');await response.body?.cancel()
+          assert([401,403].includes(response.status),'foreign signed issuer cookie was accepted');await response.arrayBuffer()
         },{windowMs:fixture.effectsWindowMs??5000,intervalMs:250})}
         finally{const after=securitySnapshot();await step('foreign-cookie-security-state',{method,path,before:before.hash,after:after.hash,beforeSources:before.sources,afterSources:after.sources});assert.equal(after.hash,before.hash)}
         await step('foreign-cookie-denied',{method,path,status:denied.response.status,sideEffects:denied.observation,sameAudience:true,sameProject:true,sameKnownScope:scopeNames.writeB,cookieUnmodified:true})
@@ -709,7 +709,7 @@ export async function runApplicationProjectSecurity(base,fixture={},record) {
       const managerClient=await manager()
       assert.equal((await request(managerClient,flowPath)).status,404,'dedicated security flow must be absent')
       const seeded=await managerClient.request('/api/v1/main/flows',{method:'POST',headers:{'Content-Type':'application/x-yaml'},body:mcpFlowSource(namespaceDomains.b,flowId,toolName),signal:AbortSignal.timeout(20000)})
-      assert([200,201].includes(seeded.status));flowCreated=true;await seeded.body?.cancel()
+      assert([200,201].includes(seeded.status));flowCreated=true;await seeded.arrayBuffer()
       const stored=await get(managerClient,flowPath+'?source=true');assert.equal(stored.id,flowId);assert(stored.triggers.some(trigger=>trigger.toolName===toolName))
       const mainSession=await initialize(owner,8201)
       const list=await owner.rpc(mainSession,'tools/list',{},8202)
@@ -823,7 +823,7 @@ export async function runApplicationProjectSecurity(base,fixture={},record) {
       }
       async function write(source,expected) {
         const response=await client.request(path,{method:'PUT',headers:{'Content-Type':'application/x-yaml',Accept:'application/json'},body:source,signal:AbortSignal.timeout(20000)})
-        const status=response.status;await response.body?.cancel();assert.equal(status,200,'allowed business update failed')
+        const status=response.status;await response.arrayBuffer();assert.equal(status,200,'allowed business update failed')
         const stored=await get(client,path+'?source=true');if(expected)assert.equal(stored.description,expected)
         return status
       }
@@ -866,7 +866,7 @@ export async function runApplicationProjectSecurity(base,fixture={},record) {
         // Only the independent business observer runs while a security table is
         // absent. securitySnapshot intentionally cannot run until restoration.
         const denied=await effects.observeDenied(()=>client.request(path,{method:'PUT',headers:{'Content-Type':'application/x-yaml',Accept:'application/json'},body:source('fault must deny '+id),signal:AbortSignal.timeout(20000)}),async response=>{
-          const status=response.status;await response.body?.cancel()
+          const status=response.status;await response.arrayBuffer()
           assert([403,503].includes(status),'dependency failure must fail closed with identity/epoch denial or explicit dependency failure')
         },{windowMs:fixture.effectsWindowMs??5000,intervalMs:250})
         await step('fault-write-rejected',{status:denied.response.status,sideEffects:denied.observation,duringTableHash:tableHash(temporary)})
