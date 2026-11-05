@@ -9,11 +9,12 @@ export function classifyAccessControlDiagnostics({events,base,requests=[],expect
   const indexed=new Map(),classifications=[]
   const add=(event,reason,evidence)=>{indexed.set(event.id,{id:event.id,reason,evidence});classifications.push(indexed.get(event.id))}
   const exactRequests=event=>requests.some(request=>request.requestId===event.requestId&&request.source?.documentId===event.documentId&&base+request.path===event.url&&request.method===event.method&&request.status===event.status&&request.expectedStatuses.includes(event.status))
+  const newsFailures=events.filter(failed=>failed.kind==='request-failed'&&failed.method==='GET'&&failed.message==='net::ERR_FAILED'&&new URL(failed.url).origin==='https://api.kestra.io'&&new URL(failed.url).pathname==='/v1/feeds'&&(byRequest.get(failed.requestId)??[]).some(request=>request.kind==='request'&&same(request,failed)&&request.method==='GET'))
   for(const event of events) {
-    const feedFailures=events.filter(failed=>failed.kind==='request-failed'&&failed.method==='GET'&&failed.message==='net::ERR_FAILED'&&new URL(failed.url).origin==='https://api.kestra.io'&&new URL(failed.url).pathname==='/v1/feeds'&&failed.documentId===event.documentId&&Math.abs(at(failed)-at(event))<=100&&events.some(request=>request.kind==='request'&&same(request,failed)&&request.method==='GET'))
+    const feedFailures=newsFailures.filter(failed=>failed.documentId===event.documentId&&Math.abs(at(failed)-at(event))<=100)
     if(feedFailures.length===1) {
       const failed=feedFailures[0]
-      const cors=events.find(item=>item.kind==='console-error'&&item.documentId===failed.documentId&&Math.abs(at(item)-at(failed))<=100&&item.source==='javascript'&&item.message===`Access to XMLHttpRequest at '${failed.url}' from origin '${base}' has been blocked by CORS policy: No 'Access-Control-Allow-Origin' header is present on the requested resource.`)
+      const cors=(byDocument.get(failed.documentId)??[]).find(item=>item.kind==='console-error'&&Math.abs(at(item)-at(failed))<=100&&item.source==='javascript'&&item.message===`Access to XMLHttpRequest at '${failed.url}' from origin '${base}' has been blocked by CORS policy: No 'Access-Control-Allow-Origin' header is present on the requested resource.`)
       const network=event.kind==='console-error'&&event.source==='network'&&same(event,failed)&&event.message==='Failed to load resource: net::ERR_FAILED'
       const axios=event.kind==='page-error'&&/^AxiosError: Network Error\n/.test(event.message)&&event.stack?.length===1&&event.stack[0].functionName==='h.onerror'&&event.stack[0].url.startsWith(base+'/ui/assets/vendor-')&&event.scriptUrl===event.stack[0].url
       if(cors&&(event.id===cors.id||network||axios)) {add(event,'host-news-feed-cors-failure',{requestId:failed.requestId,documentId:failed.documentId,failedEventId:failed.id,corsEventId:cors.id,url:failed.url});continue}
