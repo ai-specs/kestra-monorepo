@@ -80,8 +80,8 @@
 - 形态（2026-11-11 实机取证）：该文案来自 `div.kel-notification` —— 页面顶部错误通知，带关闭按钮，**不会自动消失**；页面主体（甘特图/任务/日志）正常。此前把它当成“页面主体错误态 + 数秒后恢复”是误读。
 - 数据面：同一文档内 `/api/v1/main/executions/{id}`、`/executions/{id}/follow`、`/executions/flows/company.team/flow_aha_probe_3`、`/average-duration` 等全部 200；直接读执行记录返回 `id=irrpMtdbTtzp13Aq6N2de`、`namespace=company.team`、`flowId=flow_aha_probe_3`、`state=SUCCESS`，与 URL 三段参数完全一致；`console_messages()` 为空。
 - 行为：手动关闭该 toast 后 12 秒内不重现；ego 用 `MutationObserver` 监控后直接加载同一 URL 3 次（`toasts: []`）、新建→保存→执行 3 次（只有 Success 提示），均无该错误提示，也无 4xx。
-- 判定：不是“资源不存在”，不是权限问题，也不是“首屏时序竞态”；属**错误提示误报 / 历史提示残留**，触发该提示的具体请求尚未定位（该文档内没有任何失败请求）。
-- 建议：展示“不存在”前以 `GET /executions/{id}` 的真实结果为准；错误通知给出自动关闭时长并去重；文案区分“请求失败/暂不可用”与“确实不存在”。
+- 判定：不是“资源不存在”，不是权限问题，也不是“首屏时序竞态”；属**错误提示误报 + 跨路由残留**。因果已复现：访问不存在的执行 `NOTEXIST000000000000AA` 时，`GET /api/v1/main/executions/{id}` 返回 **403**（授权层先于资源判定），UI 同时弹出 `Access denied` 与“流程或执行不存在”；同一文档内 SPA 切到 `/ui/main/executions` 列表页后，该提示**依然存在**，而列表页内容正常。
+- 建议：403 不要渲染成“不存在”（先分“无权限/确实不存在/暂不可用”）；展示“不存在”前以 `GET /executions/{id}` 的真实结果为准；错误通知给自动关闭时长、去重，并在路由切换时清理。
 
 ## 六、复现步骤
 
