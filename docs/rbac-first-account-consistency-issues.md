@@ -11,18 +11,21 @@
 
 **未发现由「首装用户内置权限授予」导致的使用表现差异。**两模式首装 admin 在相同的干净库环境下，逐项操作结果一致（证据见第四节）。因此本次没有对 `InitialApplicationGroupPlan` 或授权策略做任何改动。
 
-真正需要登记的问题只有两类，且均**不属于「赋予的权限值不对」**：
+真正需要登记的问题只有三类，且均**不属于「赋予的权限值不对」**：
 
-- 一类是尚未复现的偶发渲染（缺陷 1，已降级为观察项）；
-- 一类是契约与行为不符（缺陷 3，`company` 命名空间范围未约束住 flow 读写）。
+- 尚未复现的偶发渲染（缺陷 1，观察项）；
+- 文档把测试口径写成权限上限（需求 3，已裁决按方案 A 修正文档，不收紧代码）；
+- 两模式“预期差异”需要固定成文档（需求 4）。
 
 另有一类**不算缺陷**的差异：模式 B 在“未携带身份”或“身份缺少对应权限”时返回 403。这是 RBAC 开启后的必然结果，属于确定知晓且必要的模式差异，不作为两模式的比较项，也不修复（详见第五节）。
 
-按约定，前两类不在本文件之外自行修复，只登记需求，交由统一修复方处理。
+需要说明的比较口径：**`company` 及其子空间是测试用例的选择**（模式 B 已授权该空间，便于两模式同条件对照），**不是模式 B 首装用户的权限上限**。凡是为使两模式首装用户运行行为对齐而多给的命名空间或权限，都属于必要，不按越权处理。
+
+按约定，除“已裁决可自行修改且能本地验证”的项之外，其余不在本文件之外自行修复，只登记需求，交由统一修复方处理。
 
 ---
 
-## 二、问题清单（缺陷 + 已知差异）
+## 二、问题清单（缺陷 / 需求 / 已知差异）
 
 ### 缺陷 1：执行详情首屏偶发显示“你正在寻找的流程或执行不存在”
 
@@ -94,34 +97,38 @@ UI 实际请求在跳转后均为 200：`GET /api/v1/main/executions/{id}`、`GE
 
 ---
 
-### 缺陷 3：初始策略声明的 `company` 命名空间范围没有约束住 flow 读写
+### 需求 3：文档把“测试口径”写成了“权限上限”（已裁决按方案 A 修正）
 
 | 项 | 内容 |
 |---|---|
-| 严重级 | P1（契约与行为不符；若按文档作为隔离依据会失效） |
-| 归属 | kestra-plugin-rbac（策略执行覆盖面） |
-| 是否权限问题 | 相关，但**不是“授予的权限值写错”**，而是“策略未在上述端点生效” |
+| 严重级 | P2（文档口径与对齐目标冲突；行为本身符合目标） |
+| 归属 | 文档：`kestra-plugin-rbac/README.md`、`docs/rbac-onboarding-experience.md` |
+| 是否权限问题 | 相关，但**不是“授予的权限值写错”**，而是“文档把测试口径写成了权限上限” |
+| 裁决状态 | **已裁决：方案 A**。`company` 及子空间只是测试用例的选择，不是模式 B 首装用户的权限上限；为使两模式首装用户行为对齐，额外的命名空间与权限是必要的 |
 
 **契约原文**
-- `kestra-plugin-rbac/README.md:227-228`：FLOW、EXECUTION、TRIGGER、NAMESPACE、KVSTORE、SECRET、NAMESPACE_FILE、LOG、METRIC、DASHBOARD、BLUEPRINT、AI **仅命名空间 `company` 及子空间**，动作 `READ/LIST/CREATE/UPDATE/DELETE/EXECUTE/ACCESS_OUTPUTS`。
-- 源码 `kestra-plugin-rbac/src/main/java/io/kestra/extensions/rbac/applicationgroup/InitialApplicationGroupPlan.java:28`：为这些资源生成 `Grant("NAMESPACE","main","company",descendants=true, …)`。
+- `kestra-plugin-rbac/README.md:227-228`：FLOW、EXECUTION、TRIGGER、NAMESPACE、KVSTORE、SECRET、NAMESPACE_FILE、LOG、METRIC、DASHBOARD、BLUEPRINT、AI **仅命名空间 `company` 及子空间**，并声明“范围外业务仍拒绝”。
+- 源码 `InitialApplicationGroupPlan.java:28`：为这些资源生成 `Grant("NAMESPACE","main","company",descendants=true, …)`。
 
 **实测（模式 B 首装 admin）**
-- 在 `default` 创建 `flow_default_b` 成功（UI 显示“成功保存”），`GET /api/v1/main/flows/default/flow_default_b` → 200，`revision 1`。
-- 在 `outside.ns` 创建 `flow_outside_b` 成功，`GET` → 200，`revision 1`。
-- 在 `default` 执行 `flow_default_b` 成功（执行已开始，产生执行记录）。
-- 流程列表页同时显示 `default` 与 `company.team` 两条 flow，命名空间列表包含 `default`。
+- 在 `default` 创建 `flow_default_b` 成功，`GET /api/v1/main/flows/default/flow_default_b` → 200（`revision 1`）。
+- 在 `outside.ns` 创建 `flow_outside_b` 成功，`GET` → 200（`revision 1`）。
+- 在 `default` 执行 `flow_default_b` 成功（产生执行记录）。
+- 流程列表页同时显示 `default` 与 `company.team` 的 flow，命名空间列表包含 `default`。
 
-**结论**
-初始 `company` 范围对 FLOW / EXECUTION 的写入与读取端点均未生效，用户实际拥有跨命名空间能力，与文档声明的隔离不一致。
+**结论（按已裁决口径）**
+- 实测行为——首装 admin 在 `company` 之外同样能建/跑 flow——**符合对齐目标**：模式 A 没有任何限制，模式 B 要给到同等能力，两模式首装用户才不会出现“B 做不成 A 能做成”的差异。
+- 问题只在文档：把“测试只选 `company` 空间”写成了“模式 B 只授权 `company` 空间”，并写了“范围外业务仍拒绝”。这会让人误以为跨命名空间能力是漏洞，进而被“修复”成收紧权限，反而制造两模式不一致。
+- 因此本项不再按“策略未生效的实现缺口”处理，也不需要改 authorizer 去收紧范围。
 
-**建议修复方向（二选一，需产品裁决）**
-- **方案 A（推荐，符合当前目标）**：既然目标是两模式“表现一致”，则明确把首装 admin 定义为“全命名空间管理员”，同步修改 README 与策略生成（把 NAMESPACE 级 grant 改为 TENANT 级），并删除“范围外拒绝”的表述。这样文档与行为一致，且与模式 A 完全等价。
-- **方案 B（保持安全设计）**：修 authorizer，使 FLOW/EXECUTION 等端点真正按 `namespace` 判定；同时修正文档，明确“首装 admin 仅 company 及子空间”。但此方案会让模式 B 与模式 A 在 `company` 之外表现不同，与本次目标冲突，需用户确认。
+**处理方向**
+1. 文档：把 README 第 227–228 行及 `docs/rbac-onboarding-experience.md` 中“仅 `company` 及子空间 / 范围外拒绝”改写为“首装 admin 具备与模式 A 对齐的完整业务权限（含跨命名空间）；`company` 只是默认示例与测试口径”。
+2. 源码：`InitialApplicationGroupPlan` 的 grant 注释按同一口径说明，注释不再暗示“范围外会被拒绝”。
+3. 不改授权判定逻辑：收紧会让模式 B 与模式 A 在 `company` 之外表现不同，与目标冲突。
 
-**验收标准（方案 A）**
-- 两模式首装 admin：`default`、`outside.ns`、`company.*` 均可创建/执行/查看 flow，行为与状态码一致。
-- README、`InitialApplicationGroupPlan.java` 注释、`docs/rbac-onboarding-experience.md` 三处口径一致，无“仅 company”残留。
+**验收标准**
+- 文档中不再出现“仅 company”“范围外拒绝”这类与对齐目标冲突的表述。
+- 两模式首装 admin 在 `company.*`、`default`、`outside.ns` 建/跑/查 flow 的行为与状态码一致。
 
 ---
 
@@ -203,7 +210,7 @@ UI 实际请求在跳转后均为 200：`GET /api/v1/main/executions/{id}`、`GE
 
 ## 五、优先级建议
 
-1. **P1 缺陷 3**：先做产品裁决（方案 A 还是 B），再动代码；否则修完会造成新的不一致。
+1. **P2 需求 3**：只改文档口径，不收紧授权逻辑（收紧会让模式 B 在 `company` 之外落后于模式 A）。
 2. **P3 缺陷 1**：当前无法复现，先保留浏览器抓取脚本；再现时按“取证步骤”定位到具体非 200 请求后再谈修复。
 3. **P3 需求 4**：文档补充，随手可做。
 4. **不处理**：缺身份/缺权限返回 403 的已知差异（预期行为，不进比较、不修复）。
@@ -221,7 +228,7 @@ sha256sum deployment/libs/kestra-rbac-authorizer.jar
 # .env: KESTRA_RBAC_ENABLED=true
 docker compose down -v && docker compose up -d
 # 访问 http://localhost:8080/ui/ → 首装 admin/admin123 → 登录
-# 新建 flow：编辑器中把 namespace 改为 default 或 outside.ns → 保存 → 应能成功（缺陷 3）
+# 新建 flow：编辑器中把 namespace 改为 default 或 outside.ns → 保存 → 应能成功（需求 3：跨命名空间能力须与模式 A 对齐）
 # 执行 flow → 立即查看详情页 → 观察是否偶发“不存在”（缺陷 1）
 
 # 模式 A

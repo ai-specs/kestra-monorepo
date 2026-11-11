@@ -9,7 +9,7 @@
 ## 一、结论摘要
 
 1. **在用户约定的 `company` 空间口径下，两模式首装用户的权限一致。**创建 flow、执行 flow、查看执行详情/任务输出/执行列表/流程列表，两种模式全部可用，无差异。
-2. **在 `company` 之外的命名空间，两模式同样一致（都允许）。**实测两模式均可在 `default` 与 `outside.ns` 创建并执行 flow。这与 `kestra-plugin-rbac/README.md` 第 227–228 行和 `InitialApplicationGroupPlan.java:28`「FLOW/EXECUTION 等仅 `NAMESPACE main/company` 及子空间」的契约**不一致**：模式 B 的授权层并未对 flow 写入端点生效，属于实现缺口，不是模式对比差异。
+2. **`company` 之外同样一致（都允许），且这是必要的。**实测两模式均可在 `default` 与 `outside.ns` 创建并执行 flow。`company` 只是测试用例选择的对照空间，不是模式 B 首装用户的权限上限；为使两模式首装用户行为对齐，多授的命名空间与权限属必要。需要修的是文档：`kestra-plugin-rbac/README.md:227-228` 与 `InitialApplicationGroupPlan.java:28` 的“仅 company / 范围外拒绝”表述，按对齐目标改写（详见发现 1）。
 3. **模式 B 对“未携带身份 / 无对应权限”的请求返回 403**，而模式 A 对同一 URL 返回 405/404/406。这是 RBAC 的预期行为（先判授权、再进路由），属于确定知晓且必要的模式差异，不作为比较项（详见第四节与发现 2）。
 4. **「执行后立即跳转执行详情页」显示“你正在寻找的流程或执行不存在”——当前未复现。**早期在模式 B 页面上看到 2 次；随后用浏览器 CDP 现场抓取 11 轮（ego-browser 8 轮 + 内置浏览器 3 轮），全部请求 200、无 4xx/5xx、无 console error、页面无该文案。原“时序竞态”判定属推断，已撤回，改记为待补证的偶发现象（详见发现 3）。
 
@@ -64,11 +64,12 @@
 
 ## 五、发现（缺陷 / 已知预期差异）
 
-### 发现 1：初始策略的 `company` 范围没有约束住 flow 写入
+### 发现 1：`company` 是测试口径，不是权限上限（文档需按对齐目标修正）
 
-- 契约：`kestra-plugin-rbac/README.md:227-228`「FLOW、EXECUTION… 仅命名空间 `company` 及子空间」；源码 `InitialApplicationGroupPlan.java:28` 为每个资源生成 `Grant("NAMESPACE","main","company",descendants=true,…)`。
-- 实测：模式 B 首装 `admin` 在 `default` 与 `outside.ns` 都成功创建 flow（`flow_outside_b` 的 `GET` 返回 200、`revision 1`），并能在 `default` 执行成功。
-- 结论：FLOW/EXECUTION 的写入端点未被授权层覆盖，初始策略实际未生效于这些路径。这与 README 契约冲突，属实现缺口；对用户而言表现为“和模式 A 一样不受限”。
+- 对照结果：两模式首装 `admin` 在 `company.*`、`default`、`outside.ns` 都能建/跑/查 flow，行为一致。
+- 这个结果**符合本次目标**：模式 A 本身不限命名空间，模式 B 必须给出同等能力，两模式首装用户才不会出现“B 做不成 A 能做成”的差异；为使对齐而多授的命名空间与权限都是必要的。
+- 需要修的是文档：`kestra-plugin-rbac/README.md:227-228` 与 `docs/rbac-onboarding-experience.md` 把“测试只选 `company`”写成了“仅 `company` 及子空间、范围外拒绝”，容易被误读成“跨命名空间是漏洞”，进而被收紧成两模式不一致。
+- 处置（已裁决方案 A）：只改文档与注释口径，不改授权判定逻辑。
 
 ### 发现 2：模式 B 对“未携带身份 / 无对应权限”的请求返回 403（预期行为，非缺陷）
 
