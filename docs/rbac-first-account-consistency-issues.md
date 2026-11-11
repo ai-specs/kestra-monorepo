@@ -257,4 +257,16 @@ GET /api/v1/main/executions/{id}/state
 GET /api/v1/main/flows?draft=false
 GET /api/v1/main/namespaces
 ```
-</content>
+
+---
+
+## 七、处置清单（可直接分派）
+
+| # | 事项 | 归属 | 具体动作 | 验收标准 | 我是否已改 |
+|---|---|---|---|---|---|
+| 1 | 执行详情“不存在”提示（缺陷 1） | 前端提示层 | ① 403 不渲染成“资源不存在”；② 弹提示前以 `GET /api/v1/main/executions/{id}` 的真实结果为准；③ 错误通知自动关闭、去重，路由切换时清理 | 访问不存在的执行只出现一条准确提示并自动消失；正常页面不再残留任何“不存在”提示 | 否（非权限问题，按约定只登记） |
+| 2 | 文档把测试口径写成权限上限（需求 3） | 文档 | 改写 `kestra-plugin-rbac/README.md:227-228` 与 `docs/rbac-onboarding-experience.md`：`company` 为默认示例与测试口径，首装 admin 具备与模式 A 对齐的业务能力 | 文档中不再有“仅 company / 范围外拒绝”这类与对齐目标冲突的表述 | 待确认后再动产品文案 |
+| 3 | 两模式预期差异表（需求 4） | 文档 | 在 onboarding 文档补固定表格（首装页文案、侧边栏扩展、OIDC scope、`/oidc/setup`、403 语义） | 复测人员据表即可区分“预期差异”与“缺陷” | 可随时执行 |
+| — | 首装权限是否缺失 | 不改 | 已实测：执行详情链路 10 个端点全部 200（execution detail/graph、executions of flow、flow detail/revisions/dependencies/graph、namespace detail、flows search、avg duration） | — | 无缺失，无需改动 |
+| — | 403 与 405/404 的语义差异 | 不改 | 已裁决为“确定知晓且必要”的模式差异 | — | 不修复，仅排障说明 |
+| — | 授权层版本校验（authorizationVersion） | 不改 | 已核查：每次请求重算版本，权限变更会使旧会话整体失效，属设计；改权限后重新登录即可 | — | 仅写运维提示 |
