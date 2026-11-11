@@ -9,7 +9,7 @@
 
 ## 一、结论（先给判断）
 
-**未发现由「首装用户内置权限授予」导致的使用表现差异。**两模式首装 admin 在相同的干净库环境下，逐项操作结果一致（证据见第三节）。因此本次没有对 `InitialApplicationGroupPlan` 或授权策略做任何改动。
+**未发现由「首装用户内置权限授予」导致的使用表现差异。**两模式首装 admin 在相同的干净库环境下，逐项操作结果一致（证据见第四节）。因此本次没有对 `InitialApplicationGroupPlan` 或授权策略做任何改动。
 
 真正存在的不一致只有两类，且均**不属于「赋予的权限值不对」**：
 
@@ -144,7 +144,35 @@ UI 实际请求在跳转后均为 200：`GET /api/v1/main/executions/{id}`、`GE
 
 ---
 
-## 三、已验证一致的操作基线（回归用）
+## 三、权限实现层面的核查（不只是“有没有权限声明”）
+
+判断“是不是权限问题”，除了看声明，还要看实现会不会自己制造异常。这里把授权实现的关键路径逐条核对了一遍。
+
+| # | 实现事实 | 代码位置 | 对用户可能的影响 |
+|---|---|---|---|
+| 1 | 每次授权都校验“身份里的 authorizationVersion”与“目录里当前组版本”是否相等，不等即 `INVALID_IDENTITY`，整条 evaluation 直接失败 | `ApplicationGroupRuntimePolicies.java:98-110`（`:108` 是版本比对） | 一旦版本不一致，不是单个端点 403，而是**整个会话全站被拒**；UI 会把 403 渲染成“不存在”，表现上很像资源丢了 |
+| 2 | 版本只在“授权相关内容”变化时 +1：组的 active、application 集合、`supportedScopeKeys`、audiences、userGrants 的 scopeKeys | `ApplicationGroupDirectoryStore.java:144`、`authorizationChanged():157-177` | 只改显示名/描述不会使会话失效；改权限、改组启用状态、增删应用会 |
+| 3 | 增量用 invalidation 表与状态表双写，读取时若两者不一致会抛 `Inconsistent application group versions` | `ApplicationGroupDirectoryStore.java:256-266`、`invalidate():296-301` | 双写若不在同一提交内，读侧直接报错 |
+| 4 | 授权取身份走 `currentForAuthorization()`：每个请求都从当前 Authentication 重新解析，并加锁读安全状态，不是登录时冻结的版本 | `kestra-overlay/patches/webserver/0383-oidc-resource-audience-v2.patch:132-152` | 设计上会话不应长期停留在旧版本，版本不一致只可能出现在极窄的更新窗口内 |
+| 5 | 授权层先于路由判定，端点不存在也先给 403 | 缺陷 2 | 非 UI 路径的 403 不能当作“没权限”读 |
+
+**实测（本环境，模式 B）**
+
+| 探测 | 结果 |
+|---|---|
+| `GET /api/v1/main/extensions/rbac/application-groups/main` | 200，`revision 1`、`authorizationVersion 1`（与首装契约一致） |
+| `GET /api/v1/main/flows?namespace=company.team`（非 UI 路径） | 403（属缺陷 2 的错误语义，UI 实际用 `/flows/search?namespace=…`） |
+| `GET /api/v1/main/executions/{id}` | 200 |
+| `POST /api/v1/main/extensions/rbac/application-groups/main/applications`（想触发版本 +1） | 403，未能构造“版本递增”场景，该项留作待验证 |
+
+**结论**
+- 实现里确实**存在**一条“版本不一致 → 全站拒绝 → UI 显示不存在”的路径（事实 1），这是本轮新增的、此前只查声明时看不到的风险点。
+- 但它需要“目录版本已变、请求侧版本仍旧”同时成立；事实 4 表明请求侧每请求重算，正常不会出现，且 11 轮现场抓取与本次探测都没有出现 `INVALID_IDENTITY` 拒绝。
+- 因此它不足以解释“执行详情首屏显示不存在”，但足以形成一条运维注意点：**模式 B 下改动权限会让已登录会话整体失效，改完需要重新登录**，建议写进排障文档。
+
+---
+
+## 四、已验证一致的操作基线（回归用）
 
 环境：`docker compose down -v` 后干净首装，账号 `admin` / `admin123`，两模式各独立执行一遍。
 
@@ -172,7 +200,7 @@ UI 实际请求在跳转后均为 200：`GET /api/v1/main/executions/{id}`、`GE
 
 ---
 
-## 四、优先级建议
+## 五、优先级建议
 
 1. **P1 缺陷 3**：先做产品裁决（方案 A 还是 B），再动代码；否则修完会造成新的不一致。
 2. **P3 缺陷 1**：当前无法复现，先保留浏览器抓取脚本；再现时按“取证步骤”定位到具体非 200 请求后再谈修复。
@@ -181,7 +209,7 @@ UI 实际请求在跳转后均为 200：`GET /api/v1/main/executions/{id}`、`GE
 
 ---
 
-## 五、复现步骤（供修复方核对）
+## 六、复现步骤（供修复方核对）
 
 ```bash
 # 前置：确认 jar 为正式产物
