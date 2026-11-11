@@ -11,7 +11,7 @@
 1. **在用户约定的 `company` 空间口径下，两模式首装用户的权限一致。**创建 flow、执行 flow、查看执行详情/任务输出/执行列表/流程列表，两种模式全部可用，无差异。
 2. **`company` 之外同样一致（都允许），且这是必要的。**实测两模式均可在 `default` 与 `outside.ns` 创建并执行 flow。`company` 只是测试用例选择的对照空间，不是模式 B 首装用户的权限上限；为使两模式首装用户行为对齐，多授的命名空间与权限属必要。需要修的是文档：`kestra-plugin-rbac/README.md:227-228` 与 `InitialApplicationGroupPlan.java:28` 的“仅 company / 范围外拒绝”表述，按对齐目标改写（详见发现 1）。
 3. **模式 B 对“未携带身份 / 无对应权限”的请求返回 403**，而模式 A 对同一 URL 返回 405/404/406。这是 RBAC 的预期行为（先判授权、再进路由），属于确定知晓且必要的模式差异，不作为比较项（详见第四节与发现 2）。
-4. **「执行后立即跳转执行详情页」显示“你正在寻找的流程或执行不存在”——当前未复现。**早期在模式 B 页面上看到 2 次；随后用浏览器 CDP 现场抓取 11 轮（ego-browser 8 轮 + 内置浏览器 3 轮），全部请求 200、无 4xx/5xx、无 console error、页面无该文案。原“时序竞态”判定属推断，已撤回，改记为待补证的偶发现象（详见发现 3）。
+4. **执行详情页的“你正在寻找的流程或执行不存在”已现场核实为错误提示 toast，页面与数据均正常。**DOM 证据为 `div.kel-notification`（带关闭按钮、不自动消失）；同一文档内 `/executions/{id}`、`follow`、`/executions/flows/...` 等请求全部 200；直接读执行记录得到 `id/namespace/flowId` 与 URL 完全一致、`state=SUCCESS`；关闭提示后 12 秒不重现；ego 注入 `MutationObserver` 后直接加载同一 URL 3 次、新建执行 3 轮均无该提示。原“首屏时序竞态”作废（详见发现 3）。
 
 ## 二、模式 A / B 的配置差异（预期差异，非权限缺陷）
 
@@ -75,11 +75,13 @@
 
 同一 URL 在模式 A 返回 405/404/406，在模式 B 返回 403（见第四节）。这是 RBAC 开启后的必然结果：先判授权，再进路由。属于确定知晓且必要的模式差异，不作为两模式的比较项，也不修复。仅保留一条排障提示：看到 403 要区分“缺身份/缺权限”与“端点不存在”，且 UI 会把 403 渲染成“不存在”，不能据 UI 文案判断资源是否存在。
 
-### 发现 3：执行详情首屏偶发“不存在”（非权限，当前未复现）
+### 发现 3：执行详情页的“不存在”是错误提示 toast 误报（非权限、非数据缺失）
 
-- 现象（历史观察）：点击执行后立即跳到 `/ui/main/executions/{ns}/{fid}/{id}/gantt` 时，页面显示“你正在寻找的流程或执行不存在”；数秒后同一 URL 正常显示 `1 Succeeded`。
-- 现场抓取（直接读浏览器，非独立 API 推断）：开启 CDP 的 `Network` / `Runtime` / `Log` 事件，读取浏览器真实响应码（`performance.getEntriesByType('resource')` 的 `responseStatus`）。ego-browser 5 轮“编辑器内执行” + 3 轮“新建保存后立即执行”，内置浏览器 3 轮“新建保存后立即执行”并按 300/800/2000ms 采样——共 11 次，`/api/v1/main/executions/{id}`、`/follow`、`average-duration` 全部 200，无 4xx/5xx、无 `loadingFailed`、无 console error，页面文本始终不含“不存在”。
-- 判定：原“UI 首屏时序竞态”是推断，现场数据不支持。该项降级为“未稳定复现的偶发现象”，与 RBAC 无关，也不作为两模式的差异项；再现时先用上述浏览器抓取方法拿到具体的非 200 请求，再决定是否需要前端加重试。
+- 形态（2026-11-11 实机取证）：该文案来自 `div.kel-notification` —— 页面顶部错误通知，带关闭按钮，**不会自动消失**；页面主体（甘特图/任务/日志）正常。此前把它当成“页面主体错误态 + 数秒后恢复”是误读。
+- 数据面：同一文档内 `/api/v1/main/executions/{id}`、`/executions/{id}/follow`、`/executions/flows/company.team/flow_aha_probe_3`、`/average-duration` 等全部 200；直接读执行记录返回 `id=irrpMtdbTtzp13Aq6N2de`、`namespace=company.team`、`flowId=flow_aha_probe_3`、`state=SUCCESS`，与 URL 三段参数完全一致；`console_messages()` 为空。
+- 行为：手动关闭该 toast 后 12 秒内不重现；ego 用 `MutationObserver` 监控后直接加载同一 URL 3 次（`toasts: []`）、新建→保存→执行 3 次（只有 Success 提示），均无该错误提示，也无 4xx。
+- 判定：不是“资源不存在”，不是权限问题，也不是“首屏时序竞态”；属**错误提示误报 / 历史提示残留**，触发该提示的具体请求尚未定位（该文档内没有任何失败请求）。
+- 建议：展示“不存在”前以 `GET /executions/{id}` 的真实结果为准；错误通知给出自动关闭时长并去重；文案区分“请求失败/暂不可用”与“确实不存在”。
 
 ## 六、复现步骤
 
