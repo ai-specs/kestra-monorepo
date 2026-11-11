@@ -72,7 +72,7 @@ for(const scenario of ['missing-jar','normal'])test(scenario+': orchestration us
     const report=JSON.parse(readFileSync(join(output,directory,'report.json')))
     assert.equal(report.completed,false);assert.equal(report.cases[0].status,'failed')
     assert.equal(report.scenario,scenario)
-    assert.equal(report.summary.failed,1);assert.equal(report.summary.notRun,scenario==='normal'?8:11)
+    assert.equal(report.summary.failed,1);assert.equal(report.summary.notRun,scenario==='normal'?9:11)
     assert(!JSON.stringify(report).includes('offline-private'))
     assert(reports.length>=3)
   } finally {rmSync(output,{recursive:true,force:true})}

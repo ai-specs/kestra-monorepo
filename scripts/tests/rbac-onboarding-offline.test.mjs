@@ -45,10 +45,13 @@ function completeNormalReport() {
   normal.cases=normal.cases.map(row=>row.id==='formal-jar-ready-without-restart'
     ?{...row,status:'passed',passed:true,evidence:{source:'production-browser-and-owned-storage',restartCount:0,jarSha256:inputs.jarSha256,path:'/oidc/setup',form:true,
       priorSession:{source:'previous-production-onboarding',issuer:'http://localhost:18128',subject:'initial-admin',sha256:'a'.repeat(64),restored:true}}}
+    :row.id==='initial-account-production-executions'?{...row,status:'passed',passed:true,evidence:{source:'production-browser-and-owned-storage',journey:{completed:true,planned:10,
+      executions:Array.from({length:10},(_,index)=>{const namespace=index%2?'company.consistency.child':'company.consistency',flowId='test_'+index,executionId='execution_'+index;
+        return {index,status:'passed',namespace,flowId,executionId,path:`/ui/main/executions/${namespace}/${flowId}/${executionId}/gantt`,notifications:[],followEnd:{requestId:'r'+index,documentId:'d'+index,eventId:'end',stream:{url:'http://localhost/api/v1/main/executions/'+executionId+'/follow',status:200,completed:true,ids:['start','end']}},stored:{id:executionId,namespace,flowId,state:'SUCCESS'}}})}}}
     :structuredClone(original.cases.find(source=>source.id===row.id)))
   normal.requests=original.requests.slice(1);normal.diagnostics=original.diagnostics
   normal.telemetryRequests=[]
-  normal.summary={planned:9,passed:9,failed:0,notRun:0,skipped:0};normal.completed=true
+  normal.summary={planned:10,passed:10,failed:0,notRun:0,skipped:0};normal.completed=true
   return normal
 }
 
@@ -63,8 +66,8 @@ test('complete first-install report binds formal inputs and actual storage outco
   assert.equal(assertRbacOnboardingReport(completeReport(),inputs).passed,12)
 })
 test('ordinary prepared-jar installation independently proves startup without any JVM restart',()=>{
-  assert.equal(rbacNormalOnboardingCaseIds.length,9)
-  assert.equal(assertRbacOnboardingReport(completeNormalReport(),inputs).passed,9)
+  assert.equal(rbacNormalOnboardingCaseIds.length,10)
+  assert.equal(assertRbacOnboardingReport(completeNormalReport(),inputs).passed,10)
 })
 for(const [name,mutate] of [
   ['unrequested restart',report=>{report.cases[0].evidence.restartCount=1}],
@@ -73,6 +76,14 @@ for(const [name,mutate] of [
   ['missing prior production session',report=>{delete report.cases[0].evidence.priorSession}],
   ['session was not restored',report=>{report.cases[0].evidence.priorSession.restored=false}],
   ['reused recovery report',report=>{report.scenario='missing-jar'}],
+  ['no terminal SSE event',report=>{report.cases.at(-1).evidence.journey.executions[0].followEnd.eventId='start'}],
+  ['misleading execution notification',report=>{report.cases.at(-1).evidence.journey.executions[0].notifications=['does not exist']}],
+  ['unsaved execution',report=>{report.cases.at(-1).evidence.journey.executions[0].stored.state='RUNNING'}],
+  ['partial ten-run journey',report=>{report.cases.at(-1).evidence.journey.executions.pop()}],
+  ['200 stream without end',report=>{report.cases.at(-1).evidence.journey.executions[0].followEnd.stream.ids=['start']}],
+  ['unterminated stream',report=>{report.cases.at(-1).evidence.journey.executions[0].followEnd.stream.completed=false}],
+  ['stream transport error',report=>{report.cases.at(-1).evidence.journey.executions[0].followEnd.stream.error='connection lost'}],
+  ['different execution stream',report=>{report.cases.at(-1).evidence.journey.executions[0].followEnd.stream.url='http://localhost/api/v1/main/executions/other/follow'}],
 ])test('ordinary startup rejects '+name,()=>{const report=completeNormalReport();mutate(report);assert.throws(()=>assertRbacOnboardingReport(report,inputs))})
 for(const [name,mutate] of [
   ['different image',report=>{report.inputs.image+='wrong'}],

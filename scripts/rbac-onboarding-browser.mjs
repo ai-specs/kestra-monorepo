@@ -3,6 +3,7 @@ import {classifyAccessControlDiagnostics} from './access-control-browser-diagnos
 import {applicationGroupTables} from './application-group-artifact-contract.mjs'
 import {dirname} from 'node:path'
 import {readBrowserDiagnosticEvidence} from './browser-diagnostic-evidence.mjs'
+import {runFirstAccountExecutions,assertFirstAccountExecutions} from './first-account-execution-browser.mjs'
 
 export const rbacOnboardingCaseIds=Object.freeze([
   'missing-jar-guidance',
@@ -19,7 +20,7 @@ export const rbacOnboardingCaseIds=Object.freeze([
   'completed-setup-get-and-post-closed',
 ])
 
-export const rbacNormalOnboardingCaseIds=Object.freeze(['formal-jar-ready-without-restart',...rbacOnboardingCaseIds.slice(4)])
+export const rbacNormalOnboardingCaseIds=Object.freeze(['formal-jar-ready-without-restart',...rbacOnboardingCaseIds.slice(4),'initial-account-production-executions'])
 
 export function initialRbacOnboardingReport(inputs,scenario='missing-jar') {
   assert(['missing-jar','normal'].includes(scenario))
@@ -50,6 +51,7 @@ export function assertRbacOnboardingReport(report,inputs) {
   assert.match(report.diagnostics.checkpoint.sha256,/^[a-f0-9]{64}$/)
   assert.deepEqual(report.telemetryRequests,[],'Usage events must remain disabled throughout the production workflow')
   const find=id=>report.cases.find(row=>row.id===id).evidence
+  if(normal)assertFirstAccountExecutions(find('initial-account-production-executions').journey)
   if(normal) {
     const runtime=find('formal-jar-ready-without-restart')
     assert.equal(runtime.restartCount,0);assert.equal(runtime.jarSha256,inputs.jarSha256)
@@ -156,6 +158,7 @@ export async function runRbacOnboardingBrowser(page,{base,account,inputs,control
   assert(['localhost','127.0.0.1'].includes(new URL(base).hostname))
   assert(account?.username&&account?.password)
   for(const method of ['assertOwner','installationState','deliverFormalJar','restartJvm','readGroup'])assert.equal(typeof controls?.[method],'function',method)
+  if(scenario==='normal')assert.equal(typeof controls.readExecution,'function','production execution storage observer required')
   await controls.assertOwner()
   page.redactSecrets([account.password])
   const report=initialRbacOnboardingReport(inputs,scenario)
@@ -330,6 +333,11 @@ export async function runRbacOnboardingBrowser(page,{base,account,inputs,control
       const statuses=[await browserRequest('/oidc/setup','GET',[404]),await browserRequest('/oidc/setup','POST',[404],'')]
       assert.deepEqual(await controls.installationState(),before)
       return {statuses,unchanged:true}
+    })
+    if(scenario==='normal')await check('initial-account-production-executions',async()=>{
+      const journey=await runFirstAccountExecutions(page,{base,prefix:'first_account_'+Date.now(),readExecution:controls.readExecution,
+        record:async journey=>{report.executionJourney=structuredClone(journey);await persist()}})
+      return {journey}
     })
     const finalReference=await page.diagnosticEvidenceReference()
     const diagnostics=readBrowserDiagnosticEvidence(finalReference,[dirname(finalReference.path)])

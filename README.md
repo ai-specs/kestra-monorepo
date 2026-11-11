@@ -128,14 +128,14 @@ Compose 默认关闭上游匿名用量与 UI 事件上报，使用
 `kestra.anonymous-usage-report.enabled: false` 和
 `kestra.ui-anonymous-usage-report.enabled: false`。这两个配置不影响 RBAC 授权或生产登录。
 
-本仓当前选定插件提交 `ae81aa1`，成功 CI run `42021082952`，正式 jar SHA-256：
-`e0539edf4383ef0ee39317ccc6847a480ca50a7b9f60de71affa5d066ed8bd28`。
+本仓当前选定插件提交 `79c871b`，成功 CI run `43004680245`，正式 jar SHA-256：
+`42b901a4b51ea53b9540aeeb87a7056ee7a223ff2ca286aee14265bbdda4bb0c`。
 先安装并登录 GitHub CLI（`gh auth login`），账号须能读取插件仓 Actions artifact：
 
 ```bash
 # macOS / Linux；在本仓根目录执行
 mkdir -p .work/rbac-release deployment/libs
-gh run download 42021082952 -R ai-specs/kestra-plugin-rbac \
+gh run download 43004680245 -R ai-specs/kestra-plugin-rbac \
   --name kestra-rbac-authorizer --dir .work/rbac-release
 cp .work/rbac-release/build/libs/kestra-rbac-authorizer.jar deployment/libs/kestra-rbac-authorizer.jar
 # macOS
@@ -147,7 +147,7 @@ sha256sum deployment/libs/kestra-rbac-authorizer.jar
 ```powershell
 # Windows PowerShell；在本仓根目录执行
 New-Item -ItemType Directory -Force .work/rbac-release, deployment/libs | Out-Null
-gh run download 42021082952 -R ai-specs/kestra-plugin-rbac `
+gh run download 43004680245 -R ai-specs/kestra-plugin-rbac `
   --name kestra-rbac-authorizer --dir .work/rbac-release
 Copy-Item .work/rbac-release/build/libs/kestra-rbac-authorizer.jar deployment/libs/kestra-rbac-authorizer.jar
 (Get-FileHash deployment/libs/kestra-rbac-authorizer.jar -Algorithm SHA256).Hash.ToLower()
@@ -166,7 +166,10 @@ Copy-Item .work/rbac-release/build/libs/kestra-rbac-authorizer.jar deployment/li
 4. 在首装页阅读“已启用细粒度访问控制”提示，填写账号并创建。账号、应用组、初始权限及首账号授予在一个事务中完成，不需要 JSON 或 Java CLI。
 5. 使用新账号登录，进入 dashboard；从导航进入访问控制管理，复核初始 `main` 应用组及 `admin` scope。
 
-初始业务资源范围为 `company` 及子命名空间；管理授权、精确动作与修改方法见插件README。账号名不产生管理员权限，普通后续账号不自动继承首账号授权。
+首账号通过初始策略中的 `BUSINESS_INSTANCE.READ/MANAGE` 获得明确业务实例权限，
+按固定资源与动作映射执行；`company` 及子空间是默认示例与模式 A/B 的共同测试范围，
+不是该账号全部业务权限的上限。管理授权、精确动作与修改方法见插件 README。
+账号名不产生管理员权限，普通后续账号不自动继承首账号授权。
 
 缺 jar 时，首装页显示明确的下载与放置位置并阻止创建半成品账号。补放 jar 后运行
 `docker compose restart kestra`，原页面会自动等待恢复并重新获取表单；不会存储密码或自动重放创建请求。
@@ -175,11 +178,13 @@ Copy-Item .work/rbac-release/build/libs/kestra-rbac-authorizer.jar deployment/li
 已经完成安装的数据库不会再次开放首装或自动补授管理员。不得删除安装凭据或清空用户来重复首装；已有部署按插件公开维护流程处理，先保护原数据。
 
 > 宿主 c4a1eb22/CI41628600618、插件 6ec194ad/CI41638334994 已分别通过独立发布门。
-> 正式 jar 已下载核对。部署组合在根仓 `d66d324` 的成功 CI `41669412885` 中，
-> 通过正常首装9项、缺jar恢复12项、REST56、组合检查144及业务UI88；该提交报告已实际下载复核。
+> 当前宿主 `77de8c5` 的 CI `42990293208` 与插件 `79c871b` 的 CI `43004680245`
+> 均成功，正式镜像和 jar 报告已下载核对。本次根仓最终组合与对应提交 CI 结果另行验收；
+> 历史组合记录不能替代本次新增执行订阅流程。
 
-默认初始业务范围为 `company` 及子命名空间，其他命名空间仍拒绝；范围可在访问控制页面
-由获准管理员显式调整。详细边界与验收条件见 [RBAC 首次安装体验](docs/rbac-onboarding-experience.md)。
+普通资源 grants 按其命名空间、资源及动作求值；显式业务实例管理 grants 按固定映射求值。
+管理员可以在访问控制页面复核和修改初始策略，撤销相应授权后不保留首账号特权。
+详细边界与验收条件见 [RBAC 首次安装体验](docs/rbac-onboarding-experience.md)。
 
 ---
 

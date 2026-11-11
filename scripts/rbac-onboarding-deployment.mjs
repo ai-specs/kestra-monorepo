@@ -50,6 +50,10 @@ export async function runRbacOnboardingDeployment({configuration,compose,saveCon
     assert.equal(typeof result.description,'string');assert(Number.isSafeInteger(result.revision)&&result.revision>0)
     return result
   }
+  const readExecution=async id=>{
+    await assertOwner();assert.match(id,/^[A-Za-z0-9_-]+$/)
+    return JSON.parse(query("SELECT json_build_object('id',value->>'id','namespace',value->>'namespace','flowId',value->>'flowId','state',value->'state'->>'current') FROM executions WHERE tenant_id='main' AND value->>'id'='"+id+"'"))
+  }
   const installationState=async()=>{
     await assertOwner()
     const present=query("SELECT to_regclass('public.rbac_application_group_state') IS NOT NULL")==='t'
@@ -116,7 +120,7 @@ export async function runRbacOnboardingDeployment({configuration,compose,saveCon
     compose('up','-d','kestra')
     hostContainer=compose('ps','-q','kestra')
     await assertOwner();await waitForHost()
-    const controls={assertOwner,installationState,readGroup,
+    const controls={assertOwner,installationState,readGroup,readExecution,
       initialRuntime:async()=>{
         await assertOwner()
         return {restartCount:Number(inspect('{{.RestartCount}}',hostContainer)),

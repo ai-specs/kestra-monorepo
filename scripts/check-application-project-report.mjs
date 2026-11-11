@@ -82,6 +82,17 @@ assert.equal(normalDiagnostics.integrity.length,0)
 const normalReview=classifyRbacOnboardingDiagnostics({events:scopedRbacOnboardingEvents(normalDiagnostics,normalCheckpoint),base:report.resources.base,
   requests:normalOnboardingStage.evidence.requests,restartWindows:normalOnboardingStage.evidence.restartWindows})
 assert.equal(normalReview.errors.length,0,'Ordinary first-install browser retains unknown errors')
+const executionJourney=normalOnboardingStage.evidence.cases.find(row=>row.id==='initial-account-production-executions').evidence.journey
+const normalEvents=scopedRbacOnboardingEvents(normalDiagnostics,normalCheckpoint)
+for(const row of executionJourney.executions) {
+  const url=report.resources.base+'/api/v1/main/executions/'+row.executionId+'/follow'
+  assert.equal(row.followEnd.stream.url,url,'Terminal stream belongs to another origin or execution')
+  const responses=normalEvents.filter(event=>event.kind==='http-response'&&event.requestId===row.followEnd.requestId
+    &&event.documentId===row.followEnd.documentId&&event.url===url&&event.status===200)
+  assert.equal(responses.length,1,'Successful stream lacks its exact source-attributed production response')
+  assert(normalEvents.some(event=>event.kind==='request'&&event.requestId===row.followEnd.requestId
+    &&event.documentId===row.followEnd.documentId&&event.url===url&&event.method==='GET'))
+}
 for(const [fragment,diagnostic,checkpoint] of [
   [onboardingStage.evidence,onboardingDiagnostics,onboardingCheckpoint],
   [normalOnboardingStage.evidence,normalDiagnostics,normalCheckpoint],

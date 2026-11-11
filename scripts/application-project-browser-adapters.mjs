@@ -489,6 +489,17 @@ async function makeAdapter(raw,tools,options) {
     selectOption:(selector,value) => action('selectOption',() => tools.selectOption(commonSelector(selector),value,timeout)),
     focus:selector => action('focus',() => tools.focus(commonSelector(selector),timeout)),
     press:(selector,value) => action('press',() => tools.press(commonSelector(selector),value,timeout)),
+    replaceEditorText:text=>action('replaceEditorText',async()=>{
+      assert(typeof text==='string'&&text.length>0,'nonempty editor text required')
+      await tools.click('.monaco-editor .view-lines',timeout)
+      await raw.keyboard.press('ControlOrMeta+A')
+      if(typeof raw.keyboard.paste==='function')await raw.keyboard.paste(text)
+      else {
+        await adapter.setClipboardPermission('granted')
+        await raw.evaluate(value=>navigator.clipboard.writeText(value),text)
+        await raw.keyboard.press('ControlOrMeta+V')
+      }
+    }),
     evaluate:(callback,argument) => action('evaluate',() => argument === undefined ? raw.evaluate(callback) : raw.evaluate(callback,argument)),
     waitForFunction:(callback,argument) => action('waitForFunction',() => raw.waitForFunction(callback,argument,{timeout})),
     setViewport:viewport => action('setViewport',async () => {

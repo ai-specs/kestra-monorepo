@@ -1,5 +1,35 @@
 # 应用组目标模型实施差异报告
 
+## 2026-11-11 首账号一致性调查（实施中）
+
+正式调查基线：overlay `a7598d5`，plugin `ae81aa1`，根仓最新需求 `e5ffa70`。
+需求入口为 `docs/rbac-first-account-consistency-issues.md` 与对应 report。
+模式 A/B 的 flow 对照限定在 `company` 及子空间；不以账号名称或首账号身份放行。
+`BUSINESS_INSTANCE` 是现有明确授权映射，不能移除该语义来制造 namespace 限制。
+主控此前错误提交 `1dfe10c` 已由 `0c72303` 完整回退，不属于可交付修复。
+
+| 需求 | 独立证据与裁决 | 所属仓 | 必须检查 | 状态 |
+| --- | --- | --- | --- | --- |
+| 缺陷1：执行 follow 错误误报不存在及残留 | Ego 真实保存/执行 `company.consistency/consistency_repro_01` 后出现通知；普通 execution GET200、DB SUCCESS，follow 后端等待10秒取不到记录。提示误报成立；进一步定向测试确认HTTP response结束后原evaluation已关闭，延迟SSE正文订阅的ACL域为空。BASE Await已同线程轮询，不采用重复pollInSameThread修复 | overlay；root生产验收 | 首连网络/401/403/404、已接收后断流、恢复/路由清理、去重/自动关闭；真实company流程10次；ACL不变 | 已复现，修复未发布 |
+| 需求3：测试范围与首账号总权限混淆 | namespace grants 与显式 BUSINESS_INSTANCE 固定映射并存；仅修正文档，不收紧授权，不增加主体旁路 | plugin README、root README/onboarding | 核对固定资源/动作、READ/MANAGE分离，撤权后无首账号特权 | 文档修订中 |
+| 需求4：模式差异说明 | 未解析端点403为失败关闭现有契约，不按猜测API拉平到404/405/406 | root文档 | 生产登录与实际请求为证据，company同场景比较 | 文档修订中 |
+
+首轮候选 executable `84338ea9…33a7a6a` 的完整本地后端447/UI126通过，但真实Ego执行仍失败，不能发布。Micronaut4.10.28对正文绑定旧上下文，外层新evaluation被覆盖；框架包装定向红例再次失败。主控已裁决将最小授权钩子移到共享SSE流源生命周期入口，下一候选重新定向、重放、构建与实际浏览器验证。
+
+第二轮候选 executable `ef2992e4…23297a8` 已通过完整本地后端453项（451通过、2既有镜像专项未执行）、UI126；Ego共享生产脚本十次创建/保存/执行/立即详情，数据库SUCCESS、实际SSE终止id=end、错误通知0全部通过。镜像专项、安全撤权、对应提交CI与正式发布仍未完成，不能计为最终交付。
+
+本次证据目录 `.work/first-account-consistency/`。宿主先定向红绿和独立发布，插件仅消费
+已发布宿主输入，根仓随后验证正式组合。既有 CI 不作为本轮通过结论。
+
+本轮正式发布输入：overlay `77de8c5` / CI `42990293208` 五job成功，正式镜像
+`sha256:9a2176428678a07968b77a00d0c657d40c3b623c4578f75aa28c9346483cdd09`；
+plugin `79c871b` / CI `43004680245` 成功，正式jar
+`42b901a4b51ea53b9540aeeb87a7056ee7a223ff2ca286aee14265bbdda4bb0c`。
+两仓报告已实际下载。根仓开发态正式组合全部业务门通过；T12按规则拒绝dirty/nonFinal来源，
+最终干净提交验收及CI尚待执行，不将该开发报告计为最终交付。
+后续SSE长连接撤权、依赖关联范围、CSV/AI/MCP专项已记录为静态待复现调查，未实施，
+不扩大本次修复或宣称所有流接口已完成授权验收。
+
 ## 2026-11-05 组合验收发现退出与迟到401竞态（未交付）
 
 宿主e9317a8/CI41817055182与插件8f3a016/CI41834156818均已成功，正式镜像
