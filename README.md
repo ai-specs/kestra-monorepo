@@ -128,14 +128,14 @@ Compose 默认关闭上游匿名用量与 UI 事件上报，使用
 `kestra.anonymous-usage-report.enabled: false` 和
 `kestra.ui-anonymous-usage-report.enabled: false`。这两个配置不影响 RBAC 授权或生产登录。
 
-本仓当前选定插件提交 `3a22359`，成功 CI run `43094833073`，正式 jar SHA-256：
+本仓当前选定插件提交 `a4a725c`，成功 CI run `43213408320`，正式 jar SHA-256：
 `42b901a4b51ea53b9540aeeb87a7056ee7a223ff2ca286aee14265bbdda4bb0c`。
 先安装并登录 GitHub CLI（`gh auth login`），账号须能读取插件仓 Actions artifact：
 
 ```bash
 # macOS / Linux；在本仓根目录执行
 mkdir -p .work/rbac-release deployment/libs
-gh run download 43094833073 -R ai-specs/kestra-plugin-rbac \
+gh run download 43213408320 -R ai-specs/kestra-plugin-rbac \
   --name kestra-rbac-authorizer --dir .work/rbac-release
 cp .work/rbac-release/build/libs/kestra-rbac-authorizer.jar deployment/libs/kestra-rbac-authorizer.jar
 # macOS
@@ -147,7 +147,7 @@ sha256sum deployment/libs/kestra-rbac-authorizer.jar
 ```powershell
 # Windows PowerShell；在本仓根目录执行
 New-Item -ItemType Directory -Force .work/rbac-release, deployment/libs | Out-Null
-gh run download 43094833073 -R ai-specs/kestra-plugin-rbac `
+gh run download 43213408320 -R ai-specs/kestra-plugin-rbac `
   --name kestra-rbac-authorizer --dir .work/rbac-release
 Copy-Item .work/rbac-release/build/libs/kestra-rbac-authorizer.jar deployment/libs/kestra-rbac-authorizer.jar
 (Get-FileHash deployment/libs/kestra-rbac-authorizer.jar -Algorithm SHA256).Hash.ToLower()
@@ -178,7 +178,7 @@ Copy-Item .work/rbac-release/build/libs/kestra-rbac-authorizer.jar deployment/li
 已经完成安装的数据库不会再次开放首装或自动补授管理员。不得删除安装凭据或清空用户来重复首装；已有部署按插件公开维护流程处理，先保护原数据。
 
 > 宿主 c4a1eb22/CI41628600618、插件 6ec194ad/CI41638334994 已分别通过独立发布门。
-> 当前宿主 `8900e5c` 的 CI `43069306397` 与插件 `3a22359` 的 CI `43094833073`
+> 当前宿主 `c3fe848` 的 CI `43202366854` 与插件 `a4a725c` 的 CI `43213408320`
 > 均成功。正式镜像已发布，插件 jar 须从上文 artifact 入口下载核对。本次根仓最终组合与对应提交 CI 结果另行验收；
 > 历史组合记录不能替代本次新增执行订阅流程。
 
