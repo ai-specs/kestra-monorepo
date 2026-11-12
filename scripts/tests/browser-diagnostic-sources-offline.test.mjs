@@ -172,3 +172,15 @@ test('native news CORS diagnostics require exact request document URL and vendor
  assert.equal(run(events).errors.length,0)
  for(const mutate of [x=>x.splice(0,1),x=>x.splice(2,1),x=>{x[4].documentId='other'},x=>{x[4].stack[0].url=base+'/ui/assets/plugin.js'},x=>{x[4].observedAt=time(1000)}]){const rows=structuredClone(events);mutate(rows);assert(run(rows).errors.length>0)}
 })
+
+test('concurrent dashboard body abort logs require a complete same-unload cohort',()=>{
+ const url=base+'/api/v1/main/dashboards/charts/preview',documentUrl=base+'/ui/main/dashboards'
+ const events=[]
+ for(let i=0;i<2;i++)events.push({...request,id:'r'+i,requestId:'chart'+i,url,method:'POST',documentUrl},{...request,id:'response'+i,kind:'http-response',requestId:'chart'+i,url,method:'POST',documentUrl,status:200,observedAt:time(90)},{...abort,id:'abort'+i,requestId:'chart'+i,url,method:'POST',documentUrl})
+ for(let i=0;i<2;i++)events.push(event('console'+i,'console-error',{requestId:undefined,documentUrl,message:'TypeError: 200 Failed to fetch',stack:[{url:base+'/ui/assets/mf-shared-frozen.js',functionName:'logError',line:0}]}))
+ events.push(navigation)
+ assert.equal(run(events).errors.length,0)
+ for(const mutate of [x=>x.pop(),x=>{x[4].status=403},x=>{x[5].documentId='other'},x=>{x[7].observedAt=time(101)},x=>{x[7].stack[0].url=base+'/ui/assets/business.js'},x=>x.splice(7,1),x=>{x[3].frameId='other'}]) {
+  const changed=structuredClone(events);mutate(changed);assert(run(changed).errors.length>0)
+ }
+})

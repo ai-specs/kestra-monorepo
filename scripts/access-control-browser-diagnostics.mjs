@@ -84,7 +84,14 @@ export function classifyAccessControlDiagnostics({events,base,requests=[],expect
     const auth=first==='Error during authentication check: TypeError: Failed to fetch'
     if(first==='TypeError: 200 Failed to fetch'&&new URL(event.documentUrl).pathname==='/ui/main/dashboards'&&event.stack?.length&&event.stack.every(frame=>frame.url.startsWith(base+'/ui/assets/mf-shared-'))) {
       const candidates=(byDocument.get(event.documentId)??[]).filter(failed=>failed.kind==='request-failed'&&failed.method==='POST'&&failed.url===base+'/api/v1/main/dashboards/charts/preview'&&indexed.get(failed.id)?.reason==='cancelled-read-on-document-unload'&&Math.abs(at(event)-at(failed))<=100&&(byRequest.get(failed.requestId)??[]).some(response=>response.kind==='http-response'&&same(response,failed)&&response.status===200&&order.get(response.id)<order.get(failed.id)&&at(failed)-at(response)>=0&&at(failed)-at(response)<=100))
-      if(candidates.length===1){const abort=candidates[0];add(event,'host-dashboard-response-body-cancelled-on-document-unload',{documentId:event.documentId,requestId:abort.requestId,abortedEventId:abort.id,navigationEventId:indexed.get(abort.id).evidence.navigationEventId});continue}
+      if(candidates.length===1&&(byDocument.get(event.documentId)??[]).filter(item=>item.kind==='console-error'&&item.message===event.message&&item.observedAt===event.observedAt&&JSON.stringify(item.stack)===JSON.stringify(event.stack)).length===1){const abort=candidates[0];add(event,'host-dashboard-response-body-cancelled-on-document-unload',{documentId:event.documentId,requestId:abort.requestId,abortedEventId:abort.id,navigationEventId:indexed.get(abort.id).evidence.navigationEventId});continue}
+      // Concurrent chart reads lose their response bodies in the same document unload.
+      // Attribute the exact cohort, rather than guessing a single request for each log.
+      const cohort=(byDocument.get(event.documentId)??[]).filter(item=>item.kind==='console-error'&&item.message===event.message&&item.observedAt===event.observedAt&&JSON.stringify(item.stack)===JSON.stringify(event.stack))
+      const navIds=new Set(candidates.map(item=>indexed.get(item.id).evidence.navigationEventId))
+      if(candidates.length>1&&cohort.length===candidates.length&&navIds.size===1&&new Set(candidates.map(item=>item.requestId)).size===candidates.length&&candidates.every(item=>item.observedAt===event.observedAt)) {
+        add(event,'host-dashboard-concurrent-response-bodies-cancelled-on-document-unload',{documentId:event.documentId,requestIds:candidates.map(item=>item.requestId),abortedEventIds:candidates.map(item=>item.id),consoleEventIds:cohort.map(item=>item.id),navigationEventId:[...navIds][0]});continue
+      }
     }
     const native=first==='TypeError: Failed to fetch'&&['/ui/main/dashboards','/ui/main/namespaces','/ui/main/flows'].includes(new URL(event.documentUrl).pathname)
     if((auth||native)&&event.stack?.length&&event.stack.every(frame=>!frame.url||frame.url.startsWith(base+'/ui/assets/'))) {
