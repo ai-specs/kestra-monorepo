@@ -310,13 +310,31 @@ export class ProductionOAuthClient {
     else await response.body?.cancel()
     return response.status
   }
-  async rpc(session, method, params, id) {
+  async terminateMcpSession(session) {
+    assert(this.#tokens?.access_token,'MCP termination requires the original authenticated client')
+    assert(typeof session==='string'&&session.length>0,'Initialized MCP session required')
+    const response=await this.request('/api/v1/main/mcp/default',{method:'DELETE',headers:{
+      Authorization:`Bearer ${this.#tokens.access_token}`,
+      'Mcp-Session-Id':session,'MCP-Protocol-Version':'2025-06-18',
+      Accept:'application/json, text/event-stream',
+    },signal:AbortSignal.timeout(10000)},false)
+    await response.body?.cancel()
+    if(response.status!==200)return {status:response.status}
+    const probe=await this.rpc(session,'tools/list',{},'terminated-session-probe')
+    return {status:response.status,oldSessionStatus:probe.status}
+  }
+  async renewMcpAuthorization(scopes,reauthenticate) {
+    assert(this.#client?.client_id,'An existing registered MCP client is required')
+    return this.issueMcpScopes(scopes,undefined,reauthenticate,{registeredClient:this.#client})
+  }
+  async rpc(session, method, params, id, {onInitializedSession} = {}) {
     assert(this.#tokens?.access_token)
     const response = await this.request('/api/v1/main/mcp/default', {method: 'POST', headers: {
       Authorization: `Bearer ${this.#tokens.access_token}`, 'Content-Type': 'application/json', Accept: 'application/json, text/event-stream',
       ...(session ? {'Mcp-Session-Id': session, 'MCP-Protocol-Version': '2025-06-18'} : {}),
     }, body: JSON.stringify({jsonrpc: '2.0', ...(id === undefined ? {} : {id}), method, ...(params ? {params} : {})})}, false)
     const nextSession = response.headers.get('mcp-session-id') ?? session
+    if(method==='initialize'&&response.status===200&&nextSession&&onInitializedSession)onInitializedSession(nextSession)
     if (id === undefined || response.status !== 200) { await response.body?.cancel(); return {status: response.status, session: nextSession} }
     if (!response.headers.get('content-type')?.includes('text/event-stream')) return {status: 200, session: nextSession, message: await response.json()}
     const reader = response.body.getReader(), decoder = new TextDecoder()

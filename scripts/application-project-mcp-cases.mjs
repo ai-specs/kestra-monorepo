@@ -32,7 +32,9 @@
  * checks for UI/REST or every requiredProjectChecks entry: only listed ownership.
  */
 import assert from 'node:assert/strict'
+import {createHash} from 'node:crypto'
 import {ProductionOAuthClient} from './production-oauth-client.mjs'
+import {McpSessionCleanup} from './mcp-session-cleanup.mjs'
 import {ProjectSideEffects} from './application-project-effects.mjs'
 import {scopeNames,requiredProjectChecks,applicationProject} from './application-project-cases.mjs'
 
@@ -47,7 +49,7 @@ const get=(value,path)=>path.split('.').reduce((object,name)=>object?.[name],val
 export async function runApplicationProjectMcp(base,fixture,record) {
   assert.equal(typeof record,'function','persistent report callback required')
   const report={schemaVersion:1,completed:false,checks:owned.map(id=>({id,passed:false,status:'not_run',evidence:{}})),sessions:[],mutations:[],rpc:[],failures:0,skipped:0,notRun:owned.length}
-  const restorations=[];const revoked=[];let rpcId=1;let effects;let observer;let issuance
+  const restorations=[];const revoked=[];const sessionCleanup=new McpSessionCleanup();let rpcId=1;let effects;let observer;let issuance
   const allSecrets=Object.values(fixture.accounts??{}).map(account=>account.password).concat(fixture.observerAccount?.password).filter(Boolean)
   const safe=error=>allSecrets.reduce((text,secret)=>text.replaceAll(secret,'[redacted]'),String(error?.message??error)).replace(/eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+/g,'[redacted-jwt]')
   async function persist(){report.failures=report.checks.filter(check=>check.status==='failed').length;report.notRun=report.checks.filter(check=>check.status==='not_run').length;await record(structuredClone(report))}
@@ -78,12 +80,18 @@ export async function runApplicationProjectMcp(base,fixture,record) {
     },async current=>{await login(current,account);if(client.__approvalReceipt){report.mutations.push({kind:'approve-client',scenario:name,...await receipt(client.__approvalReceipt,current,account,config)});delete client.__approvalReceipt}}, {registeredClient:config.registeredClient})
     const identity=await client.verifiedAccessIdentity({applicationGroupId:applicationProject,subject:account.subject,expectedApplicationGroupScopes:spec.applicationGroupScopes,expectedProtocolScopes:spec.protocolScopes})
     assert.deepEqual(sorted(issued.issuedScopes),sorted([...spec.applicationGroupScopes,...spec.protocolScopes]),'issued scope set differs from explicit grant')
-    const initialized=await client.rpc(null,'initialize',{protocolVersion:'2025-06-18',capabilities:{},clientInfo:{name:'application-project-acceptance',version:'1'}},rpcId++)
+    const register=session=>sessionCleanup.register({client,session,scenario:name,subject:account.subject,clientId:identity.clientId,reauthorize:async()=>{
+      await client.renewMcpAuthorization([...spec.protocolScopes,...spec.applicationGroupScopes],current=>login(current,account))
+      const renewed=await client.verifiedAccessIdentity({applicationGroupId:applicationProject,subject:account.subject,expectedApplicationGroupScopes:spec.applicationGroupScopes,expectedProtocolScopes:spec.protocolScopes})
+      assert.equal(renewed.clientId,identity.clientId,'MCP cleanup must retain the original registered client')
+      return renewed
+    }})
+    const initialized=await client.rpc(null,'initialize',{protocolVersion:'2025-06-18',capabilities:{},clientInfo:{name:'application-project-acceptance',version:'1'}},rpcId++,{onInitializedSession:register})
     assert.equal(initialized.status,200);assert(initialized.session&&initialized.message?.result&&!initialized.message.error,'real MCP session initialization failed')
     const notification=await client.rpc(initialized.session,'notifications/initialized',undefined,undefined)
     assert([200,202,204].includes(notification.status),'initialized notification rejected')
     const result={client,spec,account,identity,session:initialized.session,config,target}
-    report.sessions.push({scenario:name,subject:identity.subject,identity,clientId:issued.clientId,protocol:'2025-06-18'})
+    report.sessions.push({scenario:name,subject:identity.subject,identity,clientId:issued.clientId,protocol:'2025-06-18',sessionSha256:createHash('sha256').update(initialized.session).digest('hex')})
     return result
   }
   async function rpc(s,method,params){const value=await s.client.rpc(s.session,method,params,rpcId++);report.rpc.push({subject:s.account.subject,method,status:value.status,message:JSON.parse(safe(JSON.stringify(value.message??null)))});await persist();assert.equal(value.session,s.session,'same-session test unexpectedly changed MCP session');return value}
@@ -126,7 +134,7 @@ export async function runApplicationProjectMcp(base,fixture,record) {
       const oldList=await client.rpc(config.previousSession,'tools/list',{},rpcId++)
       assert(denied(oldList,config),'missing provider accepted the old authenticated MCP session')
       assert([400,401,403].includes(await client.refresh()),'missing provider refreshed old group credentials')
-      const initialized=await client.rpc(null,'initialize',{protocolVersion:'2025-06-18',capabilities:{},clientInfo:{name:'missing-extension',version:'1'}},rpcId++)
+      const initialized=await client.rpc(null,'initialize',{protocolVersion:'2025-06-18',capabilities:{},clientInfo:{name:'missing-extension',version:'1'}},rpcId++,{onInitializedSession:session=>sessionCleanup.register({client,session,scenario:'missing-extension',subject:config.account.subject})})
       assert([200,401,403].includes(initialized.status),'missing component returned an unexpected initialize status')
       if(initialized.status===200)assert(initialized.session&&initialized.message?.result&&!initialized.message.error,'missing component returned invalid MCP session')
       const sessionId=initialized.status===200?initialized.session:null
@@ -137,13 +145,31 @@ export async function runApplicationProjectMcp(base,fixture,record) {
         {name:config.scenario.call.name,arguments:config.scenario.call.arguments},rpcId++),
         response=>assert(denied(response,config)||response.status===200&&response.message?.result?.isError===true&&jsonEqual(response.message.result,config.componentFailureToolResult),
           'missing component executed a protected tool'),{windowMs:config.effectsWindowMs??5000,intervalMs:250})
+      const termination=await client.terminateMcpSession(config.previousSession)
+      assert.equal(termination.status,401,'Missing projection must not permit old-session DELETE authentication')
+      report.unavailableSessionCleanup={scenario:'missing-extension-before-removal',sessionSha256:createHash('sha256').update(config.previousSession).digest('hex'),status:termination.status,protocolTerminated:false,disposition:'owned-isolated-database-teardown',reason:'published projection unavailable; original bearer fails closed'}
       return {identity,componentAbsence:config.componentAbsence,authorizationDenied:config.authorizationDenied,oldSessionRejected:true,initializeStatus:initialized.status,
         list:{status:listing.status,empty:listing.message?.result?.tools?.length===0},
         call:{status:call.response.status,sideEffects:call.observation}}
     })
   }catch(error){report.preconditionFailure=safe(error)}
   finally{
-    for(const value of restorations.reverse()){try{const restored=await value.restore();const verified=await receipt(restored,value.client,value.account,value.config);report.mutations.push({kind:'restore',label:value.label,...verified})}catch(error){report.checks.push({id:'cleanup-'+value.label,passed:false,status:'failed',error:safe(error),evidence:{}})}}
+    const restore=async value=>{try{const restored=await value.restore();const verified=await receipt(restored,value.client,value.account,value.config);report.mutations.push({kind:'restore',label:value.label,...verified})}catch(error){report.checks.push({id:'cleanup-'+value.label,passed:false,status:'failed',error:safe(error),evidence:{}})}}
+    const reverse=[...restorations].reverse()
+    // All denial/effect assertions have finished. Restore revoked policy before
+    // using each original client; remove its registered application only afterwards.
+    for(const value of reverse.filter(value=>!value.label.startsWith('approve-')))await restore(value)
+    report.sessionCleanup=await sessionCleanup.closeAll()
+    for(const row of report.sessionCleanup)if(!row.passed)report.checks.push({id:'session-cleanup-'+row.scenario,passed:false,status:'failed',evidence:row})
+    if(report.sessionCleanup.length&&report.sessionCleanup.every(row=>row.passed)) {
+      try {
+        assert.equal(typeof fixture.observeSessionCleanup,'function','Owned session storage and heartbeat observer required')
+        report.sessionCleanupObservation=await fixture.observeSessionCleanup(report.sessionCleanup)
+      } catch(error) {
+        report.checks.push({id:'session-cleanup-observation',passed:false,status:'failed',error:safe(error),evidence:{}})
+      }
+    }
+    for(const value of reverse.filter(value=>value.label.startsWith('approve-')))await restore(value)
     report.requiredCheckCoverage=owned.filter(id=>requiredProjectChecks.includes(id));report.completed=!report.preconditionFailure&&report.checks.every(row=>row.passed);await persist()
   }
   return report

@@ -74,6 +74,25 @@ schema2 declaration-upgrade PostgreSQL8项已审计；schema1/旧凭据/物理�
 
 ## 4. 本轮 SSE 修复的机制与可借鉴边界
 
+### 2026-11-13 MCP 生命周期的上游来源核对
+
+root未显式DELETE测试session属于本仓测试缺口。宿主的全local session保活、
+异步delete返回值未订阅、旧GET无条件注销三项关键结构已存在于固定BASE原始源码；
+0170的RBAC身份适配改变了删除匹配方式，须验证叠加行为，不能将宿主问题全归定制引入。
+
+上游 [891fb2261f57 / #18585](https://github.com/kestra-io/kestra/commit/891fb2261f57c6ee757598cd3c37414a720a3661)
+修复context关闭时scheduler shutdown，固定BASE源码已具备其doFinally与PreDestroy机制。
+它不证明运行期间POST-only、DELETE关闭或GET重连问题已解决。
+实际读取的上游默认分支为develop，核对HEAD为
+`2b128aeadfe318632bf86dd76790557faf0e8366`；另核对正式标签v2.0.10（2026-11-10发布）。
+两者session/provider源码仍保留上述三项关键结构；v2.0.10的platform仍固定SDK1.1.3。
+最新相关 [ec3d99318878 / #22196](https://github.com/kestra-io/kestra/commit/ec3d99318878)
+是session ID和仓库键重构，不等于本专项释放修复。
+这是源码与版本核对，不冒称已部署上游v2.0.10运行全部红例。
+
+因此当前不能以“后续升级即可解决”跳过已复现问题。后续升级必须对具体目标版本重跑
+同组生命周期回归，满足功能与公开身份契约后才移除等价补丁；不把整个上游升级混进本轮修复。
+
 固定上游 BASE 为 `172dd0f3760fb1255d3b22bd1fd07ce31b173fa3`（v2.0.5），必须重新核对当前 BASE。
 Micronaut 4.10.28 的 `RouteExecutor.processPublisherBody` 会为正文绑定响应构造时的旧
 `PropagatedContext`。只在外层 filter/Publisher 建新 evaluation，可能被正文包装的旧上下文
@@ -96,6 +115,13 @@ Micronaut 4.10.28 的 `RouteExecutor.processPublisherBody` 会为正文绑定响
 仅测试裸 `HttpResponse.ok(Flux)` 不足以复现生产问题。不能再次用外层包装“修复”覆盖内层上下文。
 
 ## 5. 分阶段任务与进入/退出条件
+
+2026-11-13 主控实施拆分：下列主题保留原SA标识，实际按六个独立交付单元推进：
+P1仅root测试客户端显式终止；P2宿主MCP保活/异步关闭；P3依赖流关联资源范围；
+P4执行/日志持续撤权；P5 CSV延迟正文；P6 AI与MCP长会话专项。
+本文后面的四组主题说明是调查与验收细则，不要求同组内容同时修改或同时发布。
+P1不依赖P2先修，P3/P4分别取得红例和契约后实施。若先证实真实数据泄露则立即提高优先级。
+每单元必须独立交付；未复现项归档证据，不因阶段名称存在就制造代码修改。
 
 阶段顺序由已知缺口和风险确定；每阶段先交付可核验结果，再进入下阶段。后续静态疑点
 不得伪装为前一阶段未完成。若实测暴露真实授权泄露，立即报告并调整优先级，不能为保进度隐藏。

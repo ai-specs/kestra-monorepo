@@ -800,7 +800,9 @@ export async function main(argv=process.argv.slice(2),runtime={}) {
       await issuedClient.issueMcpScopes(issuedScopes,undefined,current=>current.login(missingPlan.admin.username,missingPlan.admin.password),{registeredClient:registration})
       const issuedIdentity=await issuedClient.verifiedAccessIdentity({applicationGroupId:applicationProject,subject:missingPlan.admin.subject,
         expectedApplicationGroupScopes:[scopeNames.writeB],expectedProtocolScopes:missingPlan.mcp.scenarios.allowed.protocolScopes})
-      const initialized=await issuedClient.rpc(null,'initialize',{protocolVersion:'2025-06-18',capabilities:{},clientInfo:{name:'missing-provider-before-removal',version:'1'}},9801)
+      const initialized=await issuedClient.rpc(null,'initialize',{protocolVersion:'2025-06-18',capabilities:{},clientInfo:{name:'missing-provider-before-removal',version:'1'}},9801,{onInitializedSession:session=>{
+        report.resources.missingExtension.previousSession={sessionSha256:hash(session),subject:missingPlan.admin.subject,clientId:registration.client_id,disposition:'owned-isolated-database-teardown'}
+      }})
       assert.equal(initialized.status,200);assert(initialized.session&&initialized.message?.result)
       assert([200,202,204].includes((await issuedClient.rpc(initialized.session,'notifications/initialized')).status))
       const priorList=await issuedClient.rpc(initialized.session,'tools/list',{},9802)
@@ -854,6 +856,29 @@ export async function main(argv=process.argv.slice(2),runtime={}) {
       let effects=new ProjectSideEffects({composeProject:project,postgresContainer:report.resources.containerIds.postgres,kestraContainer:report.resources.containerIds.kestra})
       fixture=await provisionFixture({planned,effects,preparedAccounts:preparedFrozen.preparedAccounts,observer:{postgresContainer:report.resources.containerIds.postgres,composeProject:project},record:async fragment=>{report.fragments.provisioning=fragment;await persist()}})
       fixture.frozenUiBaseline=report.fragments.frozenUiBaseline
+      fixture.mcp.observeSessionCleanup=async rows=>{
+        const hashes=rows.map(row=>row.sessionSha256)
+        assert(hashes.length&&hashes.every(value=>/^[a-f0-9]{64}$/.test(value)))
+        const postgres=report.resources.containerIds.postgres,host=report.resources.containerIds.kestra
+        for(const id of [postgres,host])assert.equal(command('docker',['inspect','-f','{{index .Config.Labels "owner"}}',id]),project)
+        const sql="SELECT count(*) FROM mcp_session WHERE encode(sha256(convert_to(session_id,'UTF8')),'hex') IN ("+hashes.map(value=>"'"+value+"'").join(',')+")"
+        const remaining=()=>{
+          const value=command('docker',['exec',postgres,'psql','-X','-v','ON_ERROR_STOP=1','-U','kestra','-d','kestra','-Atc',sql])
+          assert(/^\d+$/.test(value),'MCP session storage count is not a valid integer')
+          return Number(value)
+        }
+        const startedAt=new Date().toISOString(),start=Date.now(),samples=[]
+        do {
+          const count=remaining();samples.push({elapsedMs:Date.now()-start,remaining:count});assert.equal(count,0,'Terminated MCP sessions remain in storage')
+          await new Promise(resolve=>setTimeout(resolve,1000))
+        } while(Date.now()-start<61000)
+        const finalCount=remaining();samples.push({elapsedMs:Date.now()-start,remaining:finalCount});assert.equal(finalCount,0)
+        const captured=spawnSync('docker',['logs','--since',startedAt,host],{encoding:'utf8',timeout:60000,maxBuffer:32*1024*1024})
+        assert.equal(captured.status,0,'Cannot inspect owned MCP host logs')
+        const warnings=(captured.stdout+captured.stderr).split('\n').filter(line=>line.includes('Failed to send keep-alive ping'))
+        assert.equal(warnings.length,0,'MCP keep-alive warnings persist after owned session cleanup')
+        return {owner:project,sessionHashes:hashes,startedAt,finishedAt:new Date().toISOString(),windowMs:Date.now()-start,keepAliveIntervalMs:30000,storageSamples:samples,warningCount:0,source:'owned-postgres-and-host-logs'}
+      }
       if(legacyMigration)fixture.runMigration=async(recordMigration,recordRecovery)=>{
         await fixture.checkHostHealth('before-planned-migration-pause')
         const deployments=[{project,compose,base:planned.base},...additionalDeployments]

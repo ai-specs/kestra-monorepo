@@ -352,6 +352,44 @@ for (const check of report.checks) {
 }
 for (const required of profileRequiredChecks) assert(checks.has(required), `Missing required integration check ${required}`)
 const missingProvider=checks.get('mcp-missing-extension')?.evidence
+const mcpCleanup=report.fragments?.mcp?.sessionCleanup
+assert(Array.isArray(mcpCleanup)&&mcpCleanup.length>0,'Actual MCP session termination evidence required')
+const cleanupHashes=new Set()
+for(const row of mcpCleanup) {
+  assert.equal(row.passed,true,'MCP session cleanup failed: '+row.scenario)
+  assert.equal(row.status,200,'MCP DELETE did not succeed')
+  assert.equal(row.oldSessionStatus,404,'Deleted MCP session must be rejected as absent')
+  assert(/^[a-f0-9]{64}$/.test(row.sessionSha256),'Private session correlation hash required')
+  assert(!cleanupHashes.has(row.sessionSha256),'Duplicate MCP session cleanup')
+  cleanupHashes.add(row.sessionSha256)
+  assert(Date.parse(row.finishedAt)>=Date.parse(row.startedAt),'Invalid MCP cleanup timing')
+}
+for(const session of report.fragments.mcp.sessions) {
+  assert(cleanupHashes.has(session.sessionSha256),'Initialized session was not terminated')
+  const row=mcpCleanup.find(row=>row.sessionSha256===session.sessionSha256)
+  assert.equal(row.subject,session.subject);assert.equal(row.clientId,session.clientId)
+  assert.equal(row.reauthorized,true,'Original MCP identity must be revalidated for cleanup')
+}
+const cleanupObservation=report.fragments.mcp.sessionCleanupObservation
+assert.equal(cleanupObservation?.source,'owned-postgres-and-host-logs')
+assert.equal(cleanupObservation.owner,report.resources.composeProject)
+assert.deepEqual([...cleanupObservation.sessionHashes].sort(),[...cleanupHashes].sort())
+assert(cleanupObservation.windowMs>=2*cleanupObservation.keepAliveIntervalMs&&cleanupObservation.keepAliveIntervalMs===30000)
+assert.equal(cleanupObservation.warningCount,0)
+assert(cleanupObservation.storageSamples.length>=2)
+let lastStorageSample=-1
+for(const sample of cleanupObservation.storageSamples) {
+  assert.equal(sample.remaining,0);assert(sample.elapsedMs>lastStorageSample);lastStorageSample=sample.elapsedMs
+}
+assert(lastStorageSample-cleanupObservation.storageSamples[0].elapsedMs>=60000,'Storage observation must span two heartbeat periods')
+const unavailableCleanup=report.fragments.mcp.unavailableSessionCleanup
+assert.equal(unavailableCleanup?.status,401,'Missing provider must reject original-session termination authentication')
+assert.equal(unavailableCleanup.protocolTerminated,false)
+assert.equal(unavailableCleanup.disposition,'owned-isolated-database-teardown')
+assert.equal(unavailableCleanup.scenario,'missing-extension-before-removal')
+assert(/^[a-f0-9]{64}$/.test(unavailableCleanup.sessionSha256))
+assert.equal(unavailableCleanup.sessionSha256,report.resources.missingExtension.previousSession?.sessionSha256)
+assert.equal(report.resources.missingExtension?.databaseCleaned,true,'Isolated unavailable session database was not reclaimed')
 assert.equal(missingProvider?.authorizationDenied?.error,'invalid_scope','Missing provider must reject new ordinary credentials')
 assert.equal(missingProvider.authorizationDenied.codeIssued,false)
 assert.equal(missingProvider.authorizationDenied.protocolStateUnchanged,true,'Missing provider authorization changed code/token storage')
