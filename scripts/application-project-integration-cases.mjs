@@ -39,6 +39,7 @@ export async function runIntegration(base,fixture,adapter,report,persist) {
   if(fixture.runMigration)await fixture.runMigration(async fragment=>{report.fragments.migration=fragment;mergeChecks(fragment);await persist()},async row=>{report.fragments.migrationStorageRecovery=row;await persist()})
   if(fixture.checkHostHealth)await fixture.checkHostHealth('after-migration')
   if(fixture.prepareMcp)fixture.mcp=await fixture.prepareMcp()
+  if(fixture.mcp&&fixture.observeSessionCleanup)fixture.mcp.observeSessionCleanup=fixture.observeSessionCleanup
   if(fixture.prepareMissingExtension&&fixture.mcp) {
     try {fixture.mcp.missingExtension=await fixture.prepareMissingExtension()}
     catch(error) {

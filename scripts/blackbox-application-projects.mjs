@@ -856,7 +856,7 @@ export async function main(argv=process.argv.slice(2),runtime={}) {
       let effects=new ProjectSideEffects({composeProject:project,postgresContainer:report.resources.containerIds.postgres,kestraContainer:report.resources.containerIds.kestra})
       fixture=await provisionFixture({planned,effects,preparedAccounts:preparedFrozen.preparedAccounts,observer:{postgresContainer:report.resources.containerIds.postgres,composeProject:project},record:async fragment=>{report.fragments.provisioning=fragment;await persist()}})
       fixture.frozenUiBaseline=report.fragments.frozenUiBaseline
-      fixture.mcp.observeSessionCleanup=async rows=>{
+      fixture.observeSessionCleanup=async rows=>{
         const hashes=rows.map(row=>row.sessionSha256)
         assert(hashes.length&&hashes.every(value=>/^[a-f0-9]{64}$/.test(value)))
         const postgres=report.resources.containerIds.postgres,host=report.resources.containerIds.kestra
