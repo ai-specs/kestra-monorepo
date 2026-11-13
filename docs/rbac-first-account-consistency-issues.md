@@ -59,6 +59,9 @@ CI `43059598261` 证明切源生效，但 runner 对两个官方 Ubuntu 域名�
 
 ### 下一阶段：流式授权覆盖专项（需求候选，未实施）
 
+正式分阶段任务书见 [流式响应授权与 MCP 会话生命周期修复任务书](stream-authorization-bugfix-plan.md)。
+后续修复以该文档的阶段、证据与交付门执行；本节保留原始调查摘要。
+
 补充 MCP keep-alive 生命周期调查：2026-11-12 实际日志反复出现同一组 session 的
 `KeepAliveScheduler: Stream unavailable`。已确认根仓测试创建 POST session 后未显式
 DELETE，最终依靠 owner 容器销毁回收；没有证据据此认定越权或业务写入。
