@@ -320,7 +320,14 @@ export class ProductionOAuthClient {
     },signal:AbortSignal.timeout(10000)},false)
     await response.body?.cancel()
     if(response.status!==200)return {status:response.status}
-    const probe=await this.rpc(session,'tools/list',{},'terminated-session-probe')
+    const deadline=Date.now()+10000
+    let probe
+    do {
+      probe=await this.rpc(session,'ping',{},'terminated-session-probe')
+      if(probe.status===404)break
+      assert.equal(probe.status,200,'Unexpected session termination observation response')
+      await new Promise(resolve=>setTimeout(resolve,100))
+    } while(Date.now()<deadline)
     return {status:response.status,oldSessionStatus:probe.status}
   }
   async renewMcpAuthorization(scopes,reauthenticate) {
