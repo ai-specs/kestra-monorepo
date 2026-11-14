@@ -368,7 +368,44 @@ export async function runApplicationProjectSecurity(base,fixture={},record) {
     const bound=fixture.revokeWindowMs??60000
     assert(bound>0&&bound<=60000,'explicit bounded revocation contract required')
     let changed=false
+    const suffix=randomBytes(5).toString('hex'),streamFlowId='stream-revoke-'+suffix
+    const streamPath='/api/v1/main/flows/'+encodeURIComponent(namespaceDomains.a)+'/'+encodeURIComponent(streamFlowId)
+    const streamSource=`id: ${streamFlowId}\nnamespace: ${namespaceDomains.a}\ndescription: Subject revocation stream boundary\ntasks:\n  - id: wait\n    type: io.kestra.plugin.core.flow.Pause\n    pauseDuration: PT75S\n  - id: done\n    type: io.kestra.plugin.core.debug.Return\n    format: stream-revocation\n`
+    const openStream=async endpoint=>{
+      const controller=new AbortController(),events=[]
+      const response=await oldClient.request(endpoint,{headers:{Accept:'text/event-stream'},signal:controller.signal})
+      assert.equal(response.status,200,'SSE authorization baseline failed for '+endpoint)
+      const terminal=(async()=>{
+        try {
+          const reader=response.body.getReader(),decoder=new TextDecoder();let buffer=''
+          for(;;) {
+            const chunk=await reader.read()
+            if(chunk.done)return {terminated:true,error:null}
+            buffer+=decoder.decode(chunk.value,{stream:true})
+            let split
+            while((split=buffer.indexOf('\n\n'))>=0) {
+              const raw=buffer.slice(0,split);buffer=buffer.slice(split+2)
+              events.push({elapsedMs:Math.ceil(performance.now()),id:raw.match(/^id: (.*)$/m)?.[1]??null})
+            }
+          }
+        }catch(error){return {terminated:false,error:{name:error.name,message:error.message}}}
+      })()
+      const opened=performance.now()
+      while(events.length===0&&performance.now()-opened<5000)await delay(50)
+      assert(events.length>0,'SSE baseline event missing for '+endpoint)
+      return {endpoint,events,terminal,controller}
+    }
+    let streamFlowCreated=false,streamExecution,streams
     try {
+      const admin=await manager()
+      const createStreamFlow=await admin.request('/api/v1/main/flows',{method:'POST',headers:{'Content-Type':'application/x-yaml'},body:streamSource})
+      assert(createStreamFlow.ok,'stream flow creation failed: HTTP '+createStreamFlow.status+' '+await createStreamFlow.text())
+      streamFlowCreated=true
+      const executionSeed=await admin.request('/api/v1/main/executions/'+encodeURIComponent(namespaceDomains.a)+'/'+encodeURIComponent(streamFlowId),{method:'POST',body:new FormData()})
+      if(!executionSeed.ok)throw new Error('stream execution creation failed: HTTP '+executionSeed.status+' '+await executionSeed.text())
+      streamExecution=await executionSeed.json()
+      streams=[await openStream('/api/v1/main/executions/'+encodeURIComponent(streamExecution.id)+'/follow'),await openStream('/api/v1/main/logs/'+encodeURIComponent(streamExecution.id)+'/follow')]
+      await step('sse-baseline',{executionId:streamExecution.id,streams:streams.map(stream=>({endpoint:stream.endpoint,baselineEvents:stream.events.length}))})
       await management.login()
       const start=performance.now(),at=new Date().toISOString()
       changed=true // A transport failure may occur after the transaction committed.
@@ -381,6 +418,20 @@ export async function runApplicationProjectSecurity(base,fixture={},record) {
         if([401,403].includes(response.status)){denied=true;break}
         assert.equal(response.status,200,'infrastructure failure cannot prove revocation');await delay(100)
       }
+      const reconnect=[]
+      for(const stream of streams) {
+        const response=await oldClient.request(stream.endpoint,{headers:{Accept:'text/event-stream'},signal:AbortSignal.timeout(20_000)})
+        reconnect.push({endpoint:stream.endpoint,status:response.status})
+        await response.body?.cancel()
+      }
+      const streamOutcomes=await Promise.all(streams.map(stream=>stream.terminal))
+      const streamRevocationAt=performance.now(),streamRevocationMs=Math.ceil(streamRevocationAt-start)
+      const postRevocationEvents=streams.map(stream=>stream.events.filter(event=>event.elapsedMs>=streamRevocationAt).length)
+      await step('sse-revocation',{subject:account.subject,boundMs:bound,revokedAt:at,mutationReturnedMs,streamRevocationMs,reconnect,outcomes:streamOutcomes.map(outcome=>({terminated:outcome.terminated,error:outcome.error})),postRevocationEvents})
+      assert(reconnect.every(row=>[401,403].includes(row.status)),'revoked SSE reconnect remained authorized')
+      assert(streamRevocationMs<=bound,'SSE revocation deadline exceeded')
+      assert(streamOutcomes.every(outcome=>outcome.terminated||outcome.error),'SSE connection did not terminate')
+      assert(postRevocationEvents.every(count=>count===0),'SSE delivered an event after revocation')
       await step('old-cookie-revocation',{subject:account.subject,revokedAt:at,mutationReturnedMs,boundMs:bound,samples})
       assert(denied&&samples.at(-1).elapsedMs<=bound,'revocation deadline exceeded')
       await management.reauthenticateGroup(applicationProject)
@@ -397,6 +448,21 @@ export async function runApplicationProjectSecurity(base,fixture={},record) {
         const response=await request(await login(account,'subject-restored'),businessPath);assert.equal(response.status,200)
         same((await get(await manager(),path)).scopeKeys,original.scopeKeys)
         await step('restoration-verified',{allowedStatus:response.status,subject:account.subject})
+      })
+      if(streamFlowCreated)await restore('subject-revocation-stream-resources',async()=>{
+        for(const stream of streams??[])stream?.controller.abort()
+        const admin=await management.login()
+        const deadline=performance.now()+90_000;let execution
+        do {
+          const response=await admin.request('/api/v1/main/executions/'+encodeURIComponent(streamExecution.id));assert.equal(response.status,200)
+          execution=await response.json()
+          if(execution.state?.current==='SUCCESS')break
+          await delay(500)
+        }while(performance.now()<deadline)
+        assert.equal(execution?.state?.current,'SUCCESS','stream execution did not terminate during cleanup')
+        const deletion=await admin.request(streamPath,{method:'DELETE'})
+        assert(deletion.ok,'stream flow cleanup failed: HTTP '+deletion.status)
+        await step('stream-resources-restored',{executionId:streamExecution.id,state:execution.state.current,flowDeleted:true})
       })
     }
   })

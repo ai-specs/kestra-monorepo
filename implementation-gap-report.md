@@ -1,15 +1,18 @@
 # 应用组目标模型实施差异报告
 
-## 2026-11-13 流式授权与MCP生命周期专项（实施中）
+## 2026-11-14 流式授权与MCP生命周期专项（P4本地组合通过）
 
 正式任务入口 `docs/stream-authorization-bugfix-plan.md`。按P1 root会话清理、P2宿主
 监听与关闭、P3依赖范围、P4持续撤权、P5 CSV、P6 AI/MCP长会话独立推进。
 
 | 标识 | 已核事实与当前行为 | 归属与验证门 | 状态 |
 | --- | --- | --- | --- |
-| SA-01/P1 | 原root POST正文取消未显式终止session；候选登记原客户端，拒绝断言完成后恢复策略、refresh、DELETE，再移除应用；清理失败显式失败 | root；原实现失败证据、375离线回归、正式生产DELETE与持久记录/旧session/两周期观察 | 首轮refresh400失败保留；原client重授权后7条DELETE200/DB0/两个周期WARN0，新增自动门待正式组合 |
-| SA-02/P2 | 固定SDK1.1.3真实探针复现DELETED移除登记但异步delete未订阅；POST-only两周期WARN；旧GET dispose移除新GET登记 | overlay；三个原实现红例、真实SDK生命周期/重连/身份隔离、完整相关门及正式发布 | 主控487后端485过/2镜像skip、UI130、镜像四XML、SDK949/几何64本地通过；845b61d CI因build.sh漏选新测试失败，ba63260已修CI入口运行中 |
-| SA-03至06/P3至P6 | 静态疑点尚未按真实身份与逐事件复现 | 各所属仓契约及root范围/撤权/副作用 | 未实施，不计漏洞或已修复 |
+| SA-01/P1 | root测试客户端显式终止自建MCP session；旧session ping 404、数据库观察61.473秒为0、后续WARN为0；缺插件DELETE401明确不做协议终止成功 | root；生产登录、真实DELETE、持久观察、资源清理与最终CI artifact | `05ae6b1` / CI `43524119358`通过；报告REST56、必需集成50、生产UI88零失败/跳过/未运行 |
+| SA-02/P2 | 保活只绑定active listener；删除异步关闭被订阅；旧GET dispose不能移除新GET | overlay；真实SDK生命周期/重连/身份隔离、完整相关门及正式发布 | `ba63260` / CI `43444992601`通过并发布镜像`8b92b467...`；根仓组合通过 |
+| SA-04/P3 | A-only连接收到A正例15个事件、C事件0个；C直接GET403；数据库A→C边存在，`topologyAccess()`同时过滤两端namespace | root真实Compose、授权图/事件/直接GET对照 | 未复现泄露；证据`.work/stream-dependency-20261114/p3-conclusion.json` |
+| SA-03/P4 | 旧正式输入撤权75.642秒后execution SSE仍收到5个事件；共享SSE入口仅在流源建立时授权，未让固定快照到期参与后续守卫 | overlay共享SSE授权边界；插件策略快照契约；root execution与logs生产撤权 | 宿主`95863ec` / CI `43552415541`通过并发布`7bef038e...`；插件`189206c` / CI `43575563419`通过；干净根仓本地组合REST56/必需集成50/生产UI88零失败/跳过/未运行，execution与logs SSE均在60秒内终止且无撤权后事件 |
+| SA-05/P5 | CSV延迟正文尚未真实HTTP红例 | root真实HTTP、逐行范围、慢消费、取消与撤权 | 未实施，不计漏洞或已修复 |
+| SA-06/P6 | AI/MCP长会话尚未按正式能力与独立身份复现 | overlay/plugin正式能力与root组合 | 未实施，不计漏洞或已修复 |
 
 当前专项证据根`.work/stream-lifecycle-20261113/`及overlay同名`.work`目录；
 原用户8080保留部署仅暂停容器以满足唯一PG限制，原卷不动，专项验证结束恢复。
