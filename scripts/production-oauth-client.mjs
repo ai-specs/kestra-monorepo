@@ -334,12 +334,12 @@ export class ProductionOAuthClient {
     assert(this.#client?.client_id,'An existing registered MCP client is required')
     return this.issueMcpScopes(scopes,undefined,reauthenticate,{registeredClient:this.#client})
   }
-  async rpc(session, method, params, id, {onInitializedSession} = {}) {
+  async rpc(session, method, params, id, {onInitializedSession, signal} = {}) {
     assert(this.#tokens?.access_token)
     const response = await this.request('/api/v1/main/mcp/default', {method: 'POST', headers: {
       Authorization: `Bearer ${this.#tokens.access_token}`, 'Content-Type': 'application/json', Accept: 'application/json, text/event-stream',
       ...(session ? {'Mcp-Session-Id': session, 'MCP-Protocol-Version': '2025-06-18'} : {}),
-    }, body: JSON.stringify({jsonrpc: '2.0', ...(id === undefined ? {} : {id}), method, ...(params ? {params} : {})})}, false)
+    }, signal, body: JSON.stringify({jsonrpc: '2.0', ...(id === undefined ? {} : {id}), method, ...(params ? {params} : {})})}, false)
     const nextSession = response.headers.get('mcp-session-id') ?? session
     if(method==='initialize'&&response.status===200&&nextSession&&onInitializedSession)onInitializedSession(nextSession)
     if (id === undefined || response.status !== 200) { await response.body?.cancel(); return {status: response.status, session: nextSession} }

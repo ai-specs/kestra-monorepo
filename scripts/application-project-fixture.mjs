@@ -330,11 +330,12 @@ export function planMcpScenarios() {
   const scopes={allowed:[scopeNames.writeB],capabilityOnly:[],projectOnly:[scopeNames.writeB],knownUnbound:[scopeNames.writeB,scopeNames.unbound],localRevoke:[revocationScopes.localRevoke],directoryRevoke:[revocationScopes.directoryRevoke],subjectRevoke:[revocationScopes.subjectRevoke]}
   const scenarios=Object.fromEntries(mcpScenarioNames.map(name=>[name,{applicationGroupScopes:scopes[name],protocolScopes:name==='projectOnly'?['openid']:[...mcpRegisteredProtocolScopes],expectedTools:name==='allowed'?tools:name==='capabilityOnly'||name==='projectOnly'||name==='knownUnbound'?[]:['acceptance-'+target[name]],
     call:{name:'acceptance-'+target[name],arguments:{marker:'mcp-acceptance-marker'},namespace:namespaceDomains.b,flowId:target[name],executionIdPath:'result.structuredContent.executionId',expectedExecutionFields:{'inputs.marker':'mcp-acceptance-marker','state.current':'SUCCESS'},expectedOutputs:{marker:'mcp-acceptance-marker'}}}]))
-  const seeds=['allowed','localRevoke','directoryRevoke','subjectRevoke'].map(name=>({namespace:namespaceDomains.b,id:target[name],toolName:scenarios[name].call.name,source:mcpFlowSource(namespaceDomains.b,target[name],scenarios[name].call.name)}))
+  const seeds=['allowed','localRevoke','directoryRevoke','subjectRevoke'].map(name=>({namespace:namespaceDomains.b,id:target[name],toolName:scenarios[name].call.name,source:mcpFlowSource(namespaceDomains.b,target[name],scenarios[name].call.name,{pauseDuration:['allowed','localRevoke'].includes(name)?'PT65S':null})}))
   return {scenarios,seeds,revocationScopes}
 }
-export function mcpFlowSource(namespace,id,toolName) {
-  return `id: ${id}\nnamespace: ${namespace}\ndescription: Explicit MCP acceptance tool\ninputs:\n  - id: marker\n    type: STRING\n    required: true\ntasks:\n  - id: identity\n    type: io.kestra.plugin.core.debug.Return\n    format: "{{ execution.id }}"\n  - id: echo\n    type: io.kestra.plugin.core.debug.Return\n    format: "{{ inputs.marker }}"\noutputs:\n  - id: executionId\n    type: STRING\n    value: "{{ outputs.identity.value }}"\n  - id: marker\n    type: STRING\n    value: "{{ outputs.echo.value }}"\ntriggers:\n  - id: mcp\n    type: io.kestra.plugin.core.trigger.McpToolTrigger\n    mcpServer: default\n    toolName: ${toolName}\n    title: Explicit MCP acceptance\n    toolDescription: Executes a controlled flow and returns its persisted execution ID\n`
+export function mcpFlowSource(namespace,id,toolName,{pauseDuration=null}={}) {
+  assert(pauseDuration===null||pauseDuration==='PT65S','only the controlled long-wait duration is supported')
+  return `id: ${id}\nnamespace: ${namespace}\ndescription: Explicit MCP acceptance tool\ninputs:\n  - id: marker\n    type: STRING\n    required: true\ntasks:\n${pauseDuration?`  - id: wait\n    type: io.kestra.plugin.core.flow.Pause\n    pauseDuration: ${pauseDuration}\n`:''}  - id: identity\n    type: io.kestra.plugin.core.debug.Return\n    format: "{{ execution.id }}"\n  - id: echo\n    type: io.kestra.plugin.core.debug.Return\n    format: "{{ inputs.marker }}"\noutputs:\n  - id: executionId\n    type: STRING\n    value: "{{ outputs.identity.value }}"\n  - id: marker\n    type: STRING\n    value: "{{ outputs.echo.value }}"\ntriggers:\n  - id: mcp\n    type: io.kestra.plugin.core.trigger.McpToolTrigger\n    mcpServer: default\n    toolName: ${toolName}\n    title: Explicit MCP acceptance\n    toolDescription: Executes a controlled flow and returns its persisted execution ID\n`
 }
 
 export async function provisionMcpFixture({planned,management,effects,observer,preparedAccounts={},record=async()=>{}}) {
@@ -405,9 +406,15 @@ export async function provisionMcpFixture({planned,management,effects,observer,p
     if(kind==='revoke-application-scope-policy') {
       const original=structuredClone(planned.policy.applicationGroups[applicationProject].scopes[scope])
       await localScope(scope,{...original,enabled:false})
-      const result=await receipt(start,client,account)
-      result.restore=async()=>{const at=management.requests.length;await localScope(scope,original);return receipt(at,client,account)}
-      await emit({kind,scenario,scope});return result
+      // A login/receipt failure after mutation must not strand the dedicated policy.
+      try {
+        const result=await receipt(start,client,account)
+        result.restore=async()=>{const at=management.requests.length;await localScope(scope,original);return receipt(at,client,account)}
+        await emit({kind,scenario,scope});return result
+      } catch(error) {
+        await localScope(scope,original)
+        throw error
+      }
     }
     if(kind==='revoke-supported-scope') {
       const identity=await client.verifiedAccessIdentity({applicationGroupId:applicationProject,subject:account.subject})

@@ -7,7 +7,7 @@ import {runPreparedApplicationProjectUi,uiRootChecks,initialApplicationProjectUi
 import {requiredProjectChecks,legacyMigrationChecks,projectScopeCases} from './application-project-cases.mjs'
 import {accessControlV3RestCheckIds} from './access-control-v3-rest-cases.mjs'
 
-export const plannedMcpCheckIds=Object.freeze(['mcp-production-dcr-owner-pkce-consent','mcp-tools-list-call','mcp-capability-without-application-scope','mcp-application-scope-without-capability','mcp-known-plus-unbound-list','mcp-known-plus-unbound-call','mcp-same-session-application-policy-revoke','mcp-same-session-supported-scope-revoke','mcp-user-scope-revoke','refresh-cannot-restore-revoked-scope','mcp-missing-extension'])
+export const plannedMcpCheckIds=Object.freeze(['mcp-production-dcr-owner-pkce-consent','mcp-tools-list-call','mcp-inflight-output-revoke','mcp-capability-without-application-scope','mcp-application-scope-without-capability','mcp-known-plus-unbound-list','mcp-known-plus-unbound-call','mcp-same-session-application-policy-revoke','mcp-same-session-supported-scope-revoke','mcp-user-scope-revoke','refresh-cannot-restore-revoked-scope','mcp-missing-extension'])
 
 export function initialEvidence({legacyMigration=false}={}) {
   assert.equal(typeof legacyMigration,'boolean','explicit boolean migration profile required')

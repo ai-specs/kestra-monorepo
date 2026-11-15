@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import {readFileSync} from 'node:fs'
+import {assertP6Evidence} from './stream-authorization-p6-evidence.mjs'
 import {fileURLToPath} from 'node:url'
 import assert from 'node:assert/strict'
 import {projectScopeCases, requiredProjectChecks, legacyMigrationChecks, applicationProject} from './application-project-cases.mjs'
@@ -442,4 +443,5 @@ assert.equal(combinations.size,0,'Root must not re-execute independent repositor
 assert.deepEqual(report.fragments.ui.shared.planned,[...accessControlCaseIds])
 assert.deepEqual(report.fragments.ui.shared.transferredChecks,accessControlTransferredUiCases)
 assert.deepEqual(report.ui.map(row=>row.name??row.case),[...accessControlCaseIds,'ui-zero-grant-logout-switch','ui-permission-runtime-projection','ui-subject-runtime-revoke'])
+assertP6Evidence(report)
 console.log(`PASS final composition (${report.profile}): REST ${expectedRows}, required integration ${profileRequiredChecks.length}, production UI ${report.ui.length}; independently published plugin UI ${pluginBrowser.validation.cases}, host authentication UI ${authBrowser.validation.cases}; zero failure/skip`)

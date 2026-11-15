@@ -29,7 +29,7 @@ export const securityCheckIds=Object.freeze([
   'legacy-write-api-removed',
   'last-application-group-administrator','last-application-policy-administrator',
   'application-policy-unregistered-group-denied','management-target-action-cross-scope-denied',
-  'scope-metadata-independent-of-application-policy','rest-subject-revoke','csv-export-query-domain','wrong-tenant',
+  'scope-metadata-independent-of-application-policy','rest-subject-revoke','csv-export-query-domain','ai-no-provider-fails-closed','wrong-tenant',
   'wrong-issuer','wrong-audience','wrong-application-group','directory-unavailable','policy-unavailable',
   ...oauthCheckIds,
   ...accessControlV3RestCheckIds,
@@ -396,6 +396,71 @@ export async function runApplicationProjectSecurity(base,fixture={},record) {
         await step('restoration-verified',{status:response.status,bytes:Buffer.byteLength(csv)})
       })
     }
+  })
+
+  await check('ai-no-provider-fails-closed',async()=>{
+    const admin=await manager()
+    const configuration=await get(admin,'/api/v1/configs')
+    assert.equal(configuration.isAiApiKeyConfigured,false,'runtime must report no configured AI provider')
+    const aiCounts=()=>Object.fromEntries(['ai_agent_thread','ai_agent_message','executions','execution_queued'].map(table=>{
+      const present=sql("SELECT to_regclass('public."+table+"') IS NOT NULL")==='t'
+      return [table,present?{present,count:Number(sql('SELECT count(*) FROM '+table)),hash:sql("SELECT md5(coalesce(string_agg(row_to_json(t)::text,'|' ORDER BY row_to_json(t)::text),'')) FROM "+table+" t")}:{present:false}]
+    }))
+    const before=aiCounts(),statuses=[]
+    const evidence={providerConfigured:configuration.isAiApiKeyConfigured,providerBranchExercised:false,before,statuses,aiObservation:{intervalMs:1000,samples:[]}}
+    // Persist before requests and continuously retain partial results, including failures.
+    active.evidence.aiUnavailable=evidence
+    await persist()
+    let sampling=true,samplingError,requestError
+    const started=Date.now()
+    const sample=async()=>{
+      evidence.aiObservation.samples.push({elapsedMs:Date.now()-started,snapshot:aiCounts()})
+      await persist()
+    }
+    const sampler=(async()=>{
+      try {while(sampling){await sample();await delay(1000)}}
+      catch(error){samplingError=error;evidence.aiObservation.error=safe(error)}
+    })()
+    try {
+      const {observation}=await effects.observeDenied(async()=>{
+        for(const [role,client] of [['manager',admin],['reader',await login(planned.accounts.reader,'ai-no-provider')]]) {
+          const root='/api/v1/main/ai/threads'
+          const operations=[
+            [root,'POST',{mode:'ASK',title:'P6 unavailable probe'}],
+            [root+'/p6-unavailable','GET'],
+            [root+'/p6-unavailable/chat','POST',{prompt:'Must not run without a provider.',mode:'ASK',additionalContext:null,providerId:null}],
+            ...['APPROVE','REJECT','APPROVE'].map(decision=>[root+'/p6-unavailable/confirm','POST',{confirmationId:'p6-missing',decision,reason:'P6 probe',providerId:null}]),
+          ]
+          for(const [path,method,body] of operations) {
+            const response=await request(client,path,method,body)
+            const providerUnavailable=response.status===503&&[response.value?.message,...(response.value?._embedded?.errors??[]).map(error=>error.message)]
+              .includes('AI Copilot is not available: no AI provider is configured or reachable.')
+            statuses.push({role,method,path,decision:body?.decision??null,status:response.status,boundary:response.status===403?'http-forbidden':providerUnavailable?'provider-unavailable':'unexpected'})
+            evidence.providerBranchExercised||=providerUnavailable
+            await persist()
+          }
+        }
+        return statuses
+      },responses=>assert(responses.every(response=>response.status===403||response.status===503&&response.boundary==='provider-unavailable'),'AI entry point did not return a recognized rejection'),{windowMs:fixture.effectsWindowMs??5000})
+      evidence.observation=observation
+    } catch(error) {
+      requestError=error;evidence.requestFailure=safe(error)
+      if(error.sideEffects)evidence.observation=error.sideEffects
+    } finally {
+      sampling=false
+      await sampler
+      try {await sample();evidence.after=aiCounts()}
+      catch(error){samplingError??=error;evidence.aiObservation.error=safe(error)}
+      evidence.aiObservation.observedMs=Date.now()-started
+      evidence.coverage=evidence.providerBranchExercised?'provider-unavailable':'http-rejection-only; provider branch not exercised'
+      await persist()
+    }
+    if(requestError)throw requestError
+    if(samplingError)throw samplingError
+    assert(evidence.aiObservation.observedMs>=5000,'AI observation window too short')
+    for(const observed of evidence.aiObservation.samples)assert.deepEqual(observed.snapshot,before,'AI/execution storage changed during the observation window')
+    assert.deepEqual(evidence.after,before,'Unavailable AI entry points changed AI/execution storage or table presence')
+    await step('ai-unavailable-no-side-effects',evidence)
   })
 
   await check('rest-subject-revoke',async()=>{
