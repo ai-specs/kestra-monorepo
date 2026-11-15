@@ -1,6 +1,6 @@
 # 应用组目标模型实施差异报告
 
-## 2026-11-14 流式授权与MCP生命周期专项（P4本地组合通过）
+## 2026-11-15 流式授权与MCP生命周期专项（P5本地组合通过）
 
 正式任务入口 `docs/stream-authorization-bugfix-plan.md`。按P1 root会话清理、P2宿主
 监听与关闭、P3依赖范围、P4持续撤权、P5 CSV、P6 AI/MCP长会话独立推进。
@@ -11,7 +11,7 @@
 | SA-02/P2 | 保活只绑定active listener；删除异步关闭被订阅；旧GET dispose不能移除新GET | overlay；真实SDK生命周期/重连/身份隔离、完整相关门及正式发布 | `ba63260` / CI `43444992601`通过并发布镜像`8b92b467...`；根仓组合通过 |
 | SA-04/P3 | A-only连接收到A正例15个事件、C事件0个；C直接GET403；数据库A→C边存在，`topologyAccess()`同时过滤两端namespace | root真实Compose、授权图/事件/直接GET对照 | 未复现泄露；证据`.work/stream-dependency-20261114/p3-conclusion.json` |
 | SA-03/P4 | 旧正式输入撤权75.642秒后execution SSE仍收到5个事件；共享SSE入口仅在流源建立时授权，未让固定快照到期参与后续守卫 | overlay共享SSE授权边界；插件策略快照契约；root execution与logs生产撤权 | 宿主`95863ec` / CI `43552415541`通过并发布`7bef038e...`；插件`189206c` / CI `43575563419`通过；干净根仓本地组合REST56/必需集成50/生产UI88零失败/跳过/未运行，execution与logs SSE均在60秒内终止且无撤权后事件 |
-| SA-05/P5 | CSV延迟正文尚未真实HTTP红例 | root真实HTTP、逐行范围、慢消费、取消与撤权 | 未实施，不计漏洞或已修复 |
+| SA-05/P5 | 旧真实框架HTTP中CSV响应返回后正文查询domain为空，A-only得到空CSV；慢客户端与大正文需区分固定快照与撤权后新连接 | overlay有限正文授权边界；插件正式输入；root生产CSV范围与撤权重连 | 宿主`109d940` / CI `43667555962`通过并发布`31079b...`；插件`1ea01c9` / CI `43672660868`通过；root干净克隆本地组合REST56/必需集成51/生产UI88零失败/跳过/未运行，CSV只含A不含B/outside且撤权后重连403、恢复后200 |
 | SA-06/P6 | AI/MCP长会话尚未按正式能力与独立身份复现 | overlay/plugin正式能力与root组合 | 未实施，不计漏洞或已修复 |
 
 当前专项证据根`.work/stream-lifecycle-20261113/`及overlay同名`.work`目录；

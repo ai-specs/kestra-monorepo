@@ -115,7 +115,7 @@ export const requiredProjectChecks = Object.freeze([
   'mcp-capability-without-application-scope', 'mcp-application-scope-without-capability',
   'mcp-known-plus-unbound-list', 'mcp-known-plus-unbound-call',
   'mcp-same-session-application-policy-revoke', 'mcp-same-session-supported-scope-revoke',
-  'ui-subject-runtime-revoke', 'rest-subject-revoke', 'mcp-user-scope-revoke', 'refresh-cannot-restore-revoked-scope',
+  'ui-subject-runtime-revoke', 'rest-subject-revoke', 'csv-export-query-domain', 'mcp-user-scope-revoke', 'refresh-cannot-restore-revoked-scope',
   'wrong-issuer', 'wrong-audience', 'wrong-application-group', 'wrong-tenant',
   'directory-unavailable', 'policy-unavailable', 'missing-extension', 'feature-disabled-regression',
   'list-total-pagination-aggregate', 'denied-write-no-delayed-side-effects',

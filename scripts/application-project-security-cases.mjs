@@ -29,7 +29,7 @@ export const securityCheckIds=Object.freeze([
   'legacy-write-api-removed',
   'last-application-group-administrator','last-application-policy-administrator',
   'application-policy-unregistered-group-denied','management-target-action-cross-scope-denied',
-  'scope-metadata-independent-of-application-policy','rest-subject-revoke','wrong-tenant',
+  'scope-metadata-independent-of-application-policy','rest-subject-revoke','csv-export-query-domain','wrong-tenant',
   'wrong-issuer','wrong-audience','wrong-application-group','directory-unavailable','policy-unavailable',
   ...oauthCheckIds,
   ...accessControlV3RestCheckIds,
@@ -353,6 +353,47 @@ export async function runApplicationProjectSecurity(base,fixture={},record) {
         same(directoryScopeInput(restored),directoryScopeInput(original))
         same(await readPermissionSnapshot(await manager()),before)
         await step('restoration-verified',{scopeKey:original.key,policyRevisionUnchanged:true})
+      })
+    }
+  })
+
+  await check('csv-export-query-domain',async()=>{
+    const account=planned.accounts.reader
+    const path=groupPath+'/scope-grants/detail?subject='+encodeURIComponent(account.subject)
+    const csvPath='/api/v1/main/executions/export/by-query/csv'
+    const original=await get(await manager(),path)
+    assert(original.scopeKeys.includes(scopeNames.readA))
+    let changed=false
+    try {
+      const client=await login(account,'csv-before-revoke')
+      const response=await client.request(csvPath,{headers:{Accept:'text/csv'}})
+      assert.equal(response.status,200,'authorized CSV export failed: HTTP '+response.status)
+      assert(/text\/csv/i.test(response.headers.get('content-type')??''),'CSV content type missing')
+      assert(/attachment;\s*filename=executions\.csv/i.test(response.headers.get('content-disposition')??''),'CSV disposition missing')
+      const csv=await response.text()
+      assert(csv.startsWith('id,'),'CSV header missing')
+      assert(csv.includes(namespaceDomains.a),'authorized CSV omitted the granted namespace')
+      assert(!csv.includes(namespaceDomains.b),'CSV leaked namespace B')
+      assert(!csv.includes(namespaceDomains.outside),'CSV leaked the outside namespace')
+      await step('authorized-csv',{status:response.status,bytes:Buffer.byteLength(csv),rows:csv.trimEnd().split(/\r?\n/).length,containsA:true,containsB:false,containsOutside:false})
+      await management.login()
+      changed=true
+      await management.request(path,'PUT',{issuer:base,subject:account.subject,scopeKeys:[]},original.revision)
+      await management.reauthenticateGroup(applicationProject)
+      const denied=await request(client,csvPath)
+      assert([401,403].includes(denied.status),'revoked CSV reconnect remained authorized')
+      await step('revoked-csv-reconnect',{status:denied.status})
+    }finally{
+      if(changed)await restore('csv-subject-scopes',async()=>{
+        await management.reauthenticateGroup(applicationProject)
+        const current=await management.request(path)
+        await management.mutateDirectory(path,'PUT',{issuer:base,subject:account.subject,scopeKeys:original.scopeKeys},current.revision)
+        const response=await (await login(account,'csv-restored')).request(csvPath,{headers:{Accept:'text/csv'}})
+        assert.equal(response.status,200,'restored CSV export failed: HTTP '+response.status)
+        const csv=await response.text()
+        assert(csv.includes(namespaceDomains.a),'restored CSV omitted the granted namespace')
+        assert(!csv.includes(namespaceDomains.b),'restored CSV leaked namespace B')
+        await step('restoration-verified',{status:response.status,bytes:Buffer.byteLength(csv)})
       })
     }
   })
