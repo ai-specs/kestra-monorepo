@@ -3,6 +3,7 @@ import {readFileSync} from 'node:fs'
 import {assertP6Evidence} from './stream-authorization-p6-evidence.mjs'
 import {fileURLToPath} from 'node:url'
 import assert from 'node:assert/strict'
+import {assertAiActivatedReport} from './application-project-ai-report.mjs'
 import {projectScopeCases, requiredProjectChecks, legacyMigrationChecks, applicationProject} from './application-project-cases.mjs'
 import {applicationGroupPluginClasses,applicationGroupTables} from './application-group-artifact-contract.mjs'
 import {derive as deriveAccessControlGates,assertHostHttpOriginReport} from './access-control-v3-gates.mjs'
@@ -24,6 +25,8 @@ for (const commit of [rootCommit, overlayCommit, pluginCommit]) assert(/^[0-9a-f
 const content = readFileSync(file, 'utf8')
 assert(!/eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+/.test(content), 'Report contains a credential-shaped JWT')
 const report = JSON.parse(content)
+assertAiActivatedReport(report.fragments?.aiActivated,report.inputs)
+assert(report.stages?.some(row=>row.id==='ai-activated-production'&&row.status==='passed'),'AI activated production stage missing')
 assert.equal(report.uiProfile,'integration','Root must execute the integration UI plan, not an independent visual matrix')
 assert.equal(report.schemaVersion, 1)
 assert(['new-install','legacy-migration'].includes(report.profile),'Explicit acceptance profile required')

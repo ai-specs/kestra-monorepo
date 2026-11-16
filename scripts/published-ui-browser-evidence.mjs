@@ -3,6 +3,7 @@ import {createHash} from 'node:crypto'
 import {execFileSync} from 'node:child_process'
 
 export const pluginUiBehaviors=Object.freeze([
+  'ai-tenant-native-edit','ai-legacy-native-preserve',
   ...['group','user','permission','subject'].flatMap(kind=>[
     `drawer-${kind}-native-style`,`drawer-${kind}-focus-close-reopen`,
     `drawer-${kind}-draft-backdrop-history`,`drawer-${kind}-maximize-save-loading`]),
@@ -92,10 +93,10 @@ export function assertPluginUiBrowserReport(raw,{commit,image,hostExecutableSha2
     assert.deepEqual({theme:row.theme,locale:row.locale,width:row.width,behavior:row.behavior},{theme,locale,width:Number(width),behavior},'Published browser parameters differ from named case identity')
   }
   assert.equal(report.gatePassed,true)
-  assert.equal(pluginUiExpectedIds.length,840)
-  assert.deepEqual(report.summary,{planned:840,executed:840,passed:840,failed:0,notRun:0,skipped:0})
+  assert.equal(pluginUiExpectedIds.length,888)
+  assert.deepEqual(report.summary,{planned:888,executed:888,passed:888,failed:0,notRun:0,skipped:0})
   assert(report.cases.every(row=>row.status==='passed'&&Array.isArray(row.errors)&&row.errors.length===0&&Number.isFinite(row.durationMs)&&row.durationMs>=0),'Plugin browser has errors, skipped or incomplete cases')
-  return {passed:true,cases:840,failures:0,notRun:0,skipped:0,reportSha256:digest(raw),manifestSha256:digest(manifestRaw),inputs:report.inputs}
+  return {passed:true,cases:888,failures:0,notRun:0,skipped:0,reportSha256:digest(raw),manifestSha256:digest(manifestRaw),inputs:report.inputs}
 }
 
 export const hostAuthThemeIds=Object.freeze([1280,390].flatMap(width=>[

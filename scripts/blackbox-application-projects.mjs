@@ -27,6 +27,7 @@ import {initialEvidence,runIntegration} from './application-project-integration-
 import {ProductionOAuthClient} from './production-oauth-client.mjs'
 import {ProjectSideEffects} from './application-project-effects.mjs'
 import {runRbacOnboardingDeployment} from './rbac-onboarding-deployment.mjs'
+import {runAiDeployment} from './application-project-ai-deployment.mjs'
 import {hostInitialAccountCases,assertHostInitialAccountReports,assertHostOnboardingBrowserEvidence,committedHostOnboardingSources,assertHostOnboardingDiagnostics} from './rbac-onboarding-published-evidence.mjs'
 import {rbacOnboardingCaseIds,rbacNormalOnboardingCaseIds} from './rbac-onboarding-browser.mjs'
 import {planFixture,planRestResources,directoryActivationPlan,provisionFixture,fixtureGaps,applicationProjectFeature,mcpProtocolEvidence,missingExtensionTopology,ApplicationGroupManagement} from './application-project-fixture.mjs'
@@ -140,7 +141,7 @@ export async function main(argv=process.argv.slice(2),runtime={}) {
       if(mode==='run')assertApplicationProjectSources(report.sources,{allowDirtyRoot:options['--allow-dirty-root']===true})
       report.executionSources=Object.fromEntries(['application-group-artifact-contract.mjs','blackbox-application-projects.sh','blackbox-application-projects.mjs','application-project-fixture.mjs','application-project-integration-cases.mjs','application-project-ui-fixture.mjs','application-project-browser-ci.cjs','application-project-migration-cases.mjs','application-project-security-cases.mjs','application-project-oauth-cases.mjs','application-project-aggregate-cases.mjs','application-project-target-ui.mjs'].map(name=>[name,hash(readFileSync(join(repository,'scripts',name)))]))
       for(const name of ['ui-client-ownership-evidence.mjs','browser-diagnostic-evidence.mjs','access-control-browser-diagnostics.mjs','access-control-translation-coverage.mjs','check-access-control-prototype.py','access-control-v3-ui.mjs','access-control-v3-rest-cases.mjs','access-control-v3-maintenance.mjs','access-control-v3-frozen.mjs','access-control-v3-dependency.mjs','access-control-v3-gates.mjs','access-control-v3-transactions.mjs','access-control-v3-ui-controls.mjs','access-control-v3-browser-runtime.mjs','application-project-policy.mjs','application-project-browser-adapters.mjs','production-oauth-client.mjs'])report.executionSources[name]=hash(readFileSync(join(repository,'scripts',name)))
-      for(const name of ['first-account-execution-browser.mjs','rbac-onboarding-browser.mjs','rbac-onboarding-deployment.mjs','rbac-onboarding-published-evidence.mjs','owned-browser-session.mjs'])report.executionSources[name]=hash(readFileSync(join(repository,'scripts',name)))
+      for(const name of ['application-project-ai-browser.mjs','application-project-ai-controls.mjs','application-project-ai-runtime.mjs','application-project-ai-deployment.mjs','application-project-ai-report.mjs','ai-model-transport.mjs','first-account-execution-browser.mjs','rbac-onboarding-browser.mjs','rbac-onboarding-deployment.mjs','rbac-onboarding-published-evidence.mjs','owned-browser-session.mjs'])report.executionSources[name]=hash(readFileSync(join(repository,'scripts',name)))
       return {actualPlatform:process.platform,node:process.version,commits:structuredClone(report.inputs)}
     })
     await stage('access-control-prototype',async()=>JSON.parse(command('python3',[join(repository,'scripts/check-access-control-prototype.py')])) )
@@ -1114,6 +1115,16 @@ export async function main(argv=process.argv.slice(2),runtime={}) {
       assert.equal(report.fragments.rest?.completed,true,'REST matrix did not complete successfully')
       assert.equal(report.fragments.mcp?.completed,true,'MCP checks did not complete successfully; inspect preserved fragment')
       return {restRows:report.matrix.length,restCompleted:true,mcpCompleted:report.fragments.mcp?.completed??false,uiCompleted:report.fragments.ui?.completed??false}
+    })
+    await stage('ai-activated-production',async()=>{
+      const noProvider=report.fragments.security?.checks?.find(row=>row.id==='ai-no-provider-fails-closed')
+      assert(noProvider?.passed,'retained no-provider evidence required before activated AI')
+      const result=await runAiDeployment({configuration:composeConfig,compose,saveConfiguration:saveCompose,command,base:report.resources.base,
+        inputs:report.inputs,formalJar:options.jar,planned,project,output:join(output,'ai-activated'),uiAdapter:runtime.uiAdapter,
+        noProviderEvidence:{passed:true,providerConfigured:false,image:report.inputs.image},
+        record:async fragment=>{report.fragments.aiActivated=fragment;await persist()}})
+      assert.equal(result.completed,true)
+      return result
     })
     if(report.nonFinal){report.development.outcome='implemented-checks-finished-non-final';await persist();return {exitCode:2,reportPath,nonFinal:true}}
     verifyFinalReport=()=>stage('final-report-check',async()=>{

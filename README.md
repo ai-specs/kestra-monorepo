@@ -109,6 +109,9 @@ kestra-monorepo/
 ## 选择是否启用 RBAC
 
 本仓支持两种部署模式，通过 `.env` 中的 `KESTRA_RBAC_ENABLED` 切换。
+两种模式使用相同的 `kestra-overlay` 镜像和宿主补丁。模式 A 不要求装载
+`kestra-plugin-rbac` 插件 jar；模式 B 装载该 jar 并开启 RBAC。
+模式 A 不是未应用 overlay 补丁的上游镜像。宿主修复必须兼容两种模式。
 
 ### 模式 A：不使用 RBAC（当前默认）
 
@@ -128,14 +131,14 @@ Compose 默认关闭上游匿名用量与 UI 事件上报，使用
 `kestra.anonymous-usage-report.enabled: false` 和
 `kestra.ui-anonymous-usage-report.enabled: false`。这两个配置不影响 RBAC 授权或生产登录。
 
-本仓当前选定插件提交 `1ea01c9`，成功 CI run `43672660868`，正式 jar SHA-256：
-`42b901a4b51ea53b9540aeeb87a7056ee7a223ff2ca286aee14265bbdda4bb0c`。
+本仓当前选定插件提交 `2b7b433`，成功 CI run `43864709576`，正式 jar SHA-256：
+`357672131c14cb18200303ad11867d752e9271f73505363bbc4d6e2f29ac4a06`。
 先安装并登录 GitHub CLI（`gh auth login`），账号须能读取插件仓 Actions artifact：
 
 ```bash
 # macOS / Linux；在本仓根目录执行
 mkdir -p .work/rbac-release deployment/libs
-gh run download 43672660868 -R ai-specs/kestra-plugin-rbac \
+gh run download 43864709576 -R ai-specs/kestra-plugin-rbac \
   --name kestra-rbac-authorizer --dir .work/rbac-release
 cp .work/rbac-release/build/libs/kestra-rbac-authorizer.jar deployment/libs/kestra-rbac-authorizer.jar
 # macOS
@@ -147,7 +150,7 @@ sha256sum deployment/libs/kestra-rbac-authorizer.jar
 ```powershell
 # Windows PowerShell；在本仓根目录执行
 New-Item -ItemType Directory -Force .work/rbac-release, deployment/libs | Out-Null
-gh run download 43672660868 -R ai-specs/kestra-plugin-rbac `
+gh run download 43864709576 -R ai-specs/kestra-plugin-rbac `
   --name kestra-rbac-authorizer --dir .work/rbac-release
 Copy-Item .work/rbac-release/build/libs/kestra-rbac-authorizer.jar deployment/libs/kestra-rbac-authorizer.jar
 (Get-FileHash deployment/libs/kestra-rbac-authorizer.jar -Algorithm SHA256).Hash.ToLower()
@@ -177,13 +180,13 @@ Copy-Item .work/rbac-release/build/libs/kestra-rbac-authorizer.jar deployment/li
 
 已经完成安装的数据库不会再次开放首装或自动补授管理员。不得删除安装凭据或清空用户来重复首装；已有部署按插件公开维护流程处理，先保护原数据。
 
-> 当前宿主 `109d940` 的 CI `43667555962` 与插件 `1ea01c9` 的 CI `43672660868`
+> 当前宿主 `4891c3d` 的 CI `43822188520` 与插件 `2b7b433` 的 CI `43864709576`
 > 均成功。宿主五个 job 全部通过并推广镜像 digest
-> `31079b17c9619a5565ce904a8343984ff15c8ee8c1882125514b6fb771aefbf3`；插件 artifact
-> 已实际下载，jar SHA-256仍为 `42b901a4...dda4bb0c`，其宿主 provenance 与该 digest 一致。
-> 根仓本提交已在干净克隆中完成生产组合验收：REST56、必需集成51、生产UI88，
-> 失败/跳过/未运行均为0。CSV生产用例返回3行且只含A、不含B与outside，撤权后重连403，
-> 恢复后200；最终以本提交的成功CI artifact复核。
+> `571b54829898a5e5043bcf85f8416c540732dcee16a4dd6520cfd21a00659372`；插件 artifact
+> 已实际下载，jar SHA-256仍为 `35767213...9ac4a06`，其宿主 provenance 与该 digest 一致。
+> 这组新产物的根仓生产组合与激活 AI 验收正在实施，尚未取得本提交最终 CI，
+> 不继承上一组正式产物的组合结果。AI 入口需要显式租户 READ/EXECUTE 授权，
+> 旧 namespace AI 声明不会自动扩大为租户权限。
 
 普通资源 grants 按其命名空间、资源及动作求值；显式业务实例管理 grants 按固定映射求值。
 管理员可以在访问控制页面复核和修改初始策略，撤销相应授权后不保留首账号特权。
