@@ -127,10 +127,10 @@ jobs:
           node --check scripts/application-project-browser-ci.cjs
       - name: Select and download independently published plugin artifact
         env:
-          GH_TOKEN: ${{ secrets.APPLICATION_PROJECT_RELEASE_READ_TOKEN }}
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          test -n "$GH_TOKEN" || { echo "Missing APPLICATION_PROJECT_RELEASE_READ_TOKEN (Actions read access to both private release repositories)"; exit 1; }
+          test -n "$GH_TOKEN" || { echo "Missing GitHub Actions token for published release evidence"; exit 1; }
           python3 scripts/select-application-project-release.py .work/ci
       - name: Install CI headless browser
         run: |
@@ -140,7 +140,7 @@ jobs:
           printf 'NODE_PATH=%s/ci-browser/node_modules\n' "$RUNNER_TEMP" >> "$GITHUB_ENV"
       - name: Execute new-install application-project UI REST MCP acceptance
         env:
-          GH_TOKEN: ${{ secrets.APPLICATION_PROJECT_RELEASE_READ_TOKEN }}
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           image=$(cat .work/ci/image)
