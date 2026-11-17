@@ -12,26 +12,63 @@
 | SA-04/P3 | A-only连接收到A正例15个事件、C事件0个；C直接GET403；数据库A→C边存在，`topologyAccess()`同时过滤两端namespace | root真实Compose、授权图/事件/直接GET对照 | 未复现泄露；证据`.work/stream-dependency-20261114/p3-conclusion.json` |
 | SA-03/P4 | 旧正式输入撤权75.642秒后execution SSE仍收到5个事件；共享SSE入口仅在流源建立时授权，未让固定快照到期参与后续守卫 | overlay共享SSE授权边界；插件策略快照契约；root execution与logs生产撤权 | 宿主`95863ec` / CI `43552415541`通过并发布`7bef038e...`；插件`189206c` / CI `43575563419`通过；干净根仓本地组合REST56/必需集成50/生产UI88零失败/跳过/未运行，execution与logs SSE均在60秒内终止且无撤权后事件 |
 | SA-05/P5 | 旧真实框架HTTP中CSV响应返回后正文查询domain为空，A-only得到空CSV；慢客户端与大正文需区分固定快照与撤权后新连接 | overlay有限正文授权边界；插件正式输入；root生产CSV范围与撤权重连 | 宿主`109d940` / CI `43667555962`通过并发布`31079b...`；插件`1ea01c9` / CI `43672660868`通过；root干净克隆本地组合REST56/必需集成51/生产UI88零失败/跳过/未运行，CSV只含A不含B/outside且撤权后重连403、恢复后200 |
-| SA-06/P6 | MCP长会话与AI激活分开判定；无provider的拒绝不能证明AI工具安全 | overlay机制、plugin既有策略、root正式组合 | MCP已由根仓`26bc218`最终CI`43715053072`验证并下载审计；AI新增REQ-0399实施中，未发布、不计全部交付 |
+| SA-06/P6 | MCP长会话与AI激活分开判定；无provider的拒绝不能证明AI工具安全 | overlay机制、plugin既有策略、root正式组合 | MCP已由根仓`26bc218`最终CI`43715053072`验证并下载审计；AI新增REQ-0399宿主及插件已正式发布；根仓激活组合验收仍未通过，不计全部交付 |
 
-### 2026-11-16 AI 激活专项当前状态（未交付）
+### 2026-11-17 AI 激活专项当前状态（未交付）
 
 模式 A/B 共同应用 overlay 补丁。模式 A 不要求装载 RBAC 插件 jar，关闭 RBAC；
 模式 B 装载正式插件 jar并开启RBAC。不存在让模式A依赖插件实现的兼容要求。
 两种模式的流程测试数据均放在`company`及子空间，不以首装账号身份直接放行。
 
 已复现的缺陷是认证账号创建AI线程未绑定主体及另一账号可读取该线程。
-宿主REQ-0399接收记录见`kestra-overlay/docs/r-ee-rbac.md`。候选修复覆盖可信主体、
+宿主REQ-0399接收记录见`kestra-overlay/docs/r-ee-rbac.md`。修复覆盖可信主体、
 线程归属、异步实际工具操作计划、查询域、隐藏校验读取、重启依赖、撤权、取消和输出清理。
-定向webserver85项、真实FlowService校验3项、脚本29项通过；55补丁结构及独立顺序重放通过。
-完整本地CI正在执行：后端578项中576通过、零失败、2项原镜像专用测试另待镜像门执行。
-这些结果不等于镜像已发布、插件已消费或根仓生产AI验收通过。
-证据入口为`.work/stream-authorization-ai/`及overlay同名目录；完整日志
-`.work/stream-authorization-ai/full-local-ci-01.log`。
 
-后续必需门：完整宿主本地CI及镜像门；正式宿主CI/镜像；插件按正式输入验证；
-根仓用真实生产登录和公开Gemini配置接入可控外部模型HTTP服务，执行激活/关闭/缺组件、
-chat、批准/拒绝、重复确认、取消、工具实际写入、撤权与无副作用；最终提交CI与报告下载审计。
+2026-11-17已独立核对正式输入：
+
+- overlay `4891c3ddba7b06c737cb6081864bb2c157a10519`，CI `43822188520`五项job成功，
+  镜像digest `571b54829898a5e5043bcf85f8416c540732dcee16a4dd6520cfd21a00659372`。
+  下载审计见`.work/stream-authorization-ai/host-ci-43822188520/release-audit.json`。
+- plugin `2b7b433a59d3f29604c11cf1cbc56357275827c6`，CI `43864709576`成功，
+  jar SHA-256 `357672131c14cb18200303ad11867d752e9271f73505363bbc4d6e2f29ac4a06`。
+  unit314、PostgreSQL112、lifecycle30、真实UI888通过；schema2升级9项已实际执行。
+  下载审计见`.work/stream-authorization-ai/plugin-ci-43864709576/download-audit.json`。
+- root首次组合在容器启动前暴露报告布局变更：加入core报告后artifact保留
+  `webserver/build/test-results/test/`层级，旧读取路径报ENOENT；已修正消费路径，
+  保留原XML具名检查。失败证据`.work/stream-authorization-ai/root-ai-acceptance-01/report.json`。
+- 根仓补强列表精确资源范围、激活后零AI和只读AI拒绝、真实断连后release及浏览器诊断失败门。
+  当前真实组合正在执行，新增离线门通过不代表生产矩阵通过。
+
+2026-11-17真实组合增量：诊断运行的原有REST56、生产UI88、安全28、MCP12及聚合2
+全部通过；AI阶段模式A由Ego六项实际操作通过。模式B激活后的零AI与只读AI两项入口拒绝
+通过，随后原生页面GET `/api/v1/main/ai/providers`返回403，无法装载composer。
+这是宿主固定main路由缺少`AI.READ`操作计划，不是普通账号应加SYSTEM权限。
+最小补充已在overlay `docs/r-ee-rbac.md`接收，独立agent先红例后0400候选补丁；
+新宿主、插件正式输入及根仓最终CI均待重验，不宣称全部交付。
+Ego最新失败证据`.work/stream-authorization-ai/ego-ai-stage-1794878944613/report.json`；
+原组合证据`.work/stream-authorization-ai/root-ai-acceptance-02/report.json`。
+OSS线程/消息使用原生内存repository，不存在AI SQL表；拒绝门观察所属线程生产API读回和
+实际业务库/队列/存储，不将不存在的SQL表冒充内存全局计数。公开API不能枚举该内存全局库，
+该限制必须保留；实际线程归属与拒绝前写入还由宿主真实repository独立测试证明。
+
+REQ-0400已于2026-11-17按overlay `d326768aaf61ffe1b269e6dd99314eaa60bbe705`
+提交发布；CI `44014023006` attempt2五job成功。attempt1 Maven Central 429失败原日志
+保留，依赖端点恢复后仅重跑失败作业。正式镜像digest
+`dd40ed1149ac322fa175055481100e70d01c345c11d67eabc4f5ee2f5e28379b`，下载九件
+artifact、真实六项provider报告及SDK949均已审计；provenance的依赖完整性false限制保留。
+插件`facd1dd95e45bfa029e3e3687d3a00dc3b8e4a98`已独立消费该registry正式输入，CI `44048776055`成功；artifact `14314375834`已实际下载审计，314/112/30后端及888页面门通过，正式jar SHA保持35767213...9ac4a06。下载证据`.work/stream-authorization-ai/plugin-ci-44048776055/download-audit.json`。根仓新组合正在运行，最终CI未通过。
+旧571b镜像组合结果不可作为本组最终验收。
+
+2026-11-17主控Ego正式输入验收：模式A六项、模式B九项、激活后零AI/只读AI两项入口拒绝、
+模型等待期间撤权全部通过，报告检查器判定15浏览器+2拒绝+1撤权、零失败/跳过/未运行。
+证据`.work/stream-authorization-ai/ego-ai-stage-1794918046558/report.json`，绑定五脚本SHA。
+撤权终止814毫秒，保留READ读回IDLE、chat403、真实late-release409、无业务副作用。
+原生OSS内存线程观察限制保留。对应根仓最终干净克隆组合与CI仍待完成，不能把该Ego
+定向门或前置诊断组合拼成最终提交全门通过。
+
+后续必需门：根仓用真实生产登录和公开Gemini配置接入可控外部模型HTTP服务，执行
+激活/关闭/缺组件、chat、批准/拒绝、重复确认、取消、工具实际写入、撤权与无副作用；
+最终根仓提交CI与报告下载审计。不得把宿主/插件成功代替根仓交付。
 模型HTTP服务只替代外部模型响应，不替代身份、授权、存储或队列，不需要生产模型凭据。
 
 当前专项证据根`.work/stream-lifecycle-20261113/`及overlay同名`.work`目录；

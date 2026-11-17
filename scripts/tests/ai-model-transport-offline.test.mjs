@@ -170,3 +170,39 @@ test('requires one isolated prompt marker and accepts explicit v1beta prefix', a
     const success = await f.request('/v1beta' + endpoint, model('prefix'));
     assert.equal(success.status, 200); await success.text();
 });
+
+test('exact flow identity set rejects omissions extras duplicates and wrong IDs',async t=>{
+    const f=await fixture(t),flowIds=[{namespace:'company.a',id:'sentinel'},{namespace:'company.b',id:'sentinel'},{namespace:'company.outside',id:'sentinel'}];
+    await f.create({id:'identities',mode:'tool',text:'verified',tool:{name:'list-flows',args:{},expect:{flowIds}}});
+    await (await f.request(endpoint,model('identities'))).text();
+    for(const flows of [flowIds.slice(0,1),[...flowIds,flowIds[0]],flowIds.map(row=>({...row,id:'other'})),[...flowIds,{namespace:'other',id:'sentinel'}]])
+        assert.equal((await f.request(endpoint,model('identities',[response('identities',{flows})]))).status,422);
+    const accepted=await f.request(endpoint,model('identities',[response('identities',{flows:[...flowIds].reverse()})]));
+    assert.equal(accepted.status,200);await accepted.text();assert.equal((await f.state('identities')).functionResponses,1);
+});
+
+test('flow identity schema rejects ambiguous or duplicate sentinel definitions',async t=>{
+    const f=await fixture(t);
+    for(const flowIds of [[],[{namespace:'company.a'}],[{namespace:'company.a',id:'a',extra:true}],[{namespace:'company.a',id:'a'},{namespace:'company.a',id:'a'}]])
+        assert.equal((await f.request('/scenarios',{id:'bad-identities',mode:'tool',text:'done',tool:{name:'list-flows',args:{},expect:{flowIds}}})).status,400);
+});
+
+test('late real POST release after client disconnect returns bounded 409 not_waiting',async t=>{
+    const f=await fixture(t);await f.create({id:'late-release',mode:'wait',text:'late',tool:{name:'restart-execution',args:{executionId:'e'},expect:{exact:{executionId:'e'}}}});
+    const abort=new AbortController();
+    const waiting=await fetch(f.base+endpoint,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(model('late-release',[],'restart-execution')),signal:abort.signal});
+    await waiting.body.getReader().read();abort.abort();
+    const deadline=Date.now()+2000;while((await f.state('late-release')).disconnected===0){assert(Date.now()<deadline);await new Promise(resolve=>setTimeout(resolve,10));}
+    const result=await fetch(f.base+'/scenarios/late-release/release',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}',signal:AbortSignal.timeout(2000)});
+    assert.equal(result.status,409);assert.deepEqual(await result.json(),{error:'not_waiting'});
+    assert.equal((await f.state('late-release')).functionResponses,0);
+});
+
+test('authorization denial accepts only exact production refusal and cannot mask a successful tool write',async t=>{
+ const f=await fixture(t)
+ await f.create({id:'denied',mode:'tool',text:'denied safely',tool:{name:'restart-execution',args:{executionId:'execution'},expect:{authorizationDenied:true}}})
+ await (await f.request(endpoint,model('denied',[],'restart-execution'))).text()
+ for(const text of ['Error: different error','{"executionId":"execution"}','REJECTED by user.'])assert.equal((await f.request(endpoint,model('denied',[{id:'call-denied',name:'restart-execution',response:{response:text}}],'restart-execution'))).status,422)
+ const result=await f.request(endpoint,model('denied',[{id:'call-denied',name:'restart-execution',response:{response:'Error: AI authorization denied'}}],'restart-execution'))
+ assert.equal(result.status,200);await result.text();assert.equal((await f.state('denied')).functionResponses,1)
+})

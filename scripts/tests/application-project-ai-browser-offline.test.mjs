@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import {runApplicationProjectAiBrowser, aiBrowserCaseIds, aiBrowserCaseIdsByMode} from '../application-project-ai-browser.mjs'
+import {runApplicationProjectAiBrowser, aiBrowserCaseIds, aiBrowserCaseIdsByMode,classifyAiBrowserDiagnostics} from '../application-project-ai-browser.mjs'
 
 async function failedReport(f) {
     try { await runApplicationProjectAiBrowser(f.page,'http://localhost:8080',f.account,f.scenarios,f.controls) }
@@ -13,7 +13,7 @@ function fixture(mode = 'B') {
     const recorded = [], clicks = [], prepared = new Map()
     const account = {username:'alice',subject:'alice',password:'private-alice-password'}
     const spec = id => ({id, prompt:'Controlled test', expectedText:'answer', providerId:'controlled-gemini'})
-    const scenarios = {text:spec('text'),cancel:spec('cancel'),list:spec('list'),reject:spec('reject'),approve:spec('approve'),
+    const scenarios = {text:spec('text'),cancel:spec('cancel'),list:spec('list'),reject:spec('reject'),approve:spec('approve'),scopeDenied:{...spec('scope-denied'),expectedDenied:true},businessRevoked:{...spec('business-revoked'),expectedDenied:true,revokeBusiness:true},
         owner:{account:{username:'bob',subject:'bob',password:'private-bob-password'},scenario:spec('owner')}}
     let active, decision, currentUser, filled, path, stop = false
     const states = new Map()
@@ -48,29 +48,29 @@ function fixture(mode = 'B') {
         }},
         async thread(page,s) { const value = {uid:s.id,transport:'browser-session'}; states.set(s.id,value); return value },
         async readThread(page,id) {
-            return {uid:id,mode:'EDIT',status:['approve','reject'].includes(id) && !decision ? 'AWAITING_CONFIRMATION' : 'IDLE',pendingConfirmationId:'confirm-'+id,
-                messages:[{type:'TEXT',role:'ASSISTANT'},...(id==='cancel'?[{type:'CANCELLED'}]:[]),...(decision?[{type:'TOOL_RESULT',toolResult:{outcome:decision}}]:[])]}
+            return {uid:id,mode:'EDIT',status:['approve','reject','scope-denied','business-revoked'].includes(id) && !decision ? 'AWAITING_CONFIRMATION' : 'IDLE',pendingConfirmationId:'confirm-'+id,
+                messages:[{type:'TEXT',role:'ASSISTANT'},...(id==='cancel'?[{type:'CANCELLED'}]:[]),...(decision?[{type:'TOOL_RESULT',toolResult:{outcome:['scope-denied','business-revoked'].includes(id)?'error':decision}}]:[])]}
         },
-        async seed() { return {executionId:'exec',flowId:'flow'} },
-        effects:{async snapshot() { return {hash:'before'} },async observe({decision}) {
+        async revokeBusiness(){return {businessRevoked:true,aiExecuteRetained:true}},async seed() { return {executionId:'exec',flowId:'flow'} },
+        effects:{async businessSnapshot(){return {hash:'business'}},async observeBusinessUnchanged(){return {unchanged:true}},async snapshot() { return {hash:'before'} },async observe({decision}) {
             return {completed:true,queueChecked:true,storageChecked:true,unchanged:decision!=='APPROVE',savedReadBack:decision==='APPROVE'}
         }},
     }
     return {account,scenarios,page,controls,recorded,clicks}
 }
 
-test('A and B share native actions within exact six/seven applicable case matrices', async () => {
+test('A and B share native actions within exact six/nine applicable case matrices', async () => {
     for (const mode of ['A','B']) {
         const f = fixture(mode)
         const report = await runApplicationProjectAiBrowser(f.page,'http://localhost:8080',f.account,f.scenarios,f.controls)
         assert.equal(report.completed,true,JSON.stringify(report))
         assert.deepEqual(report.checks.map(row=>row.id),aiBrowserCaseIdsByMode[mode])
-        assert.equal(report.checks.length,mode==='A'?6:7)
+        assert.equal(report.checks.length,mode==='A'?6:9)
         assert.deepEqual(report.applicableCaseIds,aiBrowserCaseIdsByMode[mode])
         assert.equal(report.outOfScope.length,mode==='A'?1:0)
         assert(report.checks.every(row=>row.status==='passed'))
         for (const action of ['copilot-send','copilot-stop','copilot-reject','copilot-approve']) assert(f.clicks.some(selector=>selector.includes(action)))
-        assert.equal(report.checks.at(-1).evidence.actualUiClick,false)
+        assert.equal(report.checks.find(row=>row.id==='ai-confirm-duplicate').evidence.actualUiClick,false)
         assert(!JSON.stringify(f.recorded).includes(f.account.password))
         assert(!JSON.stringify(f.recorded).includes(f.scenarios.owner.account.password))
     }
@@ -102,7 +102,7 @@ test('missing required control fails and retains unrun cases rather than skippin
     assert.equal(report.completed,false)
     assert.equal(report.checks[0].status,'failed')
     assert.match(report.checks[0].evidence.error,/seed/)
-    assert.equal(report.checks.filter(row=>row.status==='not_run').length,6)
+    assert.equal(report.checks.filter(row=>row.status==='not_run').length,8)
     assert(f.recorded.length >= 2)
 })
 
@@ -110,7 +110,7 @@ test('missing owner fixture retains prior successes and blocks dependent remaind
     const f = fixture(); delete f.scenarios.owner
     const report = await failedReport(f)
     assert.equal(report.completed,false)
-    assert.deepEqual(report.checks.map(row=>row.status),['passed','passed','failed','not_run','not_run','not_run','not_run'])
+    assert.deepEqual(report.checks.map(row=>row.status),['passed','passed','failed','not_run','not_run','not_run','not_run','not_run','not_run'])
 })
 
 test('reject side effects fail the case even when UI says rejected', async () => {
@@ -172,4 +172,53 @@ test('native install prompt is dismissed by adapter button click and login landi
     assert.equal(report.dismissals.length,1)
     assert.equal(report.logins[0].initialPath,'/oidc/login')
     assert(f.clicks.includes('.pwa-install-prompt .pwa-install-actions button:last-child'))
+})
+
+test('unclassified errors in actual document diagnostics fail even after successful business checks', async () => {
+    const f = fixture('A')
+    f.page.diagnostics = async () => ({events:[{id:'error-1',kind:'page-error',documentId:'ai-document',message:'Uncaught failure'}],documents:[{id:'ai-document'}]})
+    const report = await failedReport(f)
+    assert.equal(report.completed,false)
+    assert.deepEqual(report.diagnostics.unclassified,['error-1'])
+    assert.match(report.diagnosticFailure,/unclassified diagnostic errors/)
+})
+
+test('expected AI denials require source request identity; unrelated and same-path errors remain failures', () => {
+    const request={id:'req',kind:'request',acceptanceRequestId:'root-ui-request',requestId:'r1',documentId:'d1',url:'http://localhost/api/v1/main/ai/threads/owned',method:'GET'}
+    const denied={id:'denied',kind:'http-error',requestId:'r1',documentId:'d1',status:404}
+    const consoleError={id:'network',kind:'console-error',source:'network',requestId:'r1',documentId:'d1',message:'Failed to load resource: the server responded with a status of 404 (Not Found)'}
+    const unrelated={...denied,id:'other',requestId:'r2'}
+    const pageError={id:'exception',kind:'page-error',documentId:'d1',message:'Uncaught 404'}
+    const result=classifyAiBrowserDiagnostics({events:[request,denied,consoleError,unrelated,pageError]},[{path:'/api/v1/main/ai/threads/owned',method:'GET',status:404,expectedStatuses:[404],acceptanceRequestId:'root-ui-request'}],'http://localhost')
+    assert.deepEqual(result.classified.map(row=>row.id),['denied','network'])
+    assert.deepEqual(result.unclassified,['other','exception'])
+    assert.equal(classifyAiBrowserDiagnostics({events:[request,denied]},[{path:'/api/v1/main/ai/threads/owned',method:'GET',status:404,expectedStatuses:[404],acceptanceRequestId:'wrong'}],'http://localhost').unclassified.length,1)
+})
+
+test('native Stop completion cannot hide business side effects', async()=>{
+    const f=fixture('A')
+    f.controls.effects.observeBusinessUnchanged=async()=>({unchanged:false})
+    const report=await failedReport(f)
+    assert.equal(report.checks.find(row=>row.id==='ai-stop').status,'failed')
+    assert(report.checks.filter(row=>row.status==='not_run').length>0)
+})
+
+test('native cancellation classification requires exact completed case thread document request and successful stream',()=>{
+ const url='http://localhost/api/v1/main/ai/threads/stop-thread/chat'
+ const request={id:'request',kind:'request',requestId:'r',documentId:'d',url,method:'POST'}
+ const response={id:'response',kind:'http-response',requestId:'r',documentId:'d',url,status:200}
+ const aborted={id:'aborted',kind:'request-failed',requestId:'r',documentId:'d',url,method:'POST',cancelled:true,message:'net::ERR_ABORTED'}
+ const checks=[{id:'ai-stop',status:'passed',evidence:{threadId:'stop-thread'}}]
+ assert.deepEqual(classifyAiBrowserDiagnostics({events:[request,response,aborted]},[],'http://localhost',checks).unclassified,[])
+ for(const events of [[request,aborted],[request,response,{...aborted,documentId:'other'}],[request,response,{...aborted,cancelled:false}],[request,response,{...aborted,url:url+'-other'}]])assert.deepEqual(classifyAiBrowserDiagnostics({events},[],'http://localhost',checks).unclassified,['aborted'])
+ assert.deepEqual(classifyAiBrowserDiagnostics({events:[request,response,aborted]},[],'http://localhost',[{...checks[0],status:'failed'}]).unclassified,['aborted'])
+})
+
+test('native stale thread restoration only classifies exact 404 after client clears remembered thread',()=>{
+ const url='http://localhost/api/v1/main/ai/threads/stale'
+ const request={id:'req',kind:'request',requestId:'r',documentId:'d',url,method:'GET',observedAt:'2026-11-17T00:00:01Z'}
+ const denial={id:'denial',kind:'http-error',requestId:'r',documentId:'d',url,status:404}
+ const restoration={threadId:'stale',startedAt:'2026-11-17T00:00:00Z',finishedAt:'2026-11-17T00:00:02Z',cleared:true}
+ assert.deepEqual(classifyAiBrowserDiagnostics({events:[request,denial]},[],'http://localhost',[],[restoration]).unclassified,[])
+ for(const row of [{...restoration,cleared:false},{...restoration,threadId:'another'},{...restoration,startedAt:'2026-11-17T00:00:02Z'}])assert.deepEqual(classifyAiBrowserDiagnostics({events:[request,denial]},[],'http://localhost',[],[row]).unclassified,['denial'])
 })

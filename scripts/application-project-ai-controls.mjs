@@ -87,8 +87,9 @@ export function createAiControls({base,project,command,configuration,record,time
     }
     const savedExecution = async uid => {
         assert(id(uid))
-        const text=await sql("SELECT value::text FROM executions WHERE value->>'id'='"+uid+"' AND (tenant_id='main' OR tenant_id IS NULL)")
-        assert(text,'actual persisted execution missing');return JSON.parse(text)
+        const text=await sql("SELECT value::text FROM executions WHERE value->>'id'='"+uid+"' AND tenant_id='main'")
+        assert(text,'actual persisted execution missing');const execution=JSON.parse(text)
+        assert.equal(execution.tenantId,'main','persisted execution tenant differs');return execution
     }
     const controls = {
         async captureEffects(seeded, effects) {
@@ -108,7 +109,7 @@ export function createAiControls({base,project,command,configuration,record,time
             assert.equal(expected.base,base);assert(['A','B'].includes(expected.mode))
             assert.match(expected.database,/^application_group_acceptance_[0-9]+_[0-9]+$/)
             const actual=await inspect(expected.kestra);await inspect(expected.postgres)
-            const config=configuration.services.kestra.environment.KESTRA_CONFIGURATION
+            const config=configuration.services.kestra.environment.KESTRA_CONFIGURATION.replaceAll('$$','$')
             const storageVolume=validateAiRuntimeInspection(actual,{...expected,project,configuration:config})
             assert(config.includes('jdbc:postgresql://postgres:5432/'+expected.database))
             runtime={...expected}
@@ -156,6 +157,7 @@ export function createAiControls({base,project,command,configuration,record,time
                     return null
                 },'saved restart attempt did not finish')
                 validateAiExecutionChange(fullBefore,saved,decision)
+                if(seeded.expectedState)assert.equal(saved.state.current,seeded.expectedState,'restarted seed task outcome differs')
             }
             const samples=[],start=Date.now();let stableSince=Date.now(),previous
             while(Date.now()-stableSince<5000) {
@@ -204,7 +206,10 @@ export function createAiControls({base,project,command,configuration,record,time
             await until(async()=>{const state=await scenario.read(waitScenario.id);return state.phase==='waiting'&&state.events?.includes('first_frame_sent')},'model first frame not waiting')
             await page.waitForFunction(()=>Boolean(document.querySelector('[data-test="copilot-assistant-text"]'))&&Boolean(document.querySelector('[data-test="copilot-stop"]')))
             await revoke()
+            const revokedAt=Date.now()
             const wire=await until(async()=>{const state=await scenario.read(waitScenario.id);return state.disconnected>0?state:null},'revoked model connection not closed')
+            const terminationElapsedMs=Date.now()-revokedAt
+            assert(terminationElapsedMs<=timeoutMs,'revocation termination deadline exceeded')
             const state=await until(async()=>{const value=await controls.readThread(page,thread.uid);return value.status==='IDLE'?value:null},'revoked thread not IDLE with retained AI.READ')
             const forbidden=await page.evaluate(async ({base,uid})=>{
                 if(location.origin!==base)throw new Error('Browser origin differs')
@@ -229,7 +234,7 @@ export function createAiControls({base,project,command,configuration,record,time
             const finalState=await controls.readThread(page,thread.uid)
             assert.equal(finalState.status,'IDLE');assert(!finalState.messages.some(message=>message.type==='TOOL_CALL'),'late tool dispatched after revocation')
             const finalWire=await scenario.read(waitScenario.id);assert.equal(finalWire.functionResponses,0)
-            const result={completed:true,denied:true,readRetained:true,chatStatus:forbidden.status,noBusinessSideEffects:true,threadId:thread.uid,status:finalState.status,disconnected:wire.disconnected}
+            const result={completed:true,denied:true,readRetained:true,chatStatus:forbidden.status,noBusinessSideEffects:true,threadId:thread.uid,status:finalState.status,disconnected:wire.disconnected,terminationElapsedMs,terminationDeadlineMs:timeoutMs}
             await emit({kind:'ai-revocation-observed',...result});return result
         },
     }

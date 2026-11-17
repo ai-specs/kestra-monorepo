@@ -28,6 +28,7 @@ import {ProductionOAuthClient} from './production-oauth-client.mjs'
 import {ProjectSideEffects} from './application-project-effects.mjs'
 import {runRbacOnboardingDeployment} from './rbac-onboarding-deployment.mjs'
 import {runAiDeployment} from './application-project-ai-deployment.mjs'
+import {aiProviderHostCases,assertAiProviderHostReports} from './application-project-ai-report.mjs'
 import {hostInitialAccountCases,assertHostInitialAccountReports,assertHostOnboardingBrowserEvidence,committedHostOnboardingSources,assertHostOnboardingDiagnostics} from './rbac-onboarding-published-evidence.mjs'
 import {rbacOnboardingCaseIds,rbacNormalOnboardingCaseIds} from './rbac-onboarding-browser.mjs'
 import {planFixture,planRestResources,directoryActivationPlan,provisionFixture,fixtureGaps,applicationProjectFeature,mcpProtocolEvidence,missingExtensionTopology,ApplicationGroupManagement} from './application-project-fixture.mjs'
@@ -383,15 +384,18 @@ export async function main(argv=process.argv.slice(2),runtime={}) {
       const hostCached=previouslyDownloadedHostArtifact('host-scoped-tests',hostArtifact)
       const hostDirectory=hostCached??join(output,'downloaded-host-lifecycle')
       if(!hostCached){mkdirSync(hostDirectory,{mode:0o700});command('gh',['run','download',String(evidence.overlayRunId),'-R','ai-specs/kestra-overlay','--name','host-scoped-tests','--dir',hostDirectory],{timeout:180000})}
-      const originXml=readFileSync(join(hostDirectory,'test-results/test/TEST-io.kestra.webserver.rbac.AuthorizationHttpOriginBoundaryTest.xml'),'utf8')
+      const originXml=readFileSync(join(hostDirectory,'webserver/build/test-results/test/TEST-io.kestra.webserver.rbac.AuthorizationHttpOriginBoundaryTest.xml'),'utf8')
+      const aiProviderReports=Object.fromEntries(Object.keys(aiProviderHostCases).map(name=>[name,readFileSync(join(hostDirectory,'webserver/build/test-results/test/TEST-io.kestra.webserver.rbac.'+name+'.xml'),'utf8')]))
+      report.sources.overlay.downloadedAiProviderGate={commit:report.inputs.overlayCommit,runId:evidence.overlayRunId,artifactId:hostArtifact.id,
+        image:report.inputs.image,sha256:hash(JSON.stringify(aiProviderReports)),rawReports:aiProviderReports,validation:assertAiProviderHostReports(aiProviderReports)}
       const initialRawReports=Object.fromEntries(Object.keys(hostInitialAccountCases).map(name=>[name,
-        readFileSync(join(hostDirectory,'test-results/test/TEST-io.kestra.webserver.oidc.'+name+'.xml'),'utf8')]))
+        readFileSync(join(hostDirectory,'webserver/build/test-results/test/TEST-io.kestra.webserver.oidc.'+name+'.xml'),'utf8')]))
       report.sources.overlay.downloadedInitialAccountGate={commit:report.inputs.overlayCommit,runId:evidence.overlayRunId,
         artifactId:hostArtifact.id,image:report.inputs.image,sha256:hash(JSON.stringify(initialRawReports)),rawReports:initialRawReports,
         validation:assertHostInitialAccountReports(initialRawReports)}
       report.sources.overlay.downloadedHttpOriginGate={commit:report.inputs.overlayCommit,runId:evidence.overlayRunId,artifactId:hostArtifact.id,sha256:hash(originXml),xml:originXml,...assertHostHttpOriginReport(originXml)}
       for(const [repository,directory,artifactId,runId,workflow]of [
-        ['overlay',join(hostDirectory,'test-results/test'),hostArtifact.id,evidence.overlayRunId,runs.overlay],
+        ['overlay',join(hostDirectory,'webserver/build/test-results/test'),hostArtifact.id,evidence.overlayRunId,runs.overlay],
         ['plugin',join(downloaded,'.evidence/postgres/results'),evidence.pluginArtifactId,evidence.pluginRunId,runs.plugin],
       ]) {
         const requiredClasses=new Set(Object.entries(lifecycleXmlInputs).filter(([key])=>key.startsWith(repository==='overlay'?'host':'plugin')).flatMap(([,tests])=>tests.map(test=>test.classname)))

@@ -175,12 +175,18 @@ jobs:
                   command_failures = report.parent / 'command-failures.log'
                   if command_failures.exists():
                       shutil.copy2(command_failures, destination / 'command-failures.log')
-                  for phase in ['frozen-browser', 'browser', 'onboarding', 'onboarding-normal']:
+                  for phase in ['frozen-browser', 'browser', 'onboarding', 'onboarding-normal', 'ai-activated']:
                       browser = report.parent / phase / 'browser-report.json'
-                      if phase in ['onboarding', 'onboarding-normal']:
+                      if phase in ['onboarding', 'onboarding-normal', 'ai-activated']:
                           browser = report.parent / phase / 'report.json'
                       if browser.exists():
                           shutil.copy2(browser, destination / (phase + '-report.json'))
+                      if phase == 'ai-activated':
+                          for source in (report.parent / phase).glob('mode-*-service.log'):
+                              assert source.resolve().is_relative_to((report.parent / phase).resolve()) and not source.is_symlink()
+                              target = destination / phase / source.name
+                              target.parent.mkdir(parents=True, exist_ok=True)
+                              shutil.copy2(source, target)
                       diagnostics = report.parent / phase / 'diagnostics'
                       if diagnostics.exists():
                           for source in diagnostics.glob('*.json'):

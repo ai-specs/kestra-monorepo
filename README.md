@@ -131,14 +131,14 @@ Compose 默认关闭上游匿名用量与 UI 事件上报，使用
 `kestra.anonymous-usage-report.enabled: false` 和
 `kestra.ui-anonymous-usage-report.enabled: false`。这两个配置不影响 RBAC 授权或生产登录。
 
-本仓当前选定插件提交 `2b7b433`，成功 CI run `43864709576`，正式 jar SHA-256：
+本仓当前选定插件提交 `facd1dd`，成功 CI run `44048776055`，正式 jar SHA-256：
 `357672131c14cb18200303ad11867d752e9271f73505363bbc4d6e2f29ac4a06`。
 先安装并登录 GitHub CLI（`gh auth login`），账号须能读取插件仓 Actions artifact：
 
 ```bash
 # macOS / Linux；在本仓根目录执行
 mkdir -p .work/rbac-release deployment/libs
-gh run download 43864709576 -R ai-specs/kestra-plugin-rbac \
+gh run download 44048776055 -R ai-specs/kestra-plugin-rbac \
   --name kestra-rbac-authorizer --dir .work/rbac-release
 cp .work/rbac-release/build/libs/kestra-rbac-authorizer.jar deployment/libs/kestra-rbac-authorizer.jar
 # macOS
@@ -150,7 +150,7 @@ sha256sum deployment/libs/kestra-rbac-authorizer.jar
 ```powershell
 # Windows PowerShell；在本仓根目录执行
 New-Item -ItemType Directory -Force .work/rbac-release, deployment/libs | Out-Null
-gh run download 43864709576 -R ai-specs/kestra-plugin-rbac `
+gh run download 44048776055 -R ai-specs/kestra-plugin-rbac `
   --name kestra-rbac-authorizer --dir .work/rbac-release
 Copy-Item .work/rbac-release/build/libs/kestra-rbac-authorizer.jar deployment/libs/kestra-rbac-authorizer.jar
 (Get-FileHash deployment/libs/kestra-rbac-authorizer.jar -Algorithm SHA256).Hash.ToLower()
@@ -180,13 +180,12 @@ Copy-Item .work/rbac-release/build/libs/kestra-rbac-authorizer.jar deployment/li
 
 已经完成安装的数据库不会再次开放首装或自动补授管理员。不得删除安装凭据或清空用户来重复首装；已有部署按插件公开维护流程处理，先保护原数据。
 
-> 当前宿主 `4891c3d` 的 CI `43822188520` 与插件 `2b7b433` 的 CI `43864709576`
-> 均成功。宿主五个 job 全部通过并推广镜像 digest
-> `571b54829898a5e5043bcf85f8416c540732dcee16a4dd6520cfd21a00659372`；插件 artifact
-> 已实际下载，jar SHA-256仍为 `35767213...9ac4a06`，其宿主 provenance 与该 digest 一致。
-> 这组新产物的根仓生产组合与激活 AI 验收正在实施，尚未取得本提交最终 CI，
-> 不继承上一组正式产物的组合结果。AI 入口需要显式租户 READ/EXECUTE 授权，
-> 旧 namespace AI 声明不会自动扩大为租户权限。
+> 当前宿主 `d326768` 的 CI `44014023006` attempt2 五个 job 全部成功，正式镜像 digest
+> `dd40ed1149ac322fa175055481100e70d01c345c11d67eabc4f5ee2f5e28379b` 已推广并下载审计。
+> 插件 `facd1dd` 已独立消费该正式输入，本地后端314/112/30及页面888项通过；对应CI
+> `44048776055`已成功，正式artifact须按上述入口实际下载并核对hash及provenance。
+> 根仓Ego模式A/B激活AI定向门已通过；最终提交干净组合及CI仍待完成，不继承上一组产物结果。
+> AI入口需要显式租户READ/EXECUTE；旧namespace AI声明不会自动扩大为租户权限。
 
 普通资源 grants 按其命名空间、资源及动作求值；显式业务实例管理 grants 按固定映射求值。
 管理员可以在访问控制页面复核和修改初始策略，撤销相应授权后不保留首账号特权。

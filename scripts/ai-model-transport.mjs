@@ -29,10 +29,16 @@ function parseScenario(body) {
     if (body.tool) {
         keys(body.tool, ['name', 'args', 'expect']);
         if (typeof body.tool.name !== 'string' || !TOOL.test(body.tool.name) || !object(body.tool.args)) reject(400, 'invalid_tool');
-        keys(body.tool.expect, ['exact', 'rejectedText', 'namespaces', 'forbiddenNamespaces', 'minItems']);
+        keys(body.tool.expect, ['exact', 'rejectedText','authorizationDenied', 'namespaces', 'forbiddenNamespaces', 'minItems', 'flowIds']);
         const expectation = body.tool.expect;
+        if (expectation.flowIds !== undefined && (!Array.isArray(expectation.flowIds) || !expectation.flowIds.length || expectation.flowIds.length > 64
+            || expectation.flowIds.some(row => !object(row) || Object.keys(row).some(key => !['namespace','id'].includes(key))
+                || typeof row.namespace !== 'string' || !/^[A-Za-z0-9_-]+(?:\.[A-Za-z0-9_-]+)*$/.test(row.namespace)
+                || typeof row.id !== 'string' || !TOOL.test(row.id))
+            || new Set(expectation.flowIds.map(row => JSON.stringify([row.namespace,row.id]))).size !== expectation.flowIds.length)) reject(400, 'invalid_flow_ids');
         if (!Object.keys(expectation).length) reject(400, 'expectation_required');
         if (expectation.rejectedText !== undefined && expectation.rejectedText !== true) reject(400, 'invalid_rejected_expectation');
+        if (expectation.authorizationDenied !== undefined && expectation.authorizationDenied !== true) reject(400, 'invalid_denial_expectation');
         for (const name of ['namespaces', 'forbiddenNamespaces']) {
             if (expectation[name] !== undefined && (!Array.isArray(expectation[name]) || expectation[name].length > 64
                 || expectation[name].some(ns => typeof ns !== 'string' || !/^[A-Za-z0-9_-]+(?:\.[A-Za-z0-9_-]+)*$/.test(ns))))
@@ -92,6 +98,10 @@ function verifyResponse(response, config, callId) {
     if (!object(response) || response.id !== callId || response.name !== config.name
         || !object(response.response) || typeof response.response.response !== 'string') reject(422, 'function_response_mismatch');
     let result;
+    if(config.expect.authorizationDenied===true){
+        if(response.response.response!=='Error: AI authorization denied')reject(422,'authorization_denial_mismatch');
+        return;
+    }
     if (config.expect.rejectedText === true) {
         if (!/^REJECTED by user\.(?: Reason: [^\r\n]*)?$/.test(response.response.response)) reject(422, 'rejected_text_mismatch');
         return;
@@ -99,6 +109,12 @@ function verifyResponse(response, config, callId) {
     try { result = JSON.parse(response.response.response); }
     catch { reject(422, 'function_response_not_json'); }
     const expect = config.expect;
+    if (expect.flowIds !== undefined) {
+        if (!Array.isArray(result?.flows)) reject(422, 'result_flows_required');
+        const actual = result.flows.map(row => JSON.stringify([row?.namespace,row?.id])).sort();
+        const expected = expect.flowIds.map(row => JSON.stringify([row.namespace,row.id])).sort();
+        if (!isDeepStrictEqual(actual, expected)) reject(422, 'result_flow_ids_mismatch');
+    }
     if (Object.hasOwn(expect, 'exact') && !isDeepStrictEqual(result, expect.exact)) reject(422, 'function_result_mismatch');
     if (expect.namespaces !== undefined || expect.forbiddenNamespaces !== undefined || expect.minItems !== undefined) {
         const rows = result?.flows ?? result?.executions;
@@ -220,7 +236,7 @@ export async function startModelTransport({ host = '127.0.0.1', port = 8089, max
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
     const args = process.argv.slice(2);
     if (args.includes('--help')) {
-        console.log('Usage: node scripts/ai-model-transport.mjs [--host 127.0.0.1] [--port 8089]\nPOST /scenarios {id, mode:text|tool|wait, text, tool?:{name,args,expect:{exact?,namespaces?,forbiddenNamespaces?,minItems?}}, waitTimeoutMs?}\nPrompt marker: [[ai-scenario:ID]]. GET /scenarios/ID; POST /scenarios/ID/release {}; DELETE /scenarios/ID.\nGemini: POST /models/MODEL:streamGenerateContent?alt=sse (optional /v1beta).\nThis unauthenticated control service belongs on an isolated test network. Never route production model traffic to it.');
+        console.log('Usage: node scripts/ai-model-transport.mjs [--host 127.0.0.1] [--port 8089]\nPOST /scenarios {id, mode:text|tool|wait, text, tool?:{name,args,expect:{exact?,rejectedText?,namespaces?,forbiddenNamespaces?,minItems?,flowIds?:[{namespace,id}]}}, waitTimeoutMs?}\nflowIds requires the exact returned flow identity set (no omissions, duplicates or extras).\nPrompt marker: [[ai-scenario:ID]]. GET /scenarios/ID; POST /scenarios/ID/release {}; DELETE /scenarios/ID.\nGemini: POST /models/MODEL:streamGenerateContent?alt=sse (optional /v1beta).\nThis unauthenticated control service belongs on an isolated test network. Never route production model traffic to it.');
     } else {
         try {
             const options = { log: event => console.log(JSON.stringify(event)) };
