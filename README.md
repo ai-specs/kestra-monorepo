@@ -184,7 +184,8 @@ Copy-Item .work/rbac-release/build/libs/kestra-rbac-authorizer.jar deployment/li
 > `dd40ed1149ac322fa175055481100e70d01c345c11d67eabc4f5ee2f5e28379b` 已推广并下载审计。
 > 插件 `facd1dd` 已独立消费该正式输入，本地后端314/112/30及页面888项通过；对应CI
 > `44048776055`已成功，正式artifact须按上述入口实际下载并核对hash及provenance。
-> 根仓Ego模式A/B激活AI定向门已通过；最终提交干净组合及CI仍待完成，不继承上一组产物结果。
+> 根仓本地干净组合与 Ego 模式 A/B 验收通过。运行输入提交 `a9e7459` 的 CI
+> `44157709923` 成功，下载报告复核为零失败、跳过和未运行。
 > AI入口需要显式租户READ/EXECUTE；旧namespace AI声明不会自动扩大为租户权限。
 
 普通资源 grants 按其命名空间、资源及动作求值；显式业务实例管理 grants 按固定映射求值。
