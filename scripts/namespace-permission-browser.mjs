@@ -198,13 +198,9 @@ export async function runNamespacePermissionBrowser(page,{base,account,controls,
         assert.deepEqual(await page.evaluate(()=>({path:location.pathname,timeOrigin:performance.timeOrigin})),current)
         await page.waitForFunction(namespaceKvTargetReady,{ns,id})
         await dismissNamespaceInstallPrompt(page)
-        await page.evaluate(({ns,id})=>{
-          const rows=[...document.querySelectorAll('tr')].filter(row=>[...row.querySelectorAll('td')].some(cell=>cell.textContent.trim()===ns)&&row.textContent.includes(id))
-          if(rows.length!==1)throw Error('Expected one existing KV row in current UI page')
-          const edit=rows[0].querySelector('[data-test="kv-edit"]');if(!edit)throw Error('Existing KV has no native edit control')
-          edit.setAttribute('data-namespace-permission-edit','true')
-        },{ns,id})
-        await page.click('[data-namespace-permission-edit="true"]')
+        await page.waitForFunction(()=>![...document.querySelectorAll('.kel-loading-mask')].some(node=>node.getClientRects().length&&getComputedStyle(node).visibility!=='hidden'))
+        assert(/^[a-z0-9_.]+$/.test(ns)&&/^namespace_[0-9]+$/.test(id),'Unexpected KV locator identity')
+        await page.click('xpath=//tr[td[normalize-space(.)="'+ns+'"] and td[normalize-space(.)="'+id+'"]]//button[@data-test="kv-edit"]')
       } else {
       await page.click('[data-test="kv-add"]')
       let selection=await page.evaluate(namespacePickerState,ns)
