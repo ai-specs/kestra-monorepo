@@ -195,7 +195,7 @@ export async function runRbacOnboardingDeployment({configuration,compose,saveCon
         placeJar()
         assert.equal(command('docker',['exec',hostContainer,'sha256sum','/app/libs/kestra-rbac-authorizer.jar']).split(/\s+/)[0],inputs.jarSha256)
       },restartJvm:async()=>{
-        await assertOwner();compose('restart','kestra');await waitForHost()
+        await assertOwner();command('docker',['restart',hostContainer],{timeout:120000});await waitForHost()
         assert.equal(compose('ps','-q','kestra'),hostContainer,'Restart replaced the container unexpectedly')
       }}
     adapter=uiAdapter
