@@ -1,6 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import {namespacePermissionCaseIds,initialNamespacePermissionReport,assertNamespacePermissionReport,runNamespacePermissionBrowser,redactNamespacePermissionError,namespacePickerState,waitNamespacePermissionResponse,namespaceFlowLandingReady,namespaceKvTargetReady,dismissNamespaceInstallPrompt} from '../namespace-permission-browser.mjs'
+import {namespaceFlowDetailCanonicalQueryReady} from '../namespace-flow-detail-browser.mjs'
 
 export function completeNamespacePermissionReport() {
   const report=initialNamespacePermissionReport()
@@ -143,4 +144,11 @@ for(const label of ['暂不','Not now'])test('native PWA prompt uses real '+labe
 test('absent native install prompt does not dispatch an action',async()=>{
   const page={evaluate:async()=>null,click:async()=>{throw Error('unexpected click')}}
   assert.equal(await dismissNamespaceInstallPrompt(page),false)
+})
+
+test('canonical Flow Overview readiness rejects a missing native time query',()=>{
+  const previous=globalThis.location
+  globalThis.location=new URL('http://localhost:8080/ui/main/flows/edit/company.sub/one/overview')
+  try {assert.equal(namespaceFlowDetailCanonicalQueryReady({path:'/ui/main/flows/edit/company.sub/one/overview',description:'saved',tab:'overview'}),false)}
+  finally {if(previous===undefined)delete globalThis.location;else globalThis.location=previous}
 })
