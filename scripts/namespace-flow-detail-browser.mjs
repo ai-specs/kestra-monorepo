@@ -4,6 +4,11 @@ export const namespaceFlowDetailPhases=Object.freeze(['overview-direct','overvie
 
 // Production integration only. Component visuals and their complete state matrix
 // belong to the host's independently published browser gate.
+export function namespaceFlowDetailCanonicalQueryReady({path,description,tab}) {
+  if(location.pathname!==path||new URLSearchParams(location.search).get('filters[timeRange][EQUALS]')!=='PT24H')return false
+  return namespaceFlowDetailReady({path,description,tab})
+}
+
 export function namespaceFlowDetailReady({path,description,tab}) {
   if(location.pathname!==path)return false
   const visible=node=>Boolean(node.getClientRects().length)&&getComputedStyle(node).visibility!=='hidden'
@@ -71,6 +76,15 @@ export async function runNamespaceFlowDetailBrowser(page,{base,namespace,flowId,
     else await page.goto(base+path)
     await page.waitForFunction(previous=>performance.timeOrigin>previous,previousOrigin)
     await page.waitForFunction(namespaceFlowDetailReady,{path,description,tab})
+    if(name==='overview-direct') {
+      // The native Flow router first mounts the bare Overview, then canonicalizes
+      // its default time filter and performs another document load. Evidence must
+      // be bound to that final canonical document, not span both route mounts.
+      await page.waitForFunction(namespaceFlowDetailCanonicalQueryReady,{path,description,tab})
+      const intermediateOrigin=await page.evaluate(()=>performance.timeOrigin)
+      await page.waitForFunction(previous=>performance.timeOrigin>previous,intermediateOrigin)
+      await page.waitForFunction(namespaceFlowDetailCanonicalQueryReady,{path,description,tab})
+    }
     const dom=await page.evaluate(({description})=>{
       const visible=node=>Boolean(node.getClientRects().length)&&getComputedStyle(node).visibility!=='hidden'
       return {denied:[...document.querySelectorAll('[data-flow-capability-state="unavailable"]')].filter(visible).length,
