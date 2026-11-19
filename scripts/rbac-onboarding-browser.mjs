@@ -6,6 +6,12 @@ import {dirname} from 'node:path'
 import {readBrowserDiagnosticEvidence} from './browser-diagnostic-evidence.mjs'
 import {runFirstAccountExecutions,assertFirstAccountExecutions} from './first-account-execution-browser.mjs'
 
+export function rbacSetupFormReady() {
+  const visible=node=>node?.getClientRects?.().length>0&&getComputedStyle(node).visibility!=='hidden'&&getComputedStyle(node).display!=='none'
+  const form=document.querySelector('form[action="/oidc/setup"]'),csrf=form?.querySelector('input[name="csrf"]')
+  return location.pathname==='/oidc/setup'&&visible(form)&&visible(csrf)&&![...document.querySelectorAll('[data-setup-wait]')].some(visible)
+}
+
 export const rbacOnboardingCaseIds=Object.freeze([
   'missing-jar-guidance',
   'missing-participant-rejects-without-effects',
@@ -230,7 +236,7 @@ export async function runRbacOnboardingBrowser(page,{base,account,inputs,control
         assert.equal(runtime.restartCount,0);assert.equal(runtime.jarSha256,inputs.jarSha256)
         const priorSession=await controls.restorePriorSession()
         await page.goto(base+'/ui/')
-        await page.waitForFunction(()=>location.pathname==='/oidc/setup'&&Boolean(document.querySelector('form[action="/oidc/setup"] input[name="csrf"]'))&&!document.querySelector('[data-setup-wait]'))
+        await page.waitForFunction(rbacSetupFormReady)
         await assertEmptyInstallation()
         return {...runtime,priorSession,form:true,path:await path()}
       })
@@ -265,7 +271,7 @@ export async function runRbacOnboardingBrowser(page,{base,account,inputs,control
       const window={startedAt:new Date().toISOString(),finishedAt:null};report.restartWindows.push(window)
       try {
         await controls.restartJvm()
-        await page.waitForFunction(()=>location.pathname==='/oidc/setup'&&Boolean(document.querySelector('form[action="/oidc/setup"] input[name="csrf"]'))&&!document.querySelector('[data-setup-wait]'))
+        await page.waitForFunction(rbacSetupFormReady)
       } finally {window.finishedAt=new Date().toISOString()}
       return {recoveredWithoutManualNavigation:true,passwordAutomaticallyReplayed:false,path:await path()}
     })

@@ -1,12 +1,27 @@
 import {initialNamespacePermissionReport} from '../namespace-permission-browser.mjs'
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import {initialRbacOnboardingReport,assertRbacOnboardingReport,rbacOnboardingCaseIds,rbacNormalOnboardingCaseIds,classifyRbacOnboardingDiagnostics} from '../rbac-onboarding-browser.mjs'
+import {initialRbacOnboardingReport,assertRbacOnboardingReport,rbacOnboardingCaseIds,rbacNormalOnboardingCaseIds,classifyRbacOnboardingDiagnostics,rbacSetupFormReady} from '../rbac-onboarding-browser.mjs'
 import {applicationGroupTables} from '../application-group-artifact-contract.mjs'
 import {scopedRbacOnboardingEvents} from '../rbac-onboarding-browser.mjs'
 
 const inputs={image:'ghcr.io/ai-specs/kestra-overlay@sha256:'+'a'.repeat(64),jarSha256:'b'.repeat(64),
   rootCommit:'c'.repeat(40),overlayCommit:'d'.repeat(40),pluginCommit:'e'.repeat(40)}
+test('setup recovery waits for visible form and no visible waiting state',()=>{
+  const previous={location:globalThis.location,document:globalThis.document,getComputedStyle:globalThis.getComputedStyle}
+  const rect=()=>[{}],csrf={getClientRects:rect},form={getClientRects:rect,querySelector:selector=>selector==='input[name="csrf"]'?csrf:null}
+  let waits=[]
+  globalThis.location={pathname:'/oidc/setup'}
+  globalThis.getComputedStyle=()=>({visibility:'visible',display:'block'})
+  globalThis.document={querySelector:selector=>selector.startsWith('form')?form:null,querySelectorAll:()=>waits}
+  try {
+    waits=[{getClientRects:()=>[]}];assert.equal(rbacSetupFormReady(),true)
+    waits=[{getClientRects:rect}];assert.equal(rbacSetupFormReady(),false)
+    waits=[];globalThis.location.pathname='/oidc/login';assert.equal(rbacSetupFormReady(),false)
+    globalThis.location.pathname='/oidc/setup';form.getClientRects=()=>[];assert.equal(rbacSetupFormReady(),false)
+  } finally {for(const [key,value]of Object.entries(previous)){if(value===undefined)delete globalThis[key];else globalThis[key]=value}}
+})
+
 test('shared Ego adapter retains earlier failures and evaluates each journey exact event suffix',()=>{
   const first={id:'first',kind:'http-error',status:503},second={id:'second',kind:'page-error'}
   assert.deepEqual(scopedRbacOnboardingEvents({events:[first,second]},{events:[first]}),[second])
