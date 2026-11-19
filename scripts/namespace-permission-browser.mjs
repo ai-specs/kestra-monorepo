@@ -200,7 +200,14 @@ export async function runNamespacePermissionBrowser(page,{base,account,controls,
         await dismissNamespaceInstallPrompt(page)
         await page.waitForFunction(()=>![...document.querySelectorAll('.kel-loading-mask')].some(node=>node.getClientRects().length&&getComputedStyle(node).visibility!=='hidden'))
         assert(/^[a-z0-9_.]+$/.test(ns)&&/^namespace_[0-9]+$/.test(id),'Unexpected KV locator identity')
-        await page.click('xpath=//tr[td[normalize-space(.)="'+ns+'"] and td[normalize-space(.)="'+id+'"]]//button[@data-test="kv-edit"]')
+        await page.evaluate(({ns,id})=>{
+          const rows=[...document.querySelectorAll('tbody tr')].filter(row=>[...row.querySelectorAll('td')].some(cell=>cell.textContent.trim()===ns)&&[...row.querySelectorAll('td')].some(cell=>cell.textContent.trim()===id))
+          if(rows.length!==1)throw Error('Expected one settled namespace/key row')
+          const button=rows[0].querySelector('[data-test="kv-edit"]')
+          if(!button)throw Error('Settled KV row has no edit button')
+          button.setAttribute('data-namespace-permission-edit','true')
+        },{ns,id})
+        await page.click('[data-namespace-permission-edit="true"]')
       } else {
       await page.click('[data-test="kv-add"]')
       let selection=await page.evaluate(namespacePickerState,ns)
