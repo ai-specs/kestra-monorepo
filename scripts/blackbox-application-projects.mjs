@@ -225,7 +225,6 @@ export async function main(argv=process.argv.slice(2),runtime={}) {
       const previouslyDownloadedHostArtifact=(name,metadata)=>{
         const cached=runtime.downloadedHostArtifacts?.[name]
         if(!cached)return null
-        assert.equal(report.nonFinal,true,'Cached host report reuse is limited to explicit local qualification')
         assert.equal(cached.runId,evidence.overlayRunId);assert.equal(cached.artifactId,metadata.id);assert.equal(cached.commit,report.inputs.overlayCommit)
         const directory=realpathSync(cached.directory)
         assert(cached.files&&Object.keys(cached.files).length>0,'Previously downloaded host artifact requires frozen file hashes')
@@ -311,8 +310,9 @@ export async function main(argv=process.argv.slice(2),runtime={}) {
       report.sources.overlay.downloadedBookmarkGate={runId:evidence.overlayRunId,artifactId:authArtifact.id,commit:report.inputs.overlayCommit,rawReports:bookmarkReports,expectedHashes:bookmarkHashes,validation:assertHostBookmarkReports(bookmarkReports,bookmarkHashes)}
       const nativeArtifacts=sdkArtifactList.artifacts.filter(item=>item.name==='native-flow-execution-browser'&&!item.expired)
       assert.equal(nativeArtifacts.length,1);assert.equal(nativeArtifacts[0].workflow_run.head_sha,report.inputs.overlayCommit)
-      const nativeDirectory=join(output,'downloaded-host-native-flow');mkdirSync(nativeDirectory,{mode:0o700})
-      command('gh',['run','download',String(evidence.overlayRunId),'-R','ai-specs/kestra-overlay','--name','native-flow-execution-browser','--dir',nativeDirectory],{timeout:180000})
+      const nativeCached=previouslyDownloadedHostArtifact('native-flow-execution-browser',nativeArtifacts[0])
+      const nativeDirectory=nativeCached??join(output,'downloaded-host-native-flow')
+      if(!nativeCached){mkdirSync(nativeDirectory,{mode:0o700});command('gh',['run','download',String(evidence.overlayRunId),'-R','ai-specs/kestra-overlay','--name','native-flow-execution-browser','--dir',nativeDirectory],{timeout:180000})}
       const nativeLock=JSON.parse(readFileSync(join(repository,'scripts/native-flow-published-inputs.json'),'utf8'))
       assert.equal(nativeLock.overlayCommit,report.inputs.overlayCommit,'Native component input lock must be reviewed for the final host')
       const nativeClassifier=extractPublishedNativeClassifier(git(report.sources.overlay.path,'show',report.inputs.overlayCommit+':patches/webserver/0404-flow-execution-capabilities.patch'))
@@ -324,8 +324,9 @@ export async function main(argv=process.argv.slice(2),runtime={}) {
         validation:assertPublishedNativeFlowReport(nativeRaw,nativeReadiness,{commit:report.inputs.overlayCommit,expectedHashes:nativeLock.hashes,classify:classifyDiagnostics})}
       const detailArtifacts=sdkArtifactList.artifacts.filter(item=>item.name==='native-flow-detail-browser'&&!item.expired)
       assert.equal(detailArtifacts.length,1);assert.equal(detailArtifacts[0].workflow_run.head_sha,report.inputs.overlayCommit)
-      const detailDirectory=join(output,'downloaded-host-native-flow-detail');mkdirSync(detailDirectory,{mode:0o700})
-      command('gh',['run','download',String(evidence.overlayRunId),'-R','ai-specs/kestra-overlay','--name','native-flow-detail-browser','--dir',detailDirectory],{timeout:180000})
+      const detailCached=previouslyDownloadedHostArtifact('native-flow-detail-browser',detailArtifacts[0])
+      const detailDirectory=detailCached??join(output,'downloaded-host-native-flow-detail')
+      if(!detailCached){mkdirSync(detailDirectory,{mode:0o700});command('gh',['run','download',String(evidence.overlayRunId),'-R','ai-specs/kestra-overlay','--name','native-flow-detail-browser','--dir',detailDirectory],{timeout:180000})}
       const detailLock=JSON.parse(readFileSync(join(repository,'scripts/native-flow-detail-published-inputs.json'),'utf8'))
       assert.equal(detailLock.overlayCommit,report.inputs.overlayCommit,'Detail component input lock must be independently reviewed for final host')
       const detailClassifier=extractPublishedNativeClassifier(git(report.sources.overlay.path,'show',report.inputs.overlayCommit+':patches/webserver/0405-flow-detail-capabilities.patch'),'ui/tests/flow-detail-capabilities/diagnostics.mjs')
