@@ -224,7 +224,7 @@ export async function runRbacOnboardingDeployment({configuration,compose,saveCon
     for(const [name,cleanup] of [
       ['adapter',async()=>{if(adapter&&!uiAdapter)await adapter.dispose()}],
       ['context',async()=>context?.close()],['browser',async()=>browser?.close()],
-      ['host',async()=>{if(hostContainer)compose('stop','kestra')}],
+      ['host',async()=>{if(hostContainer)command('docker',['stop',hostContainer],{timeout:120000})}],
       ['configuration',async()=>{configuration.services.kestra=originalHost;await saveConfiguration()}],
     ])try{await cleanup()}catch(error){failures.push({name,error:error.name})}
     if(failures.length) {
