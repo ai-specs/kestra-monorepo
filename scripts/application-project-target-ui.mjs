@@ -7,6 +7,16 @@ const api='/api/v1/main/extensions/rbac'
 export const canonicalTargetValue=value=>Array.isArray(value)?value.map(canonicalTargetValue).sort((left,right)=>JSON.stringify(left).localeCompare(JSON.stringify(right))):value&&typeof value==='object'?Object.fromEntries(Object.entries(value).sort(([left],[right])=>left.localeCompare(right)).map(([name,item])=>[name,canonicalTargetValue(item)])):value
 export const targetUiCheckIds=Object.freeze(['ui-permission-runtime-projection','ui-subject-runtime-revoke'])
 
+export function visibleNativeFlowCell() {
+  const visible=node=>node.getClientRects?.().length>0&&getComputedStyle(node).visibility!=='hidden'&&getComputedStyle(node).display!=='none'
+  const hasCell=root=>[...root.querySelectorAll('tbody td,[role="cell"],[role="gridcell"]')].some(cell=>visible(cell)&&cell.textContent.trim().length>0)||[...root.querySelectorAll('*')].some(node=>node.shadowRoot&&hasCell(node.shadowRoot))
+  return location.pathname==='/ui/main/flows'&&hasCell(document)
+}
+
+export async function waitForNativeFlowCell(page) {
+  await page.waitForFunction(visibleNativeFlowCell)
+}
+
 export async function runTargetGroupBrowser(page,base,fixture,{management,planned,effects},record) {
   assert.equal(typeof record,'function')
   const report={completed:false,checks:targetUiCheckIds.map(id=>({id,passed:false,status:'not_run',evidence:{}})),requests:[],logins:[],cleanup:[]}
@@ -64,7 +74,7 @@ export async function runTargetGroupBrowser(page,base,fixture,{management,planne
     await management.mutateDirectory(api+groupPath+'/scope-grants','POST',{issuer:base,subject:account.subject,scopeKeys:[fixture.referenceScopeKey]},group.revision)
     await login(account)
     await page.goto(base+'/ui/main/flows')
-    await page.waitForFunction(()=>location.pathname==='/ui/main/flows'&&Boolean(document.querySelector('.flows-table tbody td')))
+    await waitForNativeFlowCell(page)
     const baseline=await sameCookie('/api/v1/main/flows/search?size=100')
     assert(Array.isArray(baseline.body.results)&&baseline.body.results.length)
     assert(baseline.body.results.every(flow=>flow.namespace===fixture.referenceNamespace),'reference UI list leaked another namespace')
