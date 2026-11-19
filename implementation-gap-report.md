@@ -1,5 +1,172 @@
 # 应用组目标模型实施差异报告
 
+## 2026-11-18 模式 B 首装权限反例调查（进行中）
+
+当前优先状态（2026-11-19）：以下过程记录保留原失败及当时待验状态；最终状态以本段及对应最终审计为准。
+0403 已正式发布，不能再视为待 CI。0404a 已提交推送 `86e436582a3e154eb564ba158603da0e9dfb8330`，
+自动 CI `44423330738` 的五个 job 均已成功，正式镜像已推广：
+`ghcr.io/ai-specs/kestra-overlay@sha256:e5ce9e58d42274cb76aeaa8b4abbf9018aa0d510eb85e2eb6e9d7550eb2e6bad`。
+十份 artifact 已实际下载，SDK949及几何64完整通过；原生列表十项及14项输入锁匹配。
+正式 arm64 executable SHA-256 为 `5a9470880d86cb3510b612e7d920da0eb0fd4a3e7de9b0b0511a6532afaffe2b`。
+主控核对入口为 overlay `.work/ui-execution-capability-20261119/ci-44423330738/release-audit.json`。
+双架构来源匹配提交和 run；provenance 的 request/resolvedDependencies completeness=false 限制保留。
+该正式版本不表示尚在实施的0404b详情修复已经交付。合法 guard 移位后的完整本地门为
+619 后端（617通过、2原镜像专项）、core3、UI134；原镜像专项由四份 MCP XML 各1项零跳过单独证明。
+本地 SDK949、几何64、classpath、OIDC35、form/env 已通过，不用这些结果替代本提交 CI。
+主控另已核对正式 CI 下载的原生 Flow 列表十项报告与14项源码锁；根仓检查器拒绝缺项、
+错误来源、伪造诊断及未覆盖错误。根仓组合仍须等最终宿主、插件正式输入后重新执行。
+
+0404b 正在独占开发树实施，尚未提交或发布。生产第二账号仅有 company.sub 的 Flow/KV
+及必要元数据授权，直接进入 Flow Overview 时原生 executions/search 返回403，已独立复现。
+修复方向是按真实资源操作预检后挂载原生卡片及运行标签页，不增加执行、日志或触发器授权。
+主控 Ego 已在明确标记的测试传输中核对：描述卡正常，其余九卡分别显示无权，未发越权运行数据请求。
+此测试不代表生产身份验证；最新完整浏览器诊断和发布门仍须通过。
+主控另外审查发现模式A原生刷新会被投影提前返回，及切换Flow的旧默认定义可能迟到覆盖新目标，
+已要求在宿主阶段修正并加入真实刷新与延迟响应反例。共享矩阵由20行为+16视觉增至
+21行为+16视觉；旧36项成功报告仅是历史输入，不代表最终37项与新源码通过。
+根仓已接入生产Overview直达/刷新和Executions直达子矩阵，完整来源验证及未完成请求拒绝；
+正式宿主详情artifact下载检查器另锁定37项，不在根仓重复完整视觉执行。
+根仓完整离线脚本测试当前586项通过、零失败/跳过；这不代表真实组合验收。
+主控正式安装后结构门发现en插入边界及TypedNamespaceAccessControl抽取与旧补丁来源冲突，
+该轮PASS14/FAIL1，证据overlay `.work/flow-detail-20261119/controller-structure.log`；
+随后新增位置已修正，主控结构复测PASS15/FAIL0，旧60补丁SHA全部未变；
+最终04647569补丁的Java51及Ego/Playwright各37项通过。
+完整localci首轮在Python报告检查器旧总数134断言失败，未启动PG；同步144总数及新增8+2组
+精确断言后，第二轮原脚本实际exit0：后端625项中623通过、2原镜像专用，core3/UI144，
+零失败。exeSHA为9c3b5cb7fc2eb70f108ac2d196441721ab96408b67e10c276c264e720d4404c5。
+主控核对入口overlay `.work/flow-detail-20261119/controller-fullci-02-summary.json`。
+候选本机image8c33836c5beac301e77d0c131cfb80106e4dbefc325241b092a5c1a43f019241，
+原classpath/OIDC35、MCP四份各1项零跳过XML、form/env整门及dependency503各7项均已通过；
+SDK949/949和geometry64完整通过，零失败/未运行。主控暂存检查拦下0405的33行单空格
+context，规范后新patchSHA728f5db922fc5160f8d2e2f64d74b76cedba23fa75d096350029f4b2ce904f2a；
+独立reverse旧patch/apply新版，5732源码与dev及fullci全部逐字节相同。14文件indexSHA匹配、
+cached check实际0后提交推送84fe6146742f377b529e1a1b60a88ac06c905ebc，自动CI44463537757五job全部成功，11份artifact实际下载核对；
+正式镜像e53cee7718204388fdf3da2460ed0a191446298ce1bd0b98fd8f392daa297a69已推广，
+arm64公开exeSHA d327a55341c1cf9689d43c48de01ade0b1da9efd90eb37f089d3d9cc9f87c1b7。
+审计入口overlay `.work/flow-detail-20261119/ci-44463537757/final-audit.json`。主控候选生产旅程ego-final-1795065722065完整59/59含新增详情三入口通过，
+完整validator及diag0error；两轮测试同步失败报告保留，修复新文档等待与原生时间query识别，
+不放宽业务断言。此组合报告仍nonFinal，最终正式镜像/jar及根仓CI未通过前不得计全部交付。
+form/env归档中的local-management及Ego旧报告明确排除，仅本轮实际脚本写入的setup/env
+及具名专项报告计数；依赖门静默写JSON，由主控实际读取completed与7项成功，不靠绿色日志推断。
+Concurrency 的运行状态接口尚未完成 typed 分类，本阶段明确未支持，不计成功功能。
+未映射的批量、导入与其他特殊功能亦不能因失败关闭而计为功能完成。
+
+
+宿主阶段已正式交付：`d6c26ec` / CI `44278423018` 五个 job 成功，推广 digest
+`571926cbc65f00646a03724ebb6045dbff1fd00214da2ed7197eb26c314fa889`。九份 artifact 已下载，
+metadata HEAD 全等；后端597项中595通过、2项原镜像专项，另四份镜像 XML 各1项零跳过，
+core3、UI130、SDK949、几何64通过；双架构来源匹配提交和 run，保留 completeness=false
+限制。主控核对入口为 overlay `.work/ci-d6c26ec/final-audit.json`。
+REQ-0401 提供相关补集域，REQ-0402 拒绝未分类操作；未映射的正常批量和特殊功能不计支持。
+插件 `8bbdc2c` 已独立消费该正式宿主并发布，CI `44310730523` 成功。
+正式 jar SHA-256 为 `3d2835ef14d13782d858dab81c06e87c9ebee3455650217c7de58ee7b42bd728`。
+主控已实际下载报告并执行原检查器：后端324、PostgreSQL113、生命周期30、声明升级9、
+真实页面960全部通过；349个UI文件与受测bundle逐文件一致。审计入口为插件
+`.work/namespace-ci-8bbdc2c/audit-summary.json`。插件正式输入升级c45cd91/CI44470593272亦已成功并下载审计，324/113/30/声明升级9、
+真实UI960全部通过，349个bundle文件与正式jar一致，jarSHA保持3d2835ef...bd728。
+本轮根仓组合仍未交付。
+
+正式新空库 `mode-b-final` 已通过 Ego 创建首装账号并生产登录。实际 GET 权限为
+company 子树正向操作和 !company 补集 READ/LIST，没有 BUSINESS_INSTANCE。
+company Flow、KV 原生 UI 保存读回通过；outside/company2 Flow/KV 四次创建请求
+全部403，数据库目标记录与全部存储文件哈希立即及2.6秒后不变，证据
+`.work/mode-b-permission-counterexamples/final-manual-denials.json`。
+完整双账号旅程一次实际执行已通过57项：首账号 company/company.sub 四项原生保存，六空间列表与详情，
+company2/outside 十二项创建、修改、删除拒绝及即时、延迟无副作用；第二账号生产改密、
+登录、company.sub/child的Flow/KV更新、精确列表及32项范围外读写拒绝亦已实证。
+该轮撤权控制面测试助手仍假定旧应用组kestra，未通过main签名身份校验，故不计撤权成功。
+后续已修正助手，并加强完整队列与输出表观察；最终仍须新一轮实际运行。此前 KV 选项误将搜索字符串视为已提交值、
+权限变更后真实自动注销未被测试识别、已有Flow路径不能等待保存响应，均修正测试同步，
+不改变授权或减少断言；失败报告和未运行项保留。最终单轮报告尚在执行。
+
+附带发现：仅授Flow/KV等普通资源的第二账号不具备默认dashboard执行统计权限，
+直接默认落地会产生 chart403；不得补额外数据授权或忽略当前文档错误来获得绿色。
+主控随后实际尝试登录前匿名请求Flow书签，最终仍回dashboard，不能作为通过路径。
+启用Micronaut prior-to-login配置后再次实测，问题仍存在。已定位宿主自定义授权异常
+处理器未调用框架保存原URI机制。当前安排最小宿主修复：复用框架原URI保存与消费，
+同源路径约束和退出清理必须独立验证；不引入插件路由或放宽权限。候选镜像 `67ff9dfd84fd`、executable SHA-256
+`334478eb71c10b919b9a1a51e0a0ebd0d59dd7462715caf671c3ef0e318a3a44`
+已由主控Ego实测匿名书签→生产登录→最终Flow路径，未手工修路径。候选仍非正式输入，
+未用于插件编译；完整本地门、CI与发布未完成。正式发布后再重跑
+登录前目标、生产回调与范围旅程。首装admin默认dashboard旅程继续独立保留。
+完整证据为ego-final-1795011446506及ego-final-1795011906283，均保留失败/未运行项。
+
+0403 已由主控完成11文件暂存/hash核对并提交推送 `d3247f96226668350efa359625272f4a16e02a4c`。
+自动CI `44407072165` 的结构应用及build-push job通过，已进入独立SDK949和OIDC镜像门。
+OIDC镜像job亦已成功，已下载两份新书签正式报告并经主控根检查器复核共8项、每份432事件、
+零错误。CI最终五job全部成功，含SDK949与promote。正式digest声明为
+`0bbf3c61e3c3e550b42338202cd6f9ea008db31ed14a706bb42805c5e18b6efd`，最终九份artifact、完整日志76文件、OCI推广及双架构provenance均已实际下载审核。
+正式arm64已拉取、仅create/cp/rm提取，未启动服务，exeSHA为
+`c21d3ad941e69f4f74f32fb6ed6d13ac82c100238fcfa83fb25958e0aa4aafb2`。
+公开SDK10文件与CI输入逐字节一致，form/env20份认证矩阵和两份书签报告均已逐项核对。
+审计入口overlay `.work/oidc-return-20261118/ci-d3247f9/final-audit.json`；保留provenance
+request/resolvedDependencies=false限制，不把上游BASE误作overlay提交。
+暂存检查曾拦下0403补丁两行单空格context，主控规范后逆用旧补丁/应用格式版，395源码
+逐字节相同，cached check0；原patch、格式proof与最终index哈希保留。本轮无新增无关提交。
+
+书签修复0403完整本地门已实际通过：129份webserver XML共605项，603通过、零失败、
+2项原镜像专用；core3、UI130通过。完整脚本exit0，owner PG已清理。新独立构建exe
+SHA-256 `cd8a639de57b04cb0e4a8c015d7478b5724c183e2e052be413fc578dc551a3b6`，
+本地镜像 `906518cc4478b955ef510dc9c557a40deaa952c7fdecb0256d7e4eab2f4e869e`。
+主控独立XML审计保存在controller-host0403-localci-audit.json。稳定窗口geometry64全部
+通过，SDK949完整949/949、零失败/未运行、driverPassed/passedGate均true，classpath、
+OIDC35与MCP原门亦通过。form初轮新增书签生产门前三项通过，第四项cookie篡改测试存在旧文档注销导航竞争，
+已保留整门失败；测试隔离修复中，不算form整体通过。env尚未通过。不能以旧候选或本地门
+代替正式CI/发布。
+
+0404a候选已由主控真实Compose完成单轮59/59权限旅程，完整报告validator及来源诊断
+零未知错误，证据`ego-final-1795043068573/report.json`。候选镜像31b405f57f02、exe
+2cda3a615b4e...523e4e，正式jar仍3d2835ef...bd728。此证据明确nonFinal，不证明guard
+移位后的新产物或正式CI已通过。原生SDK对200零长度响应不读正文会触发Chromium
+ERR_ABORTED；主控同会话对照consume=false/true已复现，四次已保存读回KV请求仅在
+精确请求/文档、200且content-length=0、完成原生保存/存储证据与≤1秒取消条件下分类，
+14项反例保持失败关闭；其他请求取消不豁免。合法guard移位及全量构建新镜像70ff875a...、exe33eb9045...已由主控重新生产执行59/59，
+完整validator及diag0error通过，证据ego-final-1795044567069，仍为候选nonFinal。
+合法guard移位后完整localci已执行后端619项（617通过/0失败/2原镜像专用），core3通过，
+UI134及新exe均通过并封存。原classpath/OIDC/MCP/form/env门已通过，SDK949/geometry64
+静态门仍进行，正式CI未执行。
+
+
+新生产 UI 缺口（未交付）：第二账号正确登录到 Flow 列表后，原生页面仍请求
+`executions/latest` 和每行 `dashboards/charts/preview`，返回403并产生可见错误提示。
+来源证据 `ego-final-1795037033884` 的 event1672及1678起请求，均属于当前Flow文档。
+主控核对 `Flows.vue` 已有 EXECUTION 条件，而 OSS `override/stores/auth.ts` 的
+Me.hasAny/hasAnyActionOnAnyNamespace 等恒为true。实际RBAC没有向该原生UI模型提供
+权限投影，故不能通过第二账号纯Flow/KV正常使用门。不得增加EXECUTION权限、关闭
+错误后宣称通过或全局忽略403。该通用宿主机制须另行接收最小提案并完成独立发布。
+
+
+维护者随后明确修订目标：首装 admin 允许查看所有命名空间，但普通资源写入仅限
+`company` 及子空间。补缺管理声明不得覆盖普通 grant 已能表达的资源、动作和范围。
+此前 README 中“全实例管理映射允许范围外写入”的描述不能推翻此最新要求。
+UI 往返修复 `a62225b` 是独立缺陷修复，不代表这一授权模型修订已经交付。
+维护者进一步指定：优先用类似 `!company` 的普通权限范围表达补集；全域读取也不得
+封装进 BUSINESS_INSTANCE。第二账号必须能只读写 company.sub 子树的 Flow/KV。
+目标模型与阶段定义归插件 `docs/application-groups.md` 顶部；宿主机制提案归 overlay
+既有能力文档，本仓不接管业务策略设计。
+
+本次先按 README 的正式镜像及插件 jar，在独立空数据库通过生产首装和登录复现。
+显式指定根 Compose 文件，排除未跟踪的本地 override，不修改原文件。
+
+| 检查 | 实际结果 | 归属与后续门 |
+| --- | --- | --- |
+| 默认首装账号在 `outside.counterexample` 创建 Flow、KV | Ego 真实点击保存成功，数据库分别存在记录；初始权限包含显式 BUSINESS_INSTANCE.READ/MANAGE，不能只按普通 company grant 判为越权 | plugin 策略与公开契约；root 生产组合 |
+| UI 移除 BUSINESS_INSTANCE 后保存 | 前端通用失败且无 PUT；真实 GET 省略 TENANT grant 的 null namespace，前端严格 null 校验拒绝 undefined | plugin `a62225b` 修复；三资源回归、后端314、UI244及真实 Chromium888本地通过；CI `44230418620` 页面门887过1失败，未正式发布 |
+| 通过正式管理 API 收窄权限 | 使用同一生产会话、CSRF、If-Match 成功更新；仅移除 BUSINESS_INSTANCE，保留身份和本组策略管理 | 此操作只用于隔离授权原因，不冒称 UI 保存成功 |
+| 收窄后范围外创建 | Flow 真实 UI 保存 403；KV 同会话 API 写 403，目标数据库记录均为零；再次拒绝前后 outside 范围 Flow/KV 完整记录聚合 hash 相同 | 范围内 Flow/KV 真实 UI 保存及数据库读回通过；最终正式产物复测待 CI 发布 |
+| 本地修复 jar 的生产 UI | 使用同一空库安装产生的账号，真实点击移除 BUSINESS_INSTANCE 并保存，读回 revision=4，保留 IDENTITY/LOCAL_POLICY；随后范围外 Flow UI 拒绝 | 只更换 jar 并重启 JVM；不是重新编译宿主，不是正式 jar 发布证明 |
+
+证据目录：`.work/mode-b-permission-counterexamples/`。当前本地修复和测试不代表
+插件 CI、正式发布或本轮最终组合验收通过。不得按首账号身份直接放行或隐式扩权。
+BUSINESS_INSTANCE 按维护者最新裁决收窄，必须同步公开语义和升级说明，不得静默变更。
+
+CI 失败日志及具名报告、截图、trace 已实际下载（`ci-targeted/`，Azure Range 提取
+对应 ZIP 条目并校验解压长度）。失败项为 `system/zh_CN/390/ai-tenant-native-edit`：
+原生滚动改变文档 scrollTop 后，点击发生在 popup 位置补偿完成前，资源仍为 FLOW。
+测试同步修复必须保留真实点击和全部业务断言，不增加 timeout、force 或跳过。
+本地重复200项出现188过12超时，trace 含约32分钟执行断层及启动超时，不能用它证明
+重现了 CI 点击完成后的状态错误；该诊断报告不替代正式888门。
+
 ## 2026-11-15 流式授权与MCP生命周期专项（P5本地组合通过）
 
 正式任务入口 `docs/stream-authorization-bugfix-plan.md`。按P1 root会话清理、P2宿主

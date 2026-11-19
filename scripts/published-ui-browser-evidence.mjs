@@ -3,6 +3,7 @@ import {createHash} from 'node:crypto'
 import {execFileSync} from 'node:child_process'
 
 export const pluginUiBehaviors=Object.freeze([
+  'namespace-positive-complement-roundtrip','namespace-invalid-no-write','namespace-legacy-domain',
   'ai-tenant-native-edit','ai-legacy-native-preserve',
   ...['group','user','permission','subject'].flatMap(kind=>[
     `drawer-${kind}-native-style`,`drawer-${kind}-focus-close-reopen`,
@@ -93,10 +94,10 @@ export function assertPluginUiBrowserReport(raw,{commit,image,hostExecutableSha2
     assert.deepEqual({theme:row.theme,locale:row.locale,width:row.width,behavior:row.behavior},{theme,locale,width:Number(width),behavior},'Published browser parameters differ from named case identity')
   }
   assert.equal(report.gatePassed,true)
-  assert.equal(pluginUiExpectedIds.length,888)
-  assert.deepEqual(report.summary,{planned:888,executed:888,passed:888,failed:0,notRun:0,skipped:0})
+  assert.equal(pluginUiExpectedIds.length,960)
+  assert.deepEqual(report.summary,{planned:960,executed:960,passed:960,failed:0,notRun:0,skipped:0})
   assert(report.cases.every(row=>row.status==='passed'&&Array.isArray(row.errors)&&row.errors.length===0&&Number.isFinite(row.durationMs)&&row.durationMs>=0),'Plugin browser has errors, skipped or incomplete cases')
-  return {passed:true,cases:888,failures:0,notRun:0,skipped:0,reportSha256:digest(raw),manifestSha256:digest(manifestRaw),inputs:report.inputs}
+  return {passed:true,cases:960,failures:0,notRun:0,skipped:0,reportSha256:digest(raw),manifestSha256:digest(manifestRaw),inputs:report.inputs}
 }
 
 export const hostAuthThemeIds=Object.freeze([1280,390].flatMap(width=>[
@@ -118,4 +119,37 @@ export function assertHostAuthenticationUiReports(reports) {
     evidence[name]={sha256:digest(raw),rows:expected}
   }
   return {passed:true,cases:156,failures:0,notRun:0,skipped:0,reports:evidence}
+}
+
+
+export const hostBookmarkCaseNames=Object.freeze(['production-callback-restores-flow-bookmark','logout-clears-residual-return-cookie','no-target-keeps-default-dashboard','tampered-external-cookie-falls-back-same-origin'])
+export function committedHostBookmarkHashes(repository,commit) {
+  assert.match(commit,/^[a-f0-9]{40}$/)
+  return Object.fromEntries([['sourceSha256','scripts/bookmark-return-browser.cjs'],['helperSha256','scripts/sdk-browser-diagnostics.cjs']].map(([key,path])=>[key,createHash('sha256').update(execFileSync('git',['-C',repository,'show',commit+':'+path])).digest('hex')]))
+}
+export function assertHostBookmarkReports(reports,expectedHashes) {
+  assert.deepEqual(Object.keys(reports).sort(),['bookmark-env.json','bookmark-form.json'])
+  for(const [name,raw] of Object.entries(reports)) {
+    const report=JSON.parse(raw)
+    assert.equal(report.completed,true)
+    assert.equal(report.mode,name==='bookmark-env.json'?'env':'form')
+    assert.deepEqual(report.checks.map(row=>row.name),hostBookmarkCaseNames)
+    assert(report.checks.every(row=>row.passed===true&&!row.error))
+    assert.equal(report.finalInputHashesEqual,true)
+    for(const key of ['sourceSha256','helperSha256']){assert.match(expectedHashes[key],/^[a-f0-9]{64}$/);assert.equal(report[key],expectedHashes[key])}
+    assert.match(report.candidateImage,/^(?:[^\s]+@)?sha256:[a-f0-9]{64}$/)
+    assert.deepEqual(report.diagnosticSources.map(source=>source.name),hostBookmarkCaseNames)
+    for(const source of report.diagnosticSources){assert(source.documents.length>0);assert.deepEqual(source.integrity,[]);if(source.name!==hostBookmarkCaseNames[1])assert(source.events.length>0)}
+    const events=report.diagnosticSources.flatMap(source=>source.events.map(event=>({...event,sourceName:source.name,sourceEventId:source.name+':'+event.id})))
+    assert.deepEqual(report.diagnostics.events,events)
+    assert.equal(new Set(events.map(event=>event.sourceEventId)).size,events.length)
+    assert(!events.some(event=>['console-error','page-error','http-error','request-failed','diagnostic-integrity-error'].includes(event.kind)))
+    const [bookmark,logout,fallback,tampered]=report.checks.map(row=>row.evidence)
+    assert.equal(new URL(bookmark.finalUrl).pathname,'/ui/main/flows');assert.equal(bookmark.originalCookieConsumed,true)
+    assert.equal(logout.status,307);assert.equal(logout.expirationCookieCount,1);assert.match(logout.transport,/^HTTP cookie lifecycle check/)
+    assert.equal(new URL(fallback.finalUrl).pathname,'/ui/main/dashboards')
+    assert.equal(new URL(tampered.finalUrl).pathname,'/ui/main/dashboards');assert.equal(tampered.originalCookieConsumed,true)
+    assert(tampered.destinations.length>0&&tampered.destinations.every(url=>new URL(url).origin===new URL(tampered.finalUrl).origin))
+  }
+  return {checks:8,failures:0,skipped:0,notRun:0,sourceHashes:expectedHashes}
 }

@@ -1,4 +1,7 @@
 #!/usr/bin/env node
+import {assertPublishedNativeFlowReport,extractPublishedNativeClassifier} from './published-native-flow-evidence.mjs'
+import {assertPublishedNativeFlowDetailReport} from './published-native-flow-detail-evidence.mjs'
+import {execFileSync} from 'node:child_process'
 import {readFileSync} from 'node:fs'
 import {assertP6Evidence} from './stream-authorization-p6-evidence.mjs'
 import {fileURLToPath} from 'node:url'
@@ -12,11 +15,12 @@ import {dirname,resolve,sep} from 'node:path'
 import {readBrowserDiagnosticEvidence,canonicalDiagnosticLabels} from './browser-diagnostic-evidence.mjs'
 import {assertUiClientOwnership} from './ui-client-ownership-evidence.mjs'
 import {accessControlLocales,accessControlSupportedLocales,accessControlCaseIds,accessControlTransferredUiCases} from './access-control-v3-ui.mjs'
-import {assertPluginUiBrowserReport,assertHostAuthenticationUiReports,assertHostAuthenticationRecoveryBrowserReport,committedPluginUiHashes,aggregateUiHashes,assertStablePopupReferenceCases} from './published-ui-browser-evidence.mjs'
+import {assertPluginUiBrowserReport,assertHostAuthenticationUiReports,assertHostBookmarkReports,committedHostBookmarkHashes,assertHostAuthenticationRecoveryBrowserReport,committedPluginUiHashes,aggregateUiHashes,assertStablePopupReferenceCases} from './published-ui-browser-evidence.mjs'
 import {checkPublishedTranslationSources} from './access-control-translation-coverage.mjs'
 import {classifyAccessControlDiagnostics} from './access-control-browser-diagnostics.mjs'
 import {assertRbacOnboardingReport,classifyRbacOnboardingDiagnostics,scopedRbacOnboardingEvents} from './rbac-onboarding-browser.mjs'
 import {assertHostInitialAccountReports,assertHostOnboardingBrowserEvidence,committedHostOnboardingSources,assertHostOnboardingDiagnostics} from './rbac-onboarding-published-evidence.mjs'
+import {assertNamespacePermissionEvidence} from './namespace-permission-evidence.mjs'
 
 const [file, image, jarSha256, rootCommit, overlayCommit, pluginCommit] = process.argv.slice(2)
 assert(file && /^ghcr\.io\/ai-specs\/kestra-overlay@sha256:[0-9a-f]{64}$/.test(image ?? ''), 'Explicit immutable image required')
@@ -84,10 +88,16 @@ const normalDiagnostics=readBrowserDiagnosticEvidence(normalReference,normalDire
 const normalCheckpoint=readBrowserDiagnosticEvidence(normalOnboardingStage.evidence.diagnostics.checkpoint,normalDirectories)
 assert.equal(normalDiagnostics.integrity.length,0)
 const normalReview=classifyRbacOnboardingDiagnostics({events:scopedRbacOnboardingEvents(normalDiagnostics,normalCheckpoint),base:report.resources.base,
-  requests:normalOnboardingStage.evidence.requests,restartWindows:normalOnboardingStage.evidence.restartWindows})
+  requests:[...normalOnboardingStage.evidence.requests,...(normalOnboardingStage.evidence.namespacePermissionJourney?.requests??[])],restartWindows:normalOnboardingStage.evidence.restartWindows,namespaceJourney:normalOnboardingStage.evidence.namespacePermissionJourney})
 assert.equal(normalReview.errors.length,0,'Ordinary first-install browser retains unknown errors')
 const executionJourney=normalOnboardingStage.evidence.cases.find(row=>row.id==='initial-account-production-executions').evidence.journey
 const normalEvents=scopedRbacOnboardingEvents(normalDiagnostics,normalCheckpoint)
+assertNamespacePermissionEvidence({
+  journey:normalOnboardingStage.evidence.namespacePermissionJourney,
+  caseJourney:normalOnboardingStage.evidence.cases.find(row=>row.id==='namespace-permission-production-journey').evidence.journey,
+  events:normalEvents,base:report.resources.base,
+  firstSubject:normalOnboardingStage.evidence.cases.find(row=>row.id==='first-account-creation-through-ui').evidence.subject,
+})
 for(const row of executionJourney.executions) {
   const url=report.resources.base+'/api/v1/main/executions/'+row.executionId+'/follow'
   assert.equal(row.followEnd.stream.url,url,'Terminal stream belongs to another origin or execution')
@@ -184,6 +194,28 @@ const authBrowser=report.sources?.overlay?.downloadedAuthenticationUiGate
 assert.equal(authBrowser?.commit,overlayCommit);assert.equal(authBrowser.image,image)
 assert.equal(authBrowser.sha256,createHash('sha256').update(JSON.stringify(authBrowser.rawReports)).digest('hex'))
 assert.deepEqual(authBrowser.validation,assertHostAuthenticationUiReports(authBrowser.rawReports))
+const bookmarkGate=report.sources.overlay.downloadedBookmarkGate
+assert.equal(bookmarkGate.commit,overlayCommit)
+assert.deepEqual(bookmarkGate.expectedHashes,committedHostBookmarkHashes(report.sources.overlay.path,overlayCommit))
+assert.deepEqual(bookmarkGate.validation,assertHostBookmarkReports(bookmarkGate.rawReports,bookmarkGate.expectedHashes))
+const nativeFlow=report.sources.overlay.downloadedNativeFlowGate
+assert.equal(nativeFlow.commit,overlayCommit)
+const nativeLock=JSON.parse(readFileSync(new URL('./native-flow-published-inputs.json',import.meta.url),'utf8'))
+assert.equal(nativeLock.overlayCommit,overlayCommit);assert.deepEqual(nativeFlow.expectedHashes,nativeLock.hashes)
+const nativeSource=extractPublishedNativeClassifier(execFileSync('git',['-C',report.sources.overlay.path,'show',overlayCommit+':patches/webserver/0404-flow-execution-capabilities.patch'],{encoding:'utf8'}))
+assert.equal(nativeSource,nativeFlow.classifierSource)
+assert.equal(createHash('sha256').update(nativeSource).digest('hex'),nativeLock.hashes['./diagnostics.mjs'])
+const nativeModule=await import('data:text/javascript;base64,'+Buffer.from(nativeSource).toString('base64'))
+assert.deepEqual(nativeFlow.validation,assertPublishedNativeFlowReport(nativeFlow.rawReport,nativeFlow.rawReadiness,{commit:overlayCommit,expectedHashes:nativeLock.hashes,classify:nativeModule.classifyDiagnostics}))
+const nativeDetail=report.sources.overlay.downloadedNativeFlowDetailGate
+assert.equal(nativeDetail.commit,overlayCommit)
+const detailLock=JSON.parse(readFileSync(new URL('./native-flow-detail-published-inputs.json',import.meta.url),'utf8'))
+assert.equal(detailLock.overlayCommit,overlayCommit);assert.deepEqual(nativeDetail.expectedHashes,detailLock.hashes)
+const detailSource=extractPublishedNativeClassifier(execFileSync('git',['-C',report.sources.overlay.path,'show',overlayCommit+':patches/webserver/0405-flow-detail-capabilities.patch'],{encoding:'utf8'}),'ui/tests/flow-detail-capabilities/diagnostics.mjs')
+assert.equal(detailSource,nativeDetail.classifierSource)
+assert.equal(createHash('sha256').update(detailSource).digest('hex'),detailLock.hashes['./diagnostics.mjs'])
+const detailModule=await import('data:text/javascript;base64,'+Buffer.from(detailSource).toString('base64'))
+assert.deepEqual(nativeDetail.validation,assertPublishedNativeFlowDetailReport(nativeDetail.rawReport,nativeDetail.rawReadiness,{commit:overlayCommit,expectedHashes:detailLock.hashes,classify:detailModule.classifyDiagnostics}))
 assert.equal(pluginUi?.commit,pluginCommit,'Downloaded plugin UI report does not match final commit')
 assert(Number.isSafeInteger(pluginUi.tests)&&pluginUi.tests>=195,'Complete downloaded plugin UI regressions required')
 assert.equal(pluginUi.cases?.length,pluginUi.tests,'Plugin UI case count differs from downloaded JUnit')

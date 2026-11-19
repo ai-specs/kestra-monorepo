@@ -1,0 +1,20 @@
+{
+  "overlayCommit": "84fe6146742f377b529e1a1b60a88ac06c905ebc",
+  "provenance": "Controller-audited fixed BASE plus 60 committed overlay patches; source replay equality independently checked before host publication; no compilation by this consumer",
+  "hashes": {
+    "../../src/components/flows/Flows.vue": "7b48d923aeba34c483601d901079dc4549ca2917370cd23a0e754aec5c8e6110",
+    "../../src/components/flows/useFlowExecutionCapabilities.ts": "e51a58ac67b0756a018ef81ad92cbfa956331c6bad912a482031ca15c78544fe",
+    "../../src/stores/executions.ts": "c3920978139629c16e327e3501e90e6dadf5052ff8c493e94835e289ceeb1a11",
+    "./cases.mjs": "e7ca91aa3f6eed8222eda7078d31aef86d23188870102757f2d97249104b1eb5",
+    "./main.ts": "bb57f94795c1c8950074f7d18f2c28935ba4d0544069d4719ca51127e1d02a8e",
+    "./transport.ts": "5eddb5bd61625ff8a4159a8b7463680e98b7278c957aa33228b19956c42d9f74",
+    "./serve.mjs": "a943bdddecd314b9aa03312ff59c54ebae82d82ba7a8cde77dead583c1647088",
+    "./diagnostics.mjs": "2ebaa9464d8bbae095be5e88460ba27203f6d50c13e6f35ebe92c16356d5c446",
+    "./browser.mjs": "82350b13dfdb89ec312d4d210c616215aa86f22984d6c1255a3be7781ff032b9",
+    "./run-browser.mjs": "64ad97c66073e90679fb5aaeb6877be3e2d6a17b95597bedc7ff8abf4acae951",
+    "./playwright.mjs": "24f901e87b07461d1d7a21b5e31a5bf88089c97f88856348135b39bb7fa59818",
+    "./check-report.mjs": "4522cc78066632358f6bb2aacb3afa0d6d0174f6b2be4d5c7e850fe75d51d8da",
+    "../../package-lock.json": "89f2e4ff96a05f6ebcaa7197c73bd2fcf3eb5ee802485b2d03f1c71463db0d60",
+    "overlay:sdk-browser-diagnostics.cjs": "8a4db485508c9ea5c8859cf7e07b4c6f0022117d528861999571c1293221ed8b"
+  }
+}

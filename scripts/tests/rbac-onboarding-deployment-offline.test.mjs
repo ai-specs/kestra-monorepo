@@ -5,6 +5,7 @@ import {tmpdir} from 'node:os'
 import {join} from 'node:path'
 import {createHash} from 'node:crypto'
 import {runRbacOnboardingDeployment} from '../rbac-onboarding-deployment.mjs'
+import {rbacNormalOnboardingCaseIds,rbacOnboardingCaseIds} from '../rbac-onboarding-browser.mjs'
 import {writeBrowserDiagnosticEvidence} from '../browser-diagnostic-evidence.mjs'
 
 for(const scenario of ['missing-jar','normal'])test(scenario+': orchestration uses isolated database and storage, retains failure and restores original host configuration',async()=>{
@@ -72,7 +73,7 @@ for(const scenario of ['missing-jar','normal'])test(scenario+': orchestration us
     const report=JSON.parse(readFileSync(join(output,directory,'report.json')))
     assert.equal(report.completed,false);assert.equal(report.cases[0].status,'failed')
     assert.equal(report.scenario,scenario)
-    assert.equal(report.summary.failed,1);assert.equal(report.summary.notRun,scenario==='normal'?9:11)
+    assert.equal(report.summary.failed,1);assert.equal(report.summary.notRun,(scenario==='normal'?rbacNormalOnboardingCaseIds:rbacOnboardingCaseIds).length-1)
     assert(!JSON.stringify(report).includes('offline-private'))
     assert(reports.length>=3)
   } finally {rmSync(output,{recursive:true,force:true})}

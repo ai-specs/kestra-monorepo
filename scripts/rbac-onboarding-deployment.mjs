@@ -5,6 +5,7 @@ import {createRequire} from 'node:module'
 import {join} from 'node:path'
 import {createPlaywrightApplicationProjectAdapter} from './application-project-browser-adapters.mjs'
 import {runRbacOnboardingBrowser} from './rbac-onboarding-browser.mjs'
+import {ApplicationGroupManagement} from './application-project-fixture.mjs'
 import {applicationProjectFeature} from './application-project-fixture.mjs'
 
 export async function runRbacOnboardingDeployment({configuration,compose,saveConfiguration,command,output,project,base,inputs,formalJar,uiAdapter,scenario='missing-jar',sessionState,record}) {
@@ -53,6 +54,69 @@ export async function runRbacOnboardingDeployment({configuration,compose,saveCon
   const readExecution=async id=>{
     await assertOwner();assert.match(id,/^[A-Za-z0-9_-]+$/)
     return JSON.parse(query("SELECT json_build_object('id',value->>'id','namespace',value->>'namespace','flowId',value->>'flowId','state',value->'state'->>'current') FROM executions WHERE tenant_id='main' AND value->>'id'='"+id+"'"))
+  }
+  // Owned storage observers never supply authorization or perform allowed business writes.
+  let namespacePrefix
+  const namespaceEffects=async()=>{
+    await assertOwner();assert.match(namespacePrefix,/^namespace_[0-9]+$/)
+    const tables={}
+    for(const table of ['flows','kv_metadata','executions','triggers','execution_outputs','execution_queued','queues']) {
+      const present=query("SELECT to_regclass('public."+table+"') IS NOT NULL")==='t'
+      const filter=['queues','execution_outputs','execution_queued'].includes(table)?'':" WHERE row_to_json(t)::text LIKE '%"+namespacePrefix+"%'"
+      tables[table]=present?JSON.parse(query("SELECT coalesce(json_agg(x ORDER BY x::text),'[]'::json) FROM (SELECT row_to_json(t) x FROM "+table+" t"+filter+") q")):[]
+    }
+    const storage=command('docker',['exec',hostContainer,'sh','-c',"find /app/storage -type f -exec sha256sum {} + | LC_ALL=C sort"])
+    return {tables,storage,coverage:{queues:'full-owner-table',execution_outputs:'full-owner-table',execution_queued:'full-owner-table',storage:'all-owner-files'}}
+  }
+  const expectedNamespaceLists=async()=>{
+    await assertOwner()
+    const result=JSON.parse(query(`SELECT json_build_object('source','owned-database','namespace','company.sub','descendants',true,
+      'flow',(SELECT coalesce(json_agg(json_build_object('namespace',namespace,'id',id) ORDER BY namespace,id),'[]'::json)
+        FROM (SELECT DISTINCT ON (namespace,id) namespace,id,deleted FROM flows WHERE tenant_id='main'
+          AND (namespace='company.sub' OR namespace LIKE 'company.sub.%') AND value->>'draft' IS DISTINCT FROM 'true'
+          ORDER BY namespace,id,revision DESC) latest WHERE NOT deleted),
+      'kv',(SELECT coalesce(json_agg(json_build_object('namespace',namespace,'id',name) ORDER BY namespace,name),'[]'::json)
+        FROM kv_metadata WHERE tenant_id='main' AND (namespace='company.sub' OR namespace LIKE 'company.sub.%')
+          AND "last" AND NOT deleted AND (expiration_date IS NULL OR expiration_date>current_timestamp)))`))
+    assert.equal(result.source,'owned-database');assert(Array.isArray(result.flow)&&Array.isArray(result.kv))
+    return result
+  }
+  const readNamespaceResource=async({namespace,kind,id})=>{
+    await assertOwner();assert.match(namespace,/^[a-z][a-z0-9.]+$/);assert.match(id,/^namespace_[0-9]+$/)
+    namespacePrefix=id
+    const table=kind==='flow'?'flows':'kv_metadata',field=kind==='flow'?'id':'name'
+    return JSON.parse(query("SELECT coalesce(json_agg(value ORDER BY key),'[]'::json) FROM "+table+" WHERE tenant_id='main' AND namespace='"+namespace+"' AND "+field+"='"+id+"'"))
+  }
+  const seedNamespaceBaselines=async({id,sourceNamespace,namespaces})=>{
+    await assertOwner();assert.equal(id,namespacePrefix);assert.equal(sourceNamespace,'company')
+    for(const namespace of namespaces) {
+      assert(['company.sub.child','company.other','company2','outside'].includes(namespace))
+      assert.equal(query("SELECT count(*) FROM flows WHERE namespace='company' AND id='"+id+"' AND key NOT LIKE 'main_company_%'"),'0')
+      assert.equal(query("SELECT count(*) FROM kv_metadata WHERE namespace='company' AND name='"+id+"' AND key NOT LIKE 'main_company_%'"),'0')
+      query("INSERT INTO flows(key,value,source_code) SELECT regexp_replace(key,'^main_company_','main_"+namespace+"_'),jsonb_set(value,'{namespace}',to_jsonb('"+namespace+"'::text)) || CASE WHEN value ? 'source' THEN jsonb_build_object('source',replace(value->>'source','namespace: company','namespace: "+namespace+"')) ELSE '{}'::jsonb END,replace(source_code,'namespace: company','namespace: "+namespace+"') FROM flows WHERE namespace='company' AND id='"+id+"'; INSERT INTO kv_metadata(key,value) SELECT regexp_replace(key,'^main_company_','main_"+namespace+"_'),jsonb_set(value,'{namespace}',to_jsonb('"+namespace+"'::text)) FROM kv_metadata WHERE namespace='company' AND name='"+id+"'")
+      // Use the actual persisted file location, and require a unique source file.
+      const source=command('docker',['exec',hostContainer,'find','/app/storage','-type','f','-path','*/company/_kv/'+id+'.ion']).split('\n').filter(Boolean)
+      assert.equal(source.length,1,'Expected one actual KV seed value')
+      const target=source[0].replace('/company/_kv/','/'+namespace.replaceAll('.','/')+'/_kv/')
+      assert(target!==source[0]&&target.startsWith('/app/storage/'))
+      command('docker',['exec',hostContainer,'mkdir','-p',target.slice(0,target.lastIndexOf('/'))])
+      command('docker',['exec',hostContainer,'cp',source[0],target])
+    }
+    return {transport:'owned-database-and-storage-seed',id,namespaces,sourceNamespace}
+  }
+  const revokeNamespaceSubject=async({subject,account:admin})=>{
+    await assertOwner();assert.equal(subject,namespacePrefix)
+    const management=new ApplicationGroupManagement(base,{...admin,subject:admin.username})
+    await management.login()
+    const identity=await management.client.verifiedUiIdentity({applicationGroupId:'main',subject:admin.username,audience:'kestra-ui'})
+    const path='/api/v1/main/extensions/rbac/application-groups/main/scope-grants/detail?subject='+encodeURIComponent(subject)
+    const current=await management.request(path)
+    await management.request(path,'PUT',{issuer:base,subject,scopeKeys:[]},current.revision)
+    await management.login()
+    await management.client.verifiedUiIdentity({applicationGroupId:'main',subject:admin.username,audience:'kestra-ui'})
+    const stored=await management.request(path)
+    assert.deepEqual(stored.scopeKeys,[],'Revocation did not persist an empty subject grant')
+    return {transport:'production-management-api-assistance',subject,scopeKeys:[],verifiedOperator:{subject:identity.subject,applicationGroupId:identity.applicationGroupId},revision:stored.revision,requests:management.requests}
   }
   const installationState=async()=>{
     await assertOwner()
@@ -120,7 +184,7 @@ export async function runRbacOnboardingDeployment({configuration,compose,saveCon
     compose('up','-d','kestra')
     hostContainer=compose('ps','-q','kestra')
     await assertOwner();await waitForHost()
-    const controls={assertOwner,installationState,readGroup,readExecution,
+    const controls={assertOwner,installationState,readGroup,readExecution,namespaceEffects,expectedNamespaceLists,readNamespaceResource,seedNamespaceBaselines,revokeNamespaceSubject,
       initialRuntime:async()=>{
         await assertOwner()
         return {restartCount:Number(inspect('{{.RestartCount}}',hostContainer)),

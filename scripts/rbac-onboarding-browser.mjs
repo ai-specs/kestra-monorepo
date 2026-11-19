@@ -1,3 +1,4 @@
+import {runNamespacePermissionBrowser,assertNamespacePermissionReport} from './namespace-permission-browser.mjs'
 import assert from 'node:assert/strict'
 import {classifyAccessControlDiagnostics} from './access-control-browser-diagnostics.mjs'
 import {applicationGroupTables} from './application-group-artifact-contract.mjs'
@@ -20,7 +21,7 @@ export const rbacOnboardingCaseIds=Object.freeze([
   'completed-setup-get-and-post-closed',
 ])
 
-export const rbacNormalOnboardingCaseIds=Object.freeze(['formal-jar-ready-without-restart',...rbacOnboardingCaseIds.slice(4),'initial-account-production-executions'])
+export const rbacNormalOnboardingCaseIds=Object.freeze(['formal-jar-ready-without-restart',...rbacOnboardingCaseIds.slice(4),'initial-account-production-executions','namespace-permission-production-journey'])
 
 export function initialRbacOnboardingReport(inputs,scenario='missing-jar') {
   assert(['missing-jar','normal'].includes(scenario))
@@ -51,7 +52,7 @@ export function assertRbacOnboardingReport(report,inputs) {
   assert.match(report.diagnostics.checkpoint.sha256,/^[a-f0-9]{64}$/)
   assert.deepEqual(report.telemetryRequests,[],'Usage events must remain disabled throughout the production workflow')
   const find=id=>report.cases.find(row=>row.id===id).evidence
-  if(normal)assertFirstAccountExecutions(find('initial-account-production-executions').journey)
+  if(normal) {assertFirstAccountExecutions(find('initial-account-production-executions').journey);assertNamespacePermissionReport(find('namespace-permission-production-journey').journey)}
   if(normal) {
     const runtime=find('formal-jar-ready-without-restart')
     assert.equal(runtime.restartCount,0);assert.equal(runtime.jarSha256,inputs.jarSha256)
@@ -123,9 +124,27 @@ export function assertRbacOnboardingReport(report,inputs) {
   return {profile:report.profile,...report.summary,completed:true}
 }
 
-export function classifyRbacOnboardingDiagnostics({events,base,requests,restartWindows}) {
+export function classifyRbacOnboardingDiagnostics({events,base,requests,restartWindows,namespaceJourney}) {
   const shared=classifyAccessControlDiagnostics({events,base,requests})
   const classified=new Map(shared.classifications.map(item=>[item.id,item]))
+  // Chromium reports ERR_ABORTED when the native SDK deliberately leaves a
+  // successful Content-Length: 0 response unread. Only a proven native KV save
+  // with independent readback/storage evidence may explain that exact request.
+  if(namespaceJourney?.completed===true)for(const row of namespaceJourney.cases??[]) {
+    const saved=row.evidence,ref=saved?.response
+    if(!row.id.endsWith('-kv-ui-save')||row.status!=='passed'||!row.passed||saved.transport!=='native-ui'
+      ||saved.value!==saved.readBack||saved.before===saved.value||!saved.stored?.length||ref?.status!==200||ref.method!=='PUT'
+      ||!/^\/api\/v1\/main\/namespaces\/[a-z][a-z0-9.]*\/kv\/namespace_[0-9]+$/.test(ref.path??''))continue
+    const same=event=>event.requestId===ref.requestId&&event.documentId===ref.source?.documentId&&event.url===base+ref.path&&event.method==='PUT'
+    const responses=events.filter(event=>same(event)&&event.kind==='http-response'&&event.status===200&&event.contentLength==='0')
+    if(responses.length!==1||!events.some(event=>same(event)&&event.kind==='request'))continue
+    const response=responses[0]
+    for(const event of events.filter(same)) {
+      const elapsed=Date.parse(event.observedAt)-Date.parse(response.observedAt)
+      if(event.kind==='request-failed'&&event.cancelled===true&&event.message==='net::ERR_ABORTED'&&elapsed>=0&&elapsed<=1000)
+        classified.set(event.id,{id:event.id,reason:'native-successful-empty-kv-response-unread',evidence:{requestId:ref.requestId,documentId:ref.source.documentId,responseEventId:response.id,caseId:row.id}})
+    }
+  }
   const matches=(left,right)=>left.requestId===right.requestId&&left.documentId===right.documentId&&left.url===right.url
   for(const event of events) {
     const request=events.find(item=>item.kind==='request'&&matches(item,event))
@@ -339,6 +358,11 @@ export async function runRbacOnboardingBrowser(page,{base,account,inputs,control
         record:async journey=>{report.executionJourney=structuredClone(journey);await persist()}})
       return {journey}
     })
+    if(scenario==='normal')await check('namespace-permission-production-journey',async()=>{
+      const journey=await runNamespacePermissionBrowser(page,{base,account,controls,
+        record:async journey=>{report.namespacePermissionJourney=structuredClone(journey);await persist()}})
+      return {journey}
+    })
     const finalReference=await page.diagnosticEvidenceReference()
     const diagnostics=readBrowserDiagnosticEvidence(finalReference,[dirname(finalReference.path)])
     const events=scopedRbacOnboardingEvents(diagnostics,checkpoint)
@@ -348,7 +372,7 @@ export async function runRbacOnboardingBrowser(page,{base,account,inputs,control
       return url.hostname==='api.kestra.io'&&url.pathname==='/v1/reports/events'
     }).map(({id,requestId,documentId,url})=>({id,requestId,documentId,url}))
     assert.deepEqual(report.telemetryRequests,[],'Production workflow sent disabled usage events')
-    const classified=classifyRbacOnboardingDiagnostics({events,base,requests:report.requests,restartWindows:report.restartWindows})
+    const classified=classifyRbacOnboardingDiagnostics({events,base,requests:[...report.requests,...(report.namespacePermissionJourney?.requests??[])],restartWindows:report.restartWindows,namespaceJourney:report.namespacePermissionJourney})
     report.diagnostics={integrity:diagnostics.integrity.length,unexpectedErrors:classified.errors.length,
       classifications:classified.classifications,errors:classified.errors,checkpoint:checkpointReference,
       reference:finalReference}

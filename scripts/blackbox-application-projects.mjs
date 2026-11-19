@@ -12,6 +12,8 @@
  * --config-check does not start containers or prove image publication.
  * --run starts only after immutable image promotion and artifact download gates.
  */
+import {assertPublishedNativeFlowReport,extractPublishedNativeClassifier} from './published-native-flow-evidence.mjs'
+import {assertPublishedNativeFlowDetailReport} from './published-native-flow-detail-evidence.mjs'
 import assert from 'node:assert/strict'
 import {execFileSync,spawnSync,spawn} from 'node:child_process'
 import {createHash,randomBytes} from 'node:crypto'
@@ -40,7 +42,7 @@ import {derive as deriveAccessControlGates,lifecycleXmlInputs,parseLifecycleJUni
 import {runAccessControlV3Transactions} from './access-control-v3-transactions.mjs'
 import {createOwnedAccessControlUiControls} from './access-control-v3-ui-controls.mjs'
 import {assertApplicationGroupPluginEntries,assertApplicationGroupSchemaTables} from './application-group-artifact-contract.mjs'
-import {assertPluginUiBrowserReport,assertHostAuthenticationUiReports,assertHostAuthenticationRecoveryBrowserReport,committedPluginUiHashes,aggregateUiHashes,assertStablePopupReferenceCases,stablePopupReferenceCaseName} from './published-ui-browser-evidence.mjs'
+import {assertPluginUiBrowserReport,assertHostAuthenticationUiReports,assertHostBookmarkReports,committedHostBookmarkHashes,assertHostAuthenticationRecoveryBrowserReport,committedPluginUiHashes,aggregateUiHashes,assertStablePopupReferenceCases,stablePopupReferenceCaseName} from './published-ui-browser-evidence.mjs'
 
 /** Development can relax only root cleanliness, never independent release inputs. */
 export function assertApplicationProjectSources(sources,{allowDirtyRoot=false}={}) {
@@ -142,7 +144,7 @@ export async function main(argv=process.argv.slice(2),runtime={}) {
       if(mode==='run')assertApplicationProjectSources(report.sources,{allowDirtyRoot:options['--allow-dirty-root']===true})
       report.executionSources=Object.fromEntries(['application-group-artifact-contract.mjs','blackbox-application-projects.sh','blackbox-application-projects.mjs','application-project-fixture.mjs','application-project-integration-cases.mjs','application-project-ui-fixture.mjs','application-project-browser-ci.cjs','application-project-migration-cases.mjs','application-project-security-cases.mjs','application-project-oauth-cases.mjs','application-project-aggregate-cases.mjs','application-project-target-ui.mjs'].map(name=>[name,hash(readFileSync(join(repository,'scripts',name)))]))
       for(const name of ['ui-client-ownership-evidence.mjs','browser-diagnostic-evidence.mjs','access-control-browser-diagnostics.mjs','access-control-translation-coverage.mjs','check-access-control-prototype.py','access-control-v3-ui.mjs','access-control-v3-rest-cases.mjs','access-control-v3-maintenance.mjs','access-control-v3-frozen.mjs','access-control-v3-dependency.mjs','access-control-v3-gates.mjs','access-control-v3-transactions.mjs','access-control-v3-ui-controls.mjs','access-control-v3-browser-runtime.mjs','application-project-policy.mjs','application-project-browser-adapters.mjs','production-oauth-client.mjs'])report.executionSources[name]=hash(readFileSync(join(repository,'scripts',name)))
-      for(const name of ['application-project-ai-browser.mjs','application-project-ai-controls.mjs','application-project-ai-runtime.mjs','application-project-ai-deployment.mjs','application-project-ai-report.mjs','ai-model-transport.mjs','first-account-execution-browser.mjs','rbac-onboarding-browser.mjs','rbac-onboarding-deployment.mjs','rbac-onboarding-published-evidence.mjs','owned-browser-session.mjs'])report.executionSources[name]=hash(readFileSync(join(repository,'scripts',name)))
+      for(const name of ['application-project-ai-browser.mjs','application-project-ai-controls.mjs','application-project-ai-runtime.mjs','application-project-ai-deployment.mjs','application-project-ai-report.mjs','ai-model-transport.mjs','namespace-permission-browser.mjs','namespace-permission-evidence.mjs','namespace-flow-detail-browser.mjs','published-native-flow-evidence.mjs','published-native-flow-detail-evidence.mjs','first-account-execution-browser.mjs','rbac-onboarding-browser.mjs','rbac-onboarding-deployment.mjs','rbac-onboarding-published-evidence.mjs','owned-browser-session.mjs'])report.executionSources[name]=hash(readFileSync(join(repository,'scripts',name)))
       return {actualPlatform:process.platform,node:process.version,commits:structuredClone(report.inputs)}
     })
     await stage('access-control-prototype',async()=>JSON.parse(command('python3',[join(repository,'scripts/check-access-control-prototype.py')])) )
@@ -151,7 +153,7 @@ export async function main(argv=process.argv.slice(2),runtime={}) {
         command('node',['--check',join(repository,'scripts',file)])
         report.staticChecks.push({file,sha256:hash(readFileSync(join(repository,'scripts',file))),syntax:true})
       }
-      for(const file of ['access-control-v3-ui.mjs','access-control-ci-ownership.mjs','published-ui-browser-evidence.mjs','access-control-v3-rest-cases.mjs','access-control-v3-maintenance.mjs','access-control-v3-frozen.mjs','access-control-v3-dependency.mjs','access-control-v3-gates.mjs','access-control-v3-transactions.mjs','access-control-v3-ui-controls.mjs','access-control-v3-browser-runtime.mjs','rbac-onboarding-browser.mjs','rbac-onboarding-deployment.mjs','first-account-execution-browser.mjs']) {
+      for(const file of ['access-control-v3-ui.mjs','access-control-ci-ownership.mjs','published-ui-browser-evidence.mjs','access-control-v3-rest-cases.mjs','access-control-v3-maintenance.mjs','access-control-v3-frozen.mjs','access-control-v3-dependency.mjs','access-control-v3-gates.mjs','access-control-v3-transactions.mjs','access-control-v3-ui-controls.mjs','access-control-v3-browser-runtime.mjs','rbac-onboarding-browser.mjs','rbac-onboarding-deployment.mjs','namespace-permission-browser.mjs','namespace-permission-evidence.mjs','namespace-flow-detail-browser.mjs','published-native-flow-evidence.mjs','published-native-flow-detail-evidence.mjs','first-account-execution-browser.mjs']) {
         command('node',['--check',join(repository,'scripts',file)])
         report.staticChecks.push({file,sha256:hash(readFileSync(join(repository,'scripts',file))),syntax:true})
       }
@@ -304,6 +306,35 @@ export async function main(argv=process.argv.slice(2),runtime={}) {
       const authReports=Object.fromEntries(['auth-theme-env.json','auth-theme-setup.json','auth-i18n-env.json','auth-i18n-setup.json'].map(name=>[name,readFileSync(join(authDirectory,name),'utf8')]))
       const authValidation=assertHostAuthenticationUiReports(authReports)
       report.sources.overlay.downloadedAuthenticationUiGate={runId:evidence.overlayRunId,artifactId:authArtifact.id,commit:report.inputs.overlayCommit,image:report.inputs.image,sha256:hash(JSON.stringify(authReports)),rawReports:authReports,validation:authValidation}
+      const bookmarkReports=Object.fromEntries(['bookmark-form.json','bookmark-env.json'].map(name=>[name,readFileSync(join(authDirectory,name),'utf8')]))
+      const bookmarkHashes=committedHostBookmarkHashes(report.sources.overlay.path,report.inputs.overlayCommit)
+      report.sources.overlay.downloadedBookmarkGate={runId:evidence.overlayRunId,artifactId:authArtifact.id,commit:report.inputs.overlayCommit,rawReports:bookmarkReports,expectedHashes:bookmarkHashes,validation:assertHostBookmarkReports(bookmarkReports,bookmarkHashes)}
+      const nativeArtifacts=sdkArtifactList.artifacts.filter(item=>item.name==='native-flow-execution-browser'&&!item.expired)
+      assert.equal(nativeArtifacts.length,1);assert.equal(nativeArtifacts[0].workflow_run.head_sha,report.inputs.overlayCommit)
+      const nativeDirectory=join(output,'downloaded-host-native-flow');mkdirSync(nativeDirectory,{mode:0o700})
+      command('gh',['run','download',String(evidence.overlayRunId),'-R','ai-specs/kestra-overlay','--name','native-flow-execution-browser','--dir',nativeDirectory],{timeout:180000})
+      const nativeLock=JSON.parse(readFileSync(join(repository,'scripts/native-flow-published-inputs.json'),'utf8'))
+      assert.equal(nativeLock.overlayCommit,report.inputs.overlayCommit,'Native component input lock must be reviewed for the final host')
+      const nativeClassifier=extractPublishedNativeClassifier(git(report.sources.overlay.path,'show',report.inputs.overlayCommit+':patches/webserver/0404-flow-execution-capabilities.patch'))
+      assert.equal(hash(nativeClassifier),nativeLock.hashes['./diagnostics.mjs'])
+      const nativeClassifierPath=join(nativeDirectory,'published-classifier.mjs');writeFileSync(nativeClassifierPath,nativeClassifier)
+      const {classifyDiagnostics}=await import(pathToFileURL(nativeClassifierPath).href)
+      const nativeRaw=readFileSync(join(nativeDirectory,'browser.json'),'utf8'),nativeReadiness=readFileSync(join(nativeDirectory,'readiness.json'),'utf8')
+      report.sources.overlay.downloadedNativeFlowGate={commit:report.inputs.overlayCommit,runId:evidence.overlayRunId,artifactId:nativeArtifacts[0].id,rawReport:nativeRaw,rawReadiness:nativeReadiness,classifierSource:nativeClassifier,expectedHashes:nativeLock.hashes,
+        validation:assertPublishedNativeFlowReport(nativeRaw,nativeReadiness,{commit:report.inputs.overlayCommit,expectedHashes:nativeLock.hashes,classify:classifyDiagnostics})}
+      const detailArtifacts=sdkArtifactList.artifacts.filter(item=>item.name==='native-flow-detail-browser'&&!item.expired)
+      assert.equal(detailArtifacts.length,1);assert.equal(detailArtifacts[0].workflow_run.head_sha,report.inputs.overlayCommit)
+      const detailDirectory=join(output,'downloaded-host-native-flow-detail');mkdirSync(detailDirectory,{mode:0o700})
+      command('gh',['run','download',String(evidence.overlayRunId),'-R','ai-specs/kestra-overlay','--name','native-flow-detail-browser','--dir',detailDirectory],{timeout:180000})
+      const detailLock=JSON.parse(readFileSync(join(repository,'scripts/native-flow-detail-published-inputs.json'),'utf8'))
+      assert.equal(detailLock.overlayCommit,report.inputs.overlayCommit,'Detail component input lock must be independently reviewed for final host')
+      const detailClassifier=extractPublishedNativeClassifier(git(report.sources.overlay.path,'show',report.inputs.overlayCommit+':patches/webserver/0405-flow-detail-capabilities.patch'),'ui/tests/flow-detail-capabilities/diagnostics.mjs')
+      assert.equal(hash(detailClassifier),detailLock.hashes['./diagnostics.mjs'])
+      const detailClassifierPath=join(detailDirectory,'published-classifier.mjs');writeFileSync(detailClassifierPath,detailClassifier)
+      const detailModule=await import(pathToFileURL(detailClassifierPath).href)
+      const detailRaw=readFileSync(join(detailDirectory,'browser.json'),'utf8'),detailReadiness=readFileSync(join(detailDirectory,'readiness.json'),'utf8')
+      report.sources.overlay.downloadedNativeFlowDetailGate={commit:report.inputs.overlayCommit,runId:evidence.overlayRunId,artifactId:detailArtifacts[0].id,rawReport:detailRaw,rawReadiness:detailReadiness,classifierSource:detailClassifier,expectedHashes:detailLock.hashes,
+        validation:assertPublishedNativeFlowDetailReport(detailRaw,detailReadiness,{commit:report.inputs.overlayCommit,expectedHashes:detailLock.hashes,classify:detailModule.classifyDiagnostics})}
       const onboardingArtifacts=sdkArtifactList.artifacts.filter(item=>item.name==='onboarding-browser'&&!item.expired)
       assert.equal(onboardingArtifacts.length,1,'Published host onboarding browser artifact missing or ambiguous')
       assert.equal(onboardingArtifacts[0].workflow_run.head_sha,report.inputs.overlayCommit)

@@ -76,6 +76,7 @@ services:
             filter:
               enabled: true
             redirect:
+              prior-to-login: true
               login-success: /ui/
               login-failure: /oidc/login?error=1
               unauthorized:

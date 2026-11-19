@@ -175,8 +175,9 @@ function diagnosticsCollector(redact) {
         const document = request?.document ?? frameDocuments.get(p.frameId) ?? current
         const response = p.response ?? {}
         const cacheControl=Object.entries(response.headers??{}).find(([name])=>name.toLowerCase()==='cache-control')?.[1]
+        const contentLength=Object.entries(response.headers??{}).find(([name])=>name.toLowerCase()==='content-length')?.[1]
         if(request)request.status=response.status
-        add(response.status >= 400 ? 'http-error' : 'http-response',document,{requestId:p.requestId,url:response.url ?? request?.url,status:response.status,method:request?.method,resourceType:p.type,message:'HTTP ' + response.status,cacheControl:typeof cacheControl==='string'?cacheControl:null,fromDiskCache:response.fromDiskCache === true,fromServiceWorker:response.fromServiceWorker === true})
+        add(response.status >= 400 ? 'http-error' : 'http-response',document,{requestId:p.requestId,url:response.url ?? request?.url,status:response.status,method:request?.method,resourceType:p.type,message:'HTTP ' + response.status,cacheControl:typeof cacheControl==='string'?cacheControl:null,contentLength:contentLength===undefined?null:String(contentLength),fromDiskCache:response.fromDiskCache === true,fromServiceWorker:response.fromServiceWorker === true})
         break
       }
       case 'Network.loadingFailed': {

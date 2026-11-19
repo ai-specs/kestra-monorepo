@@ -1,3 +1,4 @@
+import {initialNamespacePermissionReport} from '../namespace-permission-browser.mjs'
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import {initialRbacOnboardingReport,assertRbacOnboardingReport,rbacOnboardingCaseIds,rbacNormalOnboardingCaseIds,classifyRbacOnboardingDiagnostics} from '../rbac-onboarding-browser.mjs'
@@ -40,6 +41,27 @@ function completeReport() {
   report.summary={planned:12,passed:12,failed:0,notRun:0,skipped:0};report.completed=true
   return report
 }
+function completeNamespacePermissionReport() {
+  const report=initialNamespacePermissionReport()
+  for(const row of report.cases) {
+    Object.assign(row,{status:'passed',passed:true,evidence:{transport:'offline-contract-example'}})
+    if(row.id.endsWith('-ui-save'))row.evidence={transport:'native-ui',before:'old',value:'new',readBack:'new',response:{status:200,requestId:'save',source:{documentId:'document'}}}
+    if(row.id.endsWith('-denied')&&!row.id.includes('refresh'))row.evidence={response:{status:403},before:{stored:'unchanged'},immediate:{stored:'unchanged'},samples:[{snapshot:{stored:'unchanged'}},{snapshot:{stored:'unchanged'}}],minimumObservationMs:2500,observedMs:2500}
+  }
+  report.loginTransitions=Array.from({length:5},(_,index)=>({requestedTarget:'/ui/main/flows',temporaryPasswordFlow:index===2,
+    anonymous:{status:401},previousDocument:{documentId:'previous'},loginDocument:{path:'/oidc/login',documentId:'login'},
+    finalDocument:{path:index===2?'/oidc/password':'/ui/main/flows',documentId:'final'},
+    businessContent:index===2?'restricted-password-change-form':'visible-flow-list-and-native-response',listResponses:[{status:200,documentId:'final'}]}))
+  report.logoutTransitions=Array.from({length:4},()=>({clicked:true,automatic:false,finalDocument:{path:'/oidc/login',documentId:'login'},
+    anonymous:{status:401,source:{documentId:'login'}},logoutResponses:[{requestId:'exit',documentId:'login',status:307}]}))
+  const list=report.cases.find(row=>row.id==='second-exact-flow-kv-list-and-total').evidence
+  const rows=[{namespace:'company.sub',id:'test'},{namespace:'company.sub.child',id:'test'}]
+  for(const kind of ['flow','kv'])list[kind]={rows:structuredClone(rows),total:2,namespaces:['company.sub','company.sub.child']}
+  list.expectedLists={source:'owned-database',namespace:'company.sub',descendants:true,flow:structuredClone(rows),kv:structuredClone(rows)}
+  report.completed=true
+  return report
+}
+
 function completeNormalReport() {
   const original=completeReport(),normal=initialRbacOnboardingReport(inputs,'normal')
   normal.cases=normal.cases.map(row=>row.id==='formal-jar-ready-without-restart'
@@ -48,10 +70,11 @@ function completeNormalReport() {
     :row.id==='initial-account-production-executions'?{...row,status:'passed',passed:true,evidence:{source:'production-browser-and-owned-storage',journey:{completed:true,planned:10,
       executions:Array.from({length:10},(_,index)=>{const namespace=index%2?'company.consistency.child':'company.consistency',flowId='test_'+index,executionId='execution_'+index;
         return {index,status:'passed',namespace,flowId,executionId,path:`/ui/main/executions/${namespace}/${flowId}/${executionId}/gantt`,notifications:[],followEnd:{requestId:'r'+index,documentId:'d'+index,eventId:'end',stream:{url:'http://localhost/api/v1/main/executions/'+executionId+'/follow',status:200,completed:true,ids:['start','end']}},stored:{id:executionId,namespace,flowId,state:'SUCCESS'}}})}}}
+    :row.id==='namespace-permission-production-journey'?{...row,status:'passed',passed:true,evidence:{source:'production-browser-and-owned-storage',journey:completeNamespacePermissionReport()}}
     :structuredClone(original.cases.find(source=>source.id===row.id)))
   normal.requests=original.requests.slice(1);normal.diagnostics=original.diagnostics
   normal.telemetryRequests=[]
-  normal.summary={planned:10,passed:10,failed:0,notRun:0,skipped:0};normal.completed=true
+  normal.summary={planned:11,passed:11,failed:0,notRun:0,skipped:0};normal.completed=true
   return normal
 }
 
@@ -66,8 +89,8 @@ test('complete first-install report binds formal inputs and actual storage outco
   assert.equal(assertRbacOnboardingReport(completeReport(),inputs).passed,12)
 })
 test('ordinary prepared-jar installation independently proves startup without any JVM restart',()=>{
-  assert.equal(rbacNormalOnboardingCaseIds.length,10)
-  assert.equal(assertRbacOnboardingReport(completeNormalReport(),inputs).passed,10)
+  assert.equal(rbacNormalOnboardingCaseIds.length,11)
+  assert.equal(assertRbacOnboardingReport(completeNormalReport(),inputs).passed,11)
 })
 for(const [name,mutate] of [
   ['unrequested restart',report=>{report.cases[0].evidence.restartCount=1}],
@@ -76,14 +99,14 @@ for(const [name,mutate] of [
   ['missing prior production session',report=>{delete report.cases[0].evidence.priorSession}],
   ['session was not restored',report=>{report.cases[0].evidence.priorSession.restored=false}],
   ['reused recovery report',report=>{report.scenario='missing-jar'}],
-  ['no terminal SSE event',report=>{report.cases.at(-1).evidence.journey.executions[0].followEnd.eventId='start'}],
-  ['misleading execution notification',report=>{report.cases.at(-1).evidence.journey.executions[0].notifications=['does not exist']}],
-  ['unsaved execution',report=>{report.cases.at(-1).evidence.journey.executions[0].stored.state='RUNNING'}],
-  ['partial ten-run journey',report=>{report.cases.at(-1).evidence.journey.executions.pop()}],
-  ['200 stream without end',report=>{report.cases.at(-1).evidence.journey.executions[0].followEnd.stream.ids=['start']}],
-  ['unterminated stream',report=>{report.cases.at(-1).evidence.journey.executions[0].followEnd.stream.completed=false}],
-  ['stream transport error',report=>{report.cases.at(-1).evidence.journey.executions[0].followEnd.stream.error='connection lost'}],
-  ['different execution stream',report=>{report.cases.at(-1).evidence.journey.executions[0].followEnd.stream.url='http://localhost/api/v1/main/executions/other/follow'}],
+  ['no terminal SSE event',report=>{report.cases.find(row=>row.id==='initial-account-production-executions').evidence.journey.executions[0].followEnd.eventId='start'}],
+  ['misleading execution notification',report=>{report.cases.find(row=>row.id==='initial-account-production-executions').evidence.journey.executions[0].notifications=['does not exist']}],
+  ['unsaved execution',report=>{report.cases.find(row=>row.id==='initial-account-production-executions').evidence.journey.executions[0].stored.state='RUNNING'}],
+  ['partial ten-run journey',report=>{report.cases.find(row=>row.id==='initial-account-production-executions').evidence.journey.executions.pop()}],
+  ['200 stream without end',report=>{report.cases.find(row=>row.id==='initial-account-production-executions').evidence.journey.executions[0].followEnd.stream.ids=['start']}],
+  ['unterminated stream',report=>{report.cases.find(row=>row.id==='initial-account-production-executions').evidence.journey.executions[0].followEnd.stream.completed=false}],
+  ['stream transport error',report=>{report.cases.find(row=>row.id==='initial-account-production-executions').evidence.journey.executions[0].followEnd.stream.error='connection lost'}],
+  ['different execution stream',report=>{report.cases.find(row=>row.id==='initial-account-production-executions').evidence.journey.executions[0].followEnd.stream.url='http://localhost/api/v1/main/executions/other/follow'}],
 ])test('ordinary startup rejects '+name,()=>{const report=completeNormalReport();mutate(report);assert.throws(()=>assertRbacOnboardingReport(report,inputs))})
 for(const [name,mutate] of [
   ['different image',report=>{report.inputs.image+='wrong'}],
@@ -156,3 +179,20 @@ for(const [name,options,windows] of [
   const result=classifyRbacOnboardingDiagnostics({events:restartEvents(options),base,requests:[],restartWindows:windows})
   assert.equal(result.errors.length,1)
 })
+
+function emptyKvResponseFixture(){
+ const path='/api/v1/main/namespaces/company/kv/namespace_123',source={requestId:'save-kv',documentId:'kv-document',documentUrl:base+'/ui/main/kv',url:base+path,method:'PUT',observedAt:'2026-11-19T00:00:00Z'}
+ return {base,requests:[],restartWindows:[],events:[{...source,id:'kv-request',kind:'request'},{...source,id:'kv-response',kind:'http-response',status:200,contentLength:'0'},{...source,id:'kv-cancel',kind:'request-failed',message:'net::ERR_ABORTED',cancelled:true}],namespaceJourney:{completed:true,cases:[{id:'admin-company-kv-ui-save',status:'passed',passed:true,evidence:{transport:'native-ui',before:'old',value:'new',readBack:'new',stored:[{value:'new'}],response:{path,requestId:source.requestId,source:{documentId:source.documentId},method:'PUT',status:200}}}]}}
+}
+test('exact empty successful native KV response discard requires independent completed save',()=>{
+ const result=classifyRbacOnboardingDiagnostics(emptyKvResponseFixture());assert.equal(result.errors.length,0);assert.equal(result.classifications[0].reason,'native-successful-empty-kv-response-unread')
+})
+for(const [name,change]of [
+ ['missing journey',x=>delete x.namespaceJourney],['unfinished journey',x=>x.namespaceJourney.completed=false],
+ ['API save',x=>x.namespaceJourney.cases[0].evidence.transport='request'],['wrong readback',x=>x.namespaceJourney.cases[0].evidence.readBack='old'],
+ ['no stored result',x=>x.namespaceJourney.cases[0].evidence.stored=[]],['missing content length',x=>delete x.events[1].contentLength],
+ ['nonempty response',x=>x.events[1].contentLength='9'],['failed response',x=>x.events[1].status=500],
+ ['wrong request',x=>x.events[2].requestId='other'],['wrong source',x=>x.events[2].documentId='other'],
+ ['not canceled',x=>x.events[2].cancelled=false],['different failure',x=>x.events[2].message='net::ERR_FAILED'],
+ ['late failure',x=>x.events[2].observedAt='2026-11-19T00:00:02Z'],['duplicate success',x=>x.events.push({...x.events[1],id:'duplicate-response'})],
+])test('empty native response classification rejects '+name,()=>{const x=emptyKvResponseFixture();change(x);assert(classifyRbacOnboardingDiagnostics(x).errors.length>0)})
