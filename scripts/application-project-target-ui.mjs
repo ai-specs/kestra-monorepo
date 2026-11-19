@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import {randomBytes} from 'node:crypto'
 import {applicationProject} from './application-project-cases.mjs'
+import {flowSource} from './application-project-fixture.mjs'
 import {sanitizeUiEvidence,completeFirstPasswordChange} from './access-control-v3-ui.mjs'
 
 const api='/api/v1/main/extensions/rbac'
@@ -64,6 +65,9 @@ export async function runTargetGroupBrowser(page,base,fixture,{management,planne
     const permissions=await management.readPermissions(applicationProject)
     const selected=permissions.items.filter(permission=>permission.scopeKeys.includes(fixture.referenceScopeKey))
     assert(selected.some(permission=>permission.enabled&&permission.grants.some(grant=>grant.namespace===fixture.referenceNamespace&&grant.resource==='FLOW'&&grant.actions.includes('READ')&&grant.actions.includes('LIST'))),'reference typed permission projection missing')
+    const referenceFlowId='ui-runtime-'+randomBytes(6).toString('hex')
+    const seeding=await management.client.request('/api/v1/main/flows',{method:'POST',headers:{'Content-Type':'application/x-yaml'},body:flowSource(fixture.referenceNamespace,referenceFlowId)})
+    assert(seeding.ok,'reference flow creation denied with status '+seeding.status);await seeding.body?.cancel()
     const username='ui-revoke-'+randomBytes(6).toString('hex')
     const created=await management.request(api+'/users','POST',{username,name:'UI runtime revocation',email:username+'@acceptance.invalid'})
     assert.equal(created.subject,username);assert.equal(typeof created.temporaryPassword,'string')
@@ -74,11 +78,11 @@ export async function runTargetGroupBrowser(page,base,fixture,{management,planne
     await management.mutateDirectory(api+groupPath+'/scope-grants','POST',{issuer:base,subject:account.subject,scopeKeys:[fixture.referenceScopeKey]},group.revision)
     await login(account)
     await page.goto(base+'/ui/main/flows')
-    await waitForNativeFlowCell(page)
     const baseline=await sameCookie('/api/v1/main/flows/search?size=100')
-    assert(Array.isArray(baseline.body.results)&&baseline.body.results.length)
+    assert(Array.isArray(baseline.body.results)&&baseline.body.results.some(flow=>flow.id===referenceFlowId),'freshly seeded reference flow missing from authorized search')
     assert(baseline.body.results.every(flow=>flow.namespace===fixture.referenceNamespace),'reference UI list leaked another namespace')
-    return {subject:account.subject,namespace:fixture.referenceNamespace,permissionKeys:selected.map(permission=>permission.key),status:baseline.status,firstPasswordChange:'real-browser',visibleResults:baseline.body.results.map(flow=>({id:flow.id,namespace:flow.namespace}))}
+    await waitForNativeFlowCell(page)
+    return {subject:account.subject,namespace:fixture.referenceNamespace,referenceFlowId,permissionKeys:selected.map(permission=>permission.key),status:baseline.status,firstPasswordChange:'real-browser',visibleResults:baseline.body.results.map(flow=>({id:flow.id,namespace:flow.namespace}))}
   })
   await check(1,async()=>{
     assert(report.checks[0].passed,'real typed permission and temporary-password browser precondition did not pass')
