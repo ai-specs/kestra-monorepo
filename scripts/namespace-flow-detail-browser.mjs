@@ -6,7 +6,10 @@ export const namespaceFlowDetailPhases=Object.freeze(['overview-direct','overvie
 // belong to the host's independently published browser gate.
 export function namespaceFlowDetailCanonicalQueryReady({path,description,tab}) {
   if(location.pathname!==path||new URLSearchParams(location.search).get('filters[timeRange][EQUALS]')!=='PT24H')return false
-  return namespaceFlowDetailReady({path,description,tab})
+  const visible=node=>Boolean(node.getClientRects().length)&&getComputedStyle(node).visibility!=='hidden'&&getComputedStyle(node).display!=='none'
+  const denied=[...document.querySelectorAll('[data-flow-capability-state="unavailable"]')].filter(visible)
+  const errors=[...document.querySelectorAll('[data-flow-capability-state="error"],[data-flow-capability-state="unsupported"]')].filter(visible)
+  return errors.length===0&&(tab==='overview'?denied.length===9&&document.body.innerText.includes(description):denied.length===1)
 }
 
 export function namespaceFlowDetailReady({path,description,tab}) {
