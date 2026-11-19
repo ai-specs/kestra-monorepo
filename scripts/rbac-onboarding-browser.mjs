@@ -9,7 +9,7 @@ import {runFirstAccountExecutions,assertFirstAccountExecutions} from './first-ac
 export function rbacSetupFormReady() {
   const visible=node=>node?.getClientRects?.().length>0&&getComputedStyle(node).visibility!=='hidden'&&getComputedStyle(node).display!=='none'
   const form=document.querySelector('form[action="/oidc/setup"]'),csrf=form?.querySelector('input[name="csrf"]')
-  return location.pathname==='/oidc/setup'&&visible(form)&&visible(csrf)&&![...document.querySelectorAll('[data-setup-wait]')].some(visible)
+  return location.pathname==='/oidc/setup'&&visible(form)&&Boolean(csrf)&&![...document.querySelectorAll('[data-setup-wait]')].some(visible)
 }
 
 export const rbacOnboardingCaseIds=Object.freeze([

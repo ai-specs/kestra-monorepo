@@ -17,7 +17,8 @@ test('setup recovery waits for visible form and no visible waiting state',()=>{
   try {
     waits=[{getClientRects:()=>[]}];assert.equal(rbacSetupFormReady(),true)
     waits=[{getClientRects:rect}];assert.equal(rbacSetupFormReady(),false)
-    waits=[];globalThis.location.pathname='/oidc/login';assert.equal(rbacSetupFormReady(),false)
+    waits=[];csrf.getClientRects=()=>[];assert.equal(rbacSetupFormReady(),true,'hidden CSRF input must still satisfy setup readiness')
+    globalThis.location.pathname='/oidc/login';assert.equal(rbacSetupFormReady(),false)
     globalThis.location.pathname='/oidc/setup';form.getClientRects=()=>[];assert.equal(rbacSetupFormReady(),false)
   } finally {for(const [key,value]of Object.entries(previous)){if(value===undefined)delete globalThis[key];else globalThis[key]=value}}
 })
