@@ -80,13 +80,22 @@ export async function runNamespaceFlowDetailBrowser(page,{base,namespace,flowId,
     await page.waitForFunction(previous=>performance.timeOrigin>previous,previousOrigin)
     await page.waitForFunction(namespaceFlowDetailReady,{path,description,tab})
     if(name==='overview-direct') {
-      // The native Flow router first mounts the bare Overview, then canonicalizes
-      // its default time filter and performs another document load. Evidence must
-      // be bound to that final canonical document, not span both route mounts.
+      // The native router canonicalizes the default time filter either within the
+      // same document or through another document load. Bind evidence only after
+      // the canonical URL, latest navigation identity, and page generation remain
+      // unchanged across a quiet interval.
       await page.waitForFunction(namespaceFlowDetailCanonicalQueryReady,{path,description,tab})
-      const intermediateOrigin=await page.evaluate(()=>performance.timeOrigin)
-      await page.waitForFunction(previous=>performance.timeOrigin>previous,intermediateOrigin)
-      await page.waitForFunction(namespaceFlowDetailCanonicalQueryReady,{path,description,tab})
+      for(let attempt=0;attempt<5;attempt++) {
+        const before=await page.diagnostics()
+        const navigation=before.events.filter(event=>event.kind==='document-navigation'&&new URL(event.url).origin===base&&new URL(event.url).pathname===path).at(-1)
+        assert(navigation?.documentId,'Canonical Flow Overview navigation missing')
+        const origin=await page.evaluate(()=>performance.timeOrigin)
+        await new Promise(resolve=>setTimeout(resolve,250))
+        await page.waitForFunction(namespaceFlowDetailCanonicalQueryReady,{path,description,tab})
+        const after=await page.diagnostics()
+        const settled=after.events.filter(event=>event.kind==='document-navigation'&&new URL(event.url).origin===base&&new URL(event.url).pathname===path).at(-1)
+        if(settled?.documentId===navigation.documentId&&await page.evaluate(previous=>performance.timeOrigin===previous,origin))break
+      }
     }
     const dom=await page.evaluate(({description})=>{
       const visible=node=>Boolean(node.getClientRects().length)&&getComputedStyle(node).visibility!=='hidden'
