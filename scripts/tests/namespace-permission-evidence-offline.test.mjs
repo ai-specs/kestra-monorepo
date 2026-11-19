@@ -107,6 +107,22 @@ test('Overview refresh accepts the native time filter query while retaining its 
   navigation.url+='?filters[timeRange][EQUALS]=PT24H'
   assertNamespacePermissionEvidence(refresh(value))
 })
+test('Overview direct accepts one chart for each same-document canonical URL state',()=>{
+  const value=sample(),phase=value.journey.cases.find(row=>row.id==='second-exact-flow-kv-list-and-total').evidence.flowDetail.phases[0]
+  const base='http://localhost:8080/ui/main/flows/edit/company.sub/namespace_12345/overview'
+  const first=value.events.find(event=>event.kind==='request'&&event.documentId===phase.document.documentId&&event.url.endsWith('/charts/preview'))
+  first.documentUrl=base
+  const second={...first,id:'canonical-chart-request',requestId:'canonical-chart-response',documentUrl:base+'?filters[timeRange][EQUALS]=PT24H'}
+  const response={...second,id:'canonical-chart-response',kind:'http-response',status:200,url:'http://localhost:8080/api/v1/main/dashboards/charts/preview'}
+  const firstRoute={id:'overview-default-route',kind:'document-route',documentId:phase.document.documentId,url:base}
+  const canonicalRoute={id:'overview-canonical-route',kind:'document-route',documentId:phase.document.documentId,url:base+'?filters[timeRange][EQUALS]=PT24H'}
+  const boundary=value.events.findIndex(event=>event.id===phase.eventIds.at(-1))+1
+  value.events.splice(boundary,0,firstRoute,canonicalRoute,second,response)
+  phase.eventIds.push(firstRoute.id,canonicalRoute.id,second.id,response.id)
+  assertNamespacePermissionEvidence(refresh(value))
+  second.documentUrl=first.documentUrl
+  assert.throws(()=>assertNamespacePermissionEvidence(refresh(value)),/same Flow Overview URL state/)
+})
 for(const [name,change,{copy=true}={}] of [
   ['missing production Flow detail matrix',value=>delete value.journey.cases.find(row=>row.id==='second-exact-flow-kv-list-and-total').evidence.flowDetail],
   ['missing Overview refresh',value=>value.journey.cases.find(row=>row.id==='second-exact-flow-kv-list-and-total').evidence.flowDetail.phases.splice(1,1)],

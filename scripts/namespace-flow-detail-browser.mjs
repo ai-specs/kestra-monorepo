@@ -50,7 +50,20 @@ export function assertNamespaceFlowDetailEvidence(detail,{events,base,namespace,
     const capability=responses.filter(event=>new URL(event.url).pathname==='/api/v1/main/ui/flows/execution-capabilities')
     assert(capability.length>0&&capability.every(event=>event.status===200&&event.method==='POST'))
     const previews=requests.filter(event=>new URL(event.url).pathname==='/api/v1/main/dashboards/charts/preview')
-    assert.equal(previews.length,tab==='overview'?1:0,'Unexpected runtime chart mounted')
+    if(tab!=='overview')assert.equal(previews.length,0,'Unexpected runtime chart mounted')
+    else {
+      assert(previews.length>=1,'Description chart was not mounted')
+      // The native router may canonicalize the default time filter in the same
+      // document or through a new document. A same-document URL transition has
+      // two legitimate document states and therefore two chart requests.
+      const documentUrls=previews.map(event=>event.documentUrl)
+      assert.equal(new Set(documentUrls).size,previews.length,'The same Flow Overview URL state mounted more than one runtime chart')
+      if(previews.length>1) {
+        assert.equal(previews.length,2,'Unexpected runtime chart mounted')
+        const nativeUrls=new Set(events.filter(event=>event.documentId===row.document.documentId&&['document-navigation','document-route'].includes(event.kind)).map(event=>event.url))
+        assert(documentUrls.every(url=>nativeUrls.has(url)),'A runtime chart was not bound to an actual native Flow Overview URL state')
+      }
+    }
     for(const preview of previews)assert(responses.some(response=>response.requestId===preview.requestId&&response.method==='POST'&&response.status===200),'Description chart did not return successfully')
     for(const request of requests.filter(event=>new URL(event.url).pathname.startsWith('/api/'))) {
       assert.equal(responses.filter(response=>response.requestId===request.requestId&&response.url===request.url&&response.method===request.method).length,1,'Flow detail business request has no completed response')
