@@ -27,6 +27,17 @@ for(const [name,mutate] of [
   ['business source page',x=>{x[0].documentUrl=x[2].documentUrl=base+'/ui/main/flows'}],
   ['new source document',x=>{x[2].documentId='new'}],
 ])test('worker diagnostic stays unknown: '+name,()=>{const events=oldWorker();mutate(events);assert.equal(run(events).errors.length,1)})
+test('external telemetry console errors require an exact same-request network failure',()=>{
+ const url='https://api.kestra.io/v1/feeds?iid=test'
+ const network=event('telemetry-network','http-error',{url,documentUrl:base+'/ui/main/dashboards',message:'HTTP 500',status:500})
+ const console500=event('telemetry-console','console-error',{url,documentUrl:base+'/ui/main/dashboards',source:'network',message:'Failed to load resource: the server responded with a status of 500 ()',status:500})
+ const result=run([network,console500]);assert.equal(result.errors.length,0)
+ assert.deepEqual(result.classifications.map(item=>item.reason),['host-telemetry-external-error','host-telemetry-external-console-error'])
+ for(const mutate of [events=>events.shift(),events=>{events[0].status=403},events=>{events[1].requestId='other'},events=>{events[1].documentId='other'},events=>{events[1].url='https://api.kestra.io/v1/other'},events=>{events[1].message='Failed to load resource: the server responded with a status of 500 (typo)'}]) {
+  const events=[structuredClone(network),structuredClone(console500)];mutate(events);assert.equal(run(events).errors.length,1)
+ }
+})
+
 test('same request, old document and same frame unload identify a cancelled GET',()=>{
   const result=run([request,abort,navigation]);assert.equal(result.errors.length,0);assert.equal(result.classifications[0].evidence.navigationEventId,'n')
 })

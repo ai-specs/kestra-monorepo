@@ -36,6 +36,11 @@ export function classifyAccessControlDiagnostics({events,base,requests=[],expect
           blockedReason:event.blockedReason});continue}
     }
     if(['http-error','request-failed'].includes(event.kind)&&new URL(event.url).origin==='https://api.kestra.io'&&new URL(event.documentUrl??'').pathname!=='/ui/main/extensions/rbac'){add(event,'host-telemetry-external-error',{requestId:event.requestId,documentId:event.documentId,status:event.status??null,message:event.message});continue}
+    if(event.kind==='console-error'&&event.source==='network'&&/^Failed to load resource: the server responded with a status of (\d{3}) \(\)$/.test(event.message)) {
+      const match=event.message.match(/^Failed to load resource: the server responded with a status of (\d{3}) \(\)$/)
+      const companion=(byRequest.get(event.requestId)??[]).find(response=>['http-error','request-failed'].includes(response.kind)&&response.requestId===event.requestId&&response.documentId===event.documentId&&response.url===event.url&&new URL(response.url).origin==='https://api.kestra.io'&&new URL(response.documentUrl??'').pathname!=='/ui/main/extensions/rbac'&&(response.kind==='request-failed'||response.status===Number(match[1])))
+      if(companion){add(event,'host-telemetry-external-console-error',{requestId:event.requestId,documentId:event.documentId,networkEventId:companion.id,status:event.status??null,message:event.message});continue}
+    }
     if(event.kind==='http-error'&&original&&exactRequests(event)){add(event,'explicit-business-denial',{requestId:event.requestId,documentId:event.documentId});continue}
     if(event.kind==='request-failed'&&expectedTransportFailures.some(item=>item.case==='ui-secret-response-lost-once'&&same(item,event)&&item.message===event.message)){add(event,'explicit-once-only-response-drop',{requestId:event.requestId,documentId:event.documentId});continue}
     if(event.kind==='request-failed'&&original&&event.message==='net::ERR_ABORTED'&&event.cancelled===true) {
