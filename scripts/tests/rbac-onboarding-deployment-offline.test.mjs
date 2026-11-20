@@ -26,6 +26,8 @@ for(const scenario of ['missing-jar','normal'])test(scenario+': orchestration us
       if(args[0]==='start'||args[0]==='stop')return ''
       if(args[0]==='inspect') {
         if(args[2]==='{{.RestartCount}}')return '0'
+        if(args[2]==='{{.Id}}')return host
+        if(args[2]==='{{.State.Running}}')return 'true'
         if(args[2]==='{{.Config.Image}}')return image
         if(args[2]==='{{json .NetworkSettings.Ports}}')return JSON.stringify({'8080/tcp':[{HostPort:'18128',HostIp:'127.0.0.1'}]})
         return project
