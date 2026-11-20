@@ -22,7 +22,7 @@ for(const scenario of ['missing-jar','normal'])test(scenario+': orchestration us
     const postgres='1'.repeat(64),host='2'.repeat(64)
     const command=(program,args)=>{
       commands.push({program,args})
-      if(args[0]==='ps')return args.includes('com.docker.compose.service=kestra')?host:postgres
+      if(args[0]==='ps')return args.some(value=>value.startsWith('label=com.docker.compose.service=kestra'))?host:postgres
       if(args[0]==='start'||args[0]==='stop')return ''
       if(args[0]==='inspect') {
         if(args[2]==='{{.RestartCount}}')return '0'
