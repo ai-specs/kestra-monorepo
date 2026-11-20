@@ -22,6 +22,7 @@ for(const scenario of ['missing-jar','normal'])test(scenario+': orchestration us
     const postgres='1'.repeat(64),host='2'.repeat(64)
     const command=(program,args)=>{
       commands.push({program,args})
+      if(args[0]==='stop')return ''
       if(args[0]==='inspect') {
         if(args[2]==='{{.RestartCount}}')return '0'
         if(args[2]==='{{.Config.Image}}')return image
@@ -69,7 +70,8 @@ for(const scenario of ['missing-jar','normal'])test(scenario+': orchestration us
     if(scenario==='normal')assert.equal(statSync(join(output,directory,'libs/kestra-rbac-authorizer.jar')).mode&0o777,0o644)
     assert.equal(commands.filter(row=>row.args.some(arg=>arg.startsWith('CREATE DATABASE '))).length,1)
     assert(!composeCalls.some(args=>args.includes('down')))
-    assert.deepEqual(composeCalls.at(-1),['stop','kestra'])
+    assert(!composeCalls.some(args=>args[0]==='stop'))
+    assert(commands.some(row=>row.program==='docker'&&row.args[0]==='stop'&&row.args[1]===host))
     const report=JSON.parse(readFileSync(join(output,directory,'report.json')))
     assert.equal(report.completed,false);assert.equal(report.cases[0].status,'failed')
     assert.equal(report.scenario,scenario)

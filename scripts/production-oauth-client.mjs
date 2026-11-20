@@ -23,19 +23,27 @@ export class ProductionOAuthClient {
   async request(path, options = {}, includeSession = true) {
     const url = new URL(path, this.#base)
     assert.equal(url.origin, this.#base, 'Test client cannot follow credentials off the instance origin')
-    const response = await fetch(url, {...options, redirect: 'manual', signal: options.signal ?? AbortSignal.timeout(90_000), headers: {
-      ...(includeSession && this.#cookies.size ? {Cookie: [...this.#cookies].map(([name, value]) => `${name}=${value}`).join('; ')} : {}),
-      ...(includeSession && this.#csrf && options.method && !['GET', 'HEAD', 'OPTIONS'].includes(options.method) ? {'X-CSRF-TOKEN': this.#csrf} : {}),
-      ...options.headers,
-    }})
-    for (const value of includeSession ? response.headers.getSetCookie() : []) {
-      const pair = value.split(';')[0], separator = pair.indexOf('=')
-      if (separator <= 0) continue
-      const name = pair.slice(0, separator), content = pair.slice(separator + 1)
-      if (/;\s*max-age=0(?:;|$)/i.test(value) || content === '') this.#cookies.delete(name)
-      else this.#cookies.set(name, content)
+    for(let attempt=0;;attempt++) {
+      try {
+        const response=await fetch(url,{...options,redirect:'manual',signal:options.signal??AbortSignal.timeout(90_000),headers:{
+          ...(includeSession&&this.#cookies.size?{Cookie:[...this.#cookies].map(([name,value])=>`${name}=${value}`).join('; ')}:{}),
+          ...(includeSession&&this.#csrf&&options.method&&!['GET','HEAD','OPTIONS'].includes(options.method)?{'X-CSRF-TOKEN':this.#csrf}:{}),
+          ...options.headers,
+        }})
+        for(const value of includeSession?response.headers.getSetCookie():[]) {
+          const pair=value.split(';')[0],separator=pair.indexOf('=')
+          if(separator<=0)continue
+          const name=pair.slice(0,separator),content=pair.slice(separator+1)
+          if(/;\s*max-age=0(?:;|$)/i.test(value)||content==='')this.#cookies.delete(name)
+          else this.#cookies.set(name,content)
+        }
+        return response
+      } catch(error) {
+        const idempotent=!options.method||['GET','HEAD','OPTIONS'].includes(options.method)
+        if(error?.name==='TimeoutError'&&idempotent&&attempt===0)continue
+        throw error
+      }
     }
-    return response
   }
   async login(username, password) {
     let response = await this.request('/oauth/login/kestra')
