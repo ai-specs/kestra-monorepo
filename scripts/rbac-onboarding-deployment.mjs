@@ -182,7 +182,7 @@ export async function runRbacOnboardingDeployment({configuration,compose,saveCon
     configuration.volumes[storage]={labels:{owner:project}}
     await saveConfiguration()
     compose('up','--no-start','kestra')
-    hostContainer=compose('ps','-q','kestra')
+    hostContainer=command('docker',['ps','-aq','--filter','label=com.docker.compose.project='+project,'--filter','label=com.docker.compose.service=kestra'])
     command('docker',['start',hostContainer],{timeout:120000})
     await assertOwner();await waitForHost()
     const controls={assertOwner,installationState,readGroup,readExecution,namespaceEffects,expectedNamespaceLists,readNamespaceResource,seedNamespaceBaselines,revokeNamespaceSubject,
