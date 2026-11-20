@@ -213,7 +213,8 @@ export async function runNamespacePermissionBrowser(page,{base,account,controls,
       let selection=await page.evaluate(namespacePickerState,ns)
       if(!selection.selected) {
         await page.fill('[data-test="kv-namespace"] input',ns)
-        await page.waitForFunction(namespacePickerState,{namespace:ns,waitFor:'ready'})
+        // Let Playwright's strict locator wait for and click the one exact native
+        // option. A test-authored “dropdown settled” predicate is not a UI action.
         selection=await page.evaluate(namespacePickerState,ns)
         if(!selection.selected)await page.click('[role="option"]:text-is('+JSON.stringify(ns)+')')
       }
