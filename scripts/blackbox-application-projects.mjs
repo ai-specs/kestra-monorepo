@@ -545,7 +545,7 @@ export async function main(argv=process.argv.slice(2),runtime={}) {
     const onboardingSession={}
     await stage('automatic-rbac-new-user-installation',async()=>{
       composeStarted=true;report.resources.startAttempted=true
-      compose('pull','kestra')
+      command('docker',['pull',report.inputs.image],{timeout:180000})
       const publication=report.stages.find(row=>row.id==='publication-gate'&&row.status==='passed')
       assert(publication,'Automatic installation requires formal published inputs')
       return runRbacOnboardingDeployment({configuration:composeConfig,compose,saveConfiguration:saveCompose,command,output,
@@ -561,7 +561,7 @@ export async function main(argv=process.argv.slice(2),runtime={}) {
     })
     await stage('feature-off-production-install',async()=>{
       composeStarted=true;report.resources.startAttempted=true
-      compose('pull','kestra')
+      command('docker',['pull',report.inputs.image],{timeout:180000})
       compose('up','-d');report.resources.containersCreated=true
       await waitForHost()
       const ids={}

@@ -50,3 +50,10 @@ test('root runner does not retain executable theme loops or migrated literal vis
  for(const row of accessControlTransferredUiCases)assert(!source.includes("await run('"+row.id+"'"),'Migrated callback still executes: '+row.id)
  assert(!readFileSync(new URL('../application-project-ui-fixture.mjs',import.meta.url),'utf8').includes('measureCurrentHostReferences'))
 })
+
+
+test('root Compose runner pulls the exact formal digest through Docker',()=>{
+  const source=readFileSync(new URL('../blackbox-application-projects.mjs',import.meta.url),'utf8')
+  assert(!source.includes("compose('pull','kestra')"))
+  assert(source.includes("command('docker',['pull',report.inputs.image],{timeout:180000})"))
+})
