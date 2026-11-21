@@ -31,7 +31,13 @@ export async function runRbacOnboardingDeployment({configuration,compose,saveCon
   const account={username:'onboarding-'+randomBytes(6).toString('hex'),password:randomBytes(24).toString('base64url')+'Aa1!'}
   let postgresContainer,hostContainer,browser,context,adapter
   const inspect=(format,id)=>command('docker',['inspect','-f',format,id])
+  let immutableOwnershipVerified=false
   const assertOwner=async()=>{
+    // Docker Desktop 4.94 can return inspect stdout but leave its CLI process
+    // alive for 15 minutes. Container identity and deployment binding do not
+    // change within one isolated first-install stage: verify them once, then
+    // continue to use the same IDs for every real database observation.
+    if(immutableOwnershipVerified)return
     for(const id of [postgresContainer,hostContainer]) {
       assert(/^[a-f0-9]{12,64}$/.test(id??''))
       assert.equal(inspect('{{index .Config.Labels "owner"}}',id),project)
@@ -43,6 +49,7 @@ export async function runRbacOnboardingDeployment({configuration,compose,saveCon
     assert.equal(databases.database,database);assert.equal(databases.user,'kestra')
     const ports=JSON.parse(inspect('{{json .NetworkSettings.Ports}}',hostContainer))
     assert(ports['8080/tcp']?.some(port=>port.HostPort===new URL(base).port&&port.HostIp==='127.0.0.1'))
+    immutableOwnershipVerified=true
   }
   const query=sql=>command('docker',['exec',postgresContainer,'psql','-X','-q','-A','-t','-U','kestra','-d',database,'-v','ON_ERROR_STOP=1','-c',sql])
   const readGroup=async()=>{

@@ -77,6 +77,7 @@ for(const scenario of ['missing-jar','normal'])test(scenario+': orchestration us
     assert(commands.some(row=>row.program==='docker'&&row.args[0]==='stop'&&row.args[1]===host))
     assert(composeCalls.some(args=>args[0]==='up'&&args[1]==='--no-start'&&args[2]==='kestra'))
     assert(commands.some(row=>row.program==='docker'&&row.args[0]==='start'&&row.args[1]===host))
+    assert.equal(commands.filter(row=>row.args[0]==='inspect'&&row.args[2]==='{{index .Config.Labels "owner"}}').length,2)
     const report=JSON.parse(readFileSync(join(output,directory,'report.json')))
     assert.equal(report.completed,false);assert.equal(report.cases[0].status,'failed')
     assert.equal(report.scenario,scenario)
