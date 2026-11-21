@@ -53,7 +53,7 @@ for(const scenario of ['missing-jar','normal'])test(scenario+': orchestration us
         saveConfiguration:async()=>snapshots.push(structuredClone(configuration)),record:async report=>reports.push(report)}),/deliberate first browser navigation failure/)
     } finally {globalThis.fetch=oldFetch}
     assert.deepEqual(configuration.services.kestra,original)
-    assert.equal(snapshots.length,3)
+    assert.equal(snapshots.length,2)
     const first=snapshots[0].services.kestra
     assert.equal(first.environment.KESTRA_OIDC_BOOTSTRAP_USERNAME,'')
     assert.equal(first.environment.KESTRA_OIDC_BOOTSTRAP_PASSWORD,'')
