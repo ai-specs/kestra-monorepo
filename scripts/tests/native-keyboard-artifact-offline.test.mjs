@@ -8,9 +8,9 @@ import {createEgoApplicationProjectAdapter} from '../application-project-browser
 // Simulated protocol/filesystem transport only. Real keyboard evidence is in
 // production-drawer-native-review/*escape*.json; no browser launched here.
 async function setup({sensitive=true,imageError=false,clipboard=false,missingPermission=false}={}) {
-  const state={keys:[],clicks:[],commands:[],events:[],screenshots:0,clickError:null}
+  const state={keys:[],clicks:[],commands:[],events:[],screenshots:0,clickError:null,offline:[]}
   let currentTarget
-  const page={get targetId(){return currentTarget},keyboard:{press:async key=>{state.keys.push(key)}},mouse:{click:async(x,y)=>{state.clicks.push({x,y})}},
+  const page={get targetId(){return currentTarget},context:()=>({setOffline:async offline=>{state.offline.push(offline)}}),keyboard:{press:async key=>{state.keys.push(key)}},mouse:{click:async(x,y)=>{state.clicks.push({x,y})}},
     cdp:async(method,params)=>{state.commands.push({method,params});currentTarget='test-target';return method==='Page.getFrameTree'?{frameTree:{frame:{id:'frame',loaderId:'loader',url:'http://localhost:18128/ui/main/extensions/rbac'}}}:{}},
     events:async()=>state.events.splice(0),evaluate:async fn=>{const source=String(fn);if(/let found=false/.test(source))return sensitive;if(source.includes('location.origin'))return 'http://localhost:18128';if(source.includes('width:innerWidth'))return {width:768,height:900};if(source.includes('state:(await navigator.permissions.query'))return ['clipboard-read','clipboard-write'].map(name=>({name,state:'prompt'}));if(source.includes('navigator.permissions.query'))return ['granted','granted'];return null},
     screenshot:async()=>{state.screenshots++;if(imageError)throw Error('synthetic filesystem failure')},
@@ -21,6 +21,10 @@ async function setup({sensitive=true,imageError=false,clipboard=false,missingPer
   const adapter=await createEgoApplicationProjectAdapter(page,{artifactDirectory,...(clipboard?{browserCdp}:{})})
   return {state,adapter,artifactDirectory}
 }
+test('server restart reconnect cycles only the owning browser network context',async()=>{
+  const {state,adapter}=await setup();try{await adapter.reconnectAfterServerRestart();assert.deepEqual(state.offline,[true,false])}finally{await adapter.dispose()}
+})
+
 test('focused keyboard delegates Tab/ShiftTab/Escape to the native Page API, not fabricated platform keycodes',async()=>{
   const {state,adapter}=await setup();try{for(const key of ['Tab','Shift+Tab','Escape'])await adapter.pressFocused(key);assert.deepEqual(state.keys,['Tab','Shift+Tab','Escape']);assert(!state.commands.some(x=>x.method==='Input.dispatchKeyEvent'))}finally{await adapter.dispose()}
 })

@@ -501,6 +501,11 @@ async function makeAdapter(raw,tools,options) {
         await raw.keyboard.press('ControlOrMeta+V')
       }
     }),
+    reconnectAfterServerRestart:() => action('reconnectAfterServerRestart',async() => {
+      const context=raw.context?.()
+      assert(context&&typeof context.setOffline==='function','Browser context network reset is required after a JVM restart')
+      await context.setOffline(true);await delay(50);await context.setOffline(false)
+    }),
     evaluate:(callback,argument) => action('evaluate',() => argument === undefined ? raw.evaluate(callback) : raw.evaluate(callback,argument)),
     waitForFunction:(callback,argument) => action('waitForFunction',() => raw.waitForFunction(callback,argument,{timeout})),
     setViewport:viewport => action('setViewport',async () => {

@@ -272,6 +272,7 @@ export async function runRbacOnboardingBrowser(page,{base,account,inputs,control
       try {
         await controls.restartJvm()
         await page.waitForFunction(rbacSetupFormReady)
+        await page.reconnectAfterServerRestart()
       } finally {window.finishedAt=new Date().toISOString()}
       return {recoveredWithoutManualNavigation:true,passwordAutomaticallyReplayed:false,path:await path()}
     })
