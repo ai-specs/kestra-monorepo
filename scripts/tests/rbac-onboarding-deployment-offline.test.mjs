@@ -53,7 +53,7 @@ for(const scenario of ['missing-jar','normal'])test(scenario+': orchestration us
         saveConfiguration:async()=>snapshots.push(structuredClone(configuration)),record:async report=>reports.push(report)}),/deliberate first browser navigation failure/)
     } finally {globalThis.fetch=oldFetch}
     assert.deepEqual(configuration.services.kestra,original)
-    assert.equal(snapshots.length,2)
+    assert.equal(snapshots.length,3)
     const first=snapshots[0].services.kestra
     assert.equal(first.environment.KESTRA_OIDC_BOOTSTRAP_USERNAME,'')
     assert.equal(first.environment.KESTRA_OIDC_BOOTSTRAP_PASSWORD,'')
@@ -77,7 +77,7 @@ for(const scenario of ['missing-jar','normal'])test(scenario+': orchestration us
     assert(commands.some(row=>row.program==='docker'&&row.args[0]==='stop'&&row.args[1]===host))
     assert(composeCalls.some(args=>args[0]==='up'&&args[1]==='--no-start'&&args[2]==='kestra'))
     assert(commands.some(row=>row.program==='docker'&&row.args[0]==='start'&&row.args[1]===host))
-    assert.equal(commands.filter(row=>row.args[0]==='inspect'&&row.args[2]==='{{index .Config.Labels "owner"}}').length,2)
+    assert.equal(commands.filter(row=>row.args[0]==='inspect'&&row.args[2]==='{{index .Config.Labels "owner"}}').length,3)
     const report=JSON.parse(readFileSync(join(output,directory,'report.json')))
     assert.equal(report.completed,false);assert.equal(report.cases[0].status,'failed')
     assert.equal(report.scenario,scenario)
