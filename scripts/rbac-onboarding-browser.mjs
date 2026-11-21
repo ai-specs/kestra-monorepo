@@ -235,6 +235,7 @@ export async function runRbacOnboardingBrowser(page,{base,account,inputs,control
         const runtime=await controls.initialRuntime()
         assert.equal(runtime.restartCount,0);assert.equal(runtime.jarSha256,inputs.jarSha256)
         const priorSession=await controls.restorePriorSession()
+        await page.reconnectAfterServerRestart()
         await page.goto(base+'/ui/')
         await page.waitForFunction(rbacSetupFormReady)
         await assertEmptyInstallation()
