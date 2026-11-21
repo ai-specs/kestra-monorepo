@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import {copyFileSync,mkdirSync,readFileSync,writeFileSync,chmodSync} from 'node:fs'
-import {createHash,randomBytes} from 'node:crypto'
+import {spawn} from 'node:child_process'
+import {createHash,randomBytes,randomUUID} from 'node:crypto'
 import {createRequire} from 'node:module'
 import {join} from 'node:path'
 import {createPlaywrightApplicationProjectAdapter} from './application-project-browser-adapters.mjs'
@@ -8,7 +9,7 @@ import {runRbacOnboardingBrowser} from './rbac-onboarding-browser.mjs'
 import {ApplicationGroupManagement} from './application-project-fixture.mjs'
 import {applicationProjectFeature} from './application-project-fixture.mjs'
 
-export async function runRbacOnboardingDeployment({configuration,compose,saveConfiguration,command,output,project,base,inputs,formalJar,uiAdapter,scenario='missing-jar',sessionState,record}) {
+export async function runRbacOnboardingDeployment({configuration,compose,saveConfiguration,command,output,project,base,inputs,formalJar,uiAdapter,scenario='missing-jar',sessionState,record,queryTransport}) {
   assert(['missing-jar','normal'].includes(scenario))
   assert(/^application-projects-bb-[0-9]+-[0-9]+$/.test(project))
   assert.equal(new URL(base).origin,base)
@@ -31,6 +32,47 @@ export async function runRbacOnboardingDeployment({configuration,compose,saveCon
   const account={username:'onboarding-'+randomBytes(6).toString('hex'),password:randomBytes(24).toString('base64url')+'Aa1!'}
   let postgresContainer,hostContainer,browser,context,adapter
   const inspect=(format,id)=>command('docker',['inspect','-f',format,id])
+  const createPersistentQuery=()=>{
+    let child,pending
+    const ensure=()=>{
+      if(child)return
+      assert(/^[a-z0-9_]+$/.test(database),'isolated database name required')
+      child=spawn('docker',['exec','-i',postgresContainer,'sh','-c',`exec env PGPASSWORD="$POSTGRES_PASSWORD" psql -X -q -A -t -U kestra -d ${database} -v ON_ERROR_STOP=1`],{stdio:['pipe','pipe','pipe']})
+      let output='',errors=''
+      child.stdout.on('data',chunk=>{
+        if(!pending)return
+        output+=chunk
+        const lines=output.split('\n')
+        const end=lines.findIndex(line=>line===pending.token)
+        if(end<0)return
+        const value=lines.slice(0,end).join('\n')
+        const resolve=pending.resolve;pending=null;output='';resolve(value)
+      })
+      child.stderr.on('data',chunk=>{errors+=chunk})
+      child.on('error',error=>{if(pending){const reject=pending.reject;pending=null;reject(error)}})
+      child.on('close',status=>{if(pending){const reject=pending.reject;pending=null;reject(new Error('persistent psql exited with status '+status+(errors?': '+errors.trim():'')))}})
+    }
+    return {
+      query(sql){
+        ensure()
+        const token='__ACCEPTANCE_QUERY_'+randomUUID().replaceAll('-','_')+'__'
+        return new Promise((resolve,reject)=>{
+          if(pending){reject(new Error('persistent psql observer cannot overlap queries'));return}
+          const timer=setTimeout(()=>{if(pending&&pending.reject===reject){pending=null;child?.kill('SIGTERM');reject(new Error('persistent psql query timeout'))}},60_000)
+          pending={token,resolve:value=>{clearTimeout(timer);resolve(value)},reject:error=>{clearTimeout(timer);reject(error)}}
+          child.stdin.write(sql.replace(/;\s*$/,'')+';\n\\echo '+token+'\n',error=>{if(error&&pending){const reject=pending.reject;pending=null;reject(error)}})
+        })
+      },
+      async close(){
+        if(!child)return
+        child.stdin.end('\q\n')
+        await new Promise(resolve=>{if(child.exitCode!==null)resolve();else child.once('close',resolve)})
+        child=null
+      }
+    }
+  }
+  const persistentQuery=queryTransport?null:createPersistentQuery()
+  const query=queryTransport??persistentQuery.query
   let immutableOwnershipVerified=false
   const assertOwner=async()=>{
     // Docker Desktop 4.94 can return inspect stdout but leave its CLI process
@@ -44,23 +86,21 @@ export async function runRbacOnboardingDeployment({configuration,compose,saveCon
       assert.equal(inspect('{{index .Config.Labels "com.docker.compose.project"}}',id),project)
     }
     assert.equal(inspect('{{.Config.Image}}',hostContainer),inputs.image)
-    const databases=JSON.parse(command('docker',['exec',postgresContainer,'psql','-X','-q','-A','-t','-U','kestra','-d',database,
-      '-v','ON_ERROR_STOP=1','-c',"SELECT json_build_object('database',current_database(),'user',current_user)"]))
+    const databases=JSON.parse(await query("SELECT json_build_object('database',current_database(),'user',current_user)"))
     assert.equal(databases.database,database);assert.equal(databases.user,'kestra')
     const ports=JSON.parse(inspect('{{json .NetworkSettings.Ports}}',hostContainer))
     assert(ports['8080/tcp']?.some(port=>port.HostPort===new URL(base).port&&port.HostIp==='127.0.0.1'))
     immutableOwnershipVerified=true
   }
-  const query=sql=>command('docker',['exec',postgresContainer,'psql','-X','-q','-A','-t','-U','kestra','-d',database,'-v','ON_ERROR_STOP=1','-c',sql])
   const readGroup=async()=>{
     await assertOwner()
-    const result=JSON.parse(query("SELECT json_build_object('description',document_json::jsonb->'group'->>'description','revision',revision) FROM rbac_application_group_state WHERE group_id='main'"))
+    const result=JSON.parse(await query("SELECT json_build_object('description',document_json::jsonb->'group'->>'description','revision',revision) FROM rbac_application_group_state WHERE group_id='main'"))
     assert.equal(typeof result.description,'string');assert(Number.isSafeInteger(result.revision)&&result.revision>0)
     return result
   }
   const readExecution=async id=>{
     await assertOwner();assert.match(id,/^[A-Za-z0-9_-]+$/)
-    return JSON.parse(query("SELECT json_build_object('id',value->>'id','namespace',value->>'namespace','flowId',value->>'flowId','state',value->'state'->>'current') FROM executions WHERE tenant_id='main' AND value->>'id'='"+id+"'"))
+    return JSON.parse(await query("SELECT json_build_object('id',value->>'id','namespace',value->>'namespace','flowId',value->>'flowId','state',value->'state'->>'current') FROM executions WHERE tenant_id='main' AND value->>'id'='"+id+"'"))
   }
   // Owned storage observers never supply authorization or perform allowed business writes.
   let namespacePrefix
@@ -68,16 +108,16 @@ export async function runRbacOnboardingDeployment({configuration,compose,saveCon
     await assertOwner();assert.match(namespacePrefix,/^namespace_[0-9]+$/)
     const tables={}
     for(const table of ['flows','kv_metadata','executions','triggers','execution_outputs','execution_queued','queues']) {
-      const present=query("SELECT to_regclass('public."+table+"') IS NOT NULL")==='t'
+      const present=await query("SELECT to_regclass('public."+table+"') IS NOT NULL")==='t'
       const filter=['queues','execution_outputs','execution_queued'].includes(table)?'':" WHERE row_to_json(t)::text LIKE '%"+namespacePrefix+"%'"
-      tables[table]=present?JSON.parse(query("SELECT coalesce(json_agg(x ORDER BY x::text),'[]'::json) FROM (SELECT row_to_json(t) x FROM "+table+" t"+filter+") q")):[]
+      tables[table]=present?JSON.parse(await query("SELECT coalesce(json_agg(x ORDER BY x::text),'[]'::json) FROM (SELECT row_to_json(t) x FROM "+table+" t"+filter+") q")):[]
     }
     const storage=command('docker',['exec',hostContainer,'sh','-c',"find /app/storage -type f -exec sha256sum {} + | LC_ALL=C sort"])
     return {tables,storage,coverage:{queues:'full-owner-table',execution_outputs:'full-owner-table',execution_queued:'full-owner-table',storage:'all-owner-files'}}
   }
   const expectedNamespaceLists=async()=>{
     await assertOwner()
-    const result=JSON.parse(query(`SELECT json_build_object('source','owned-database','namespace','company.sub','descendants',true,
+    const result=JSON.parse(await query(`SELECT json_build_object('source','owned-database','namespace','company.sub','descendants',true,
       'flow',(SELECT coalesce(json_agg(json_build_object('namespace',namespace,'id',id) ORDER BY namespace,id),'[]'::json)
         FROM (SELECT DISTINCT ON (namespace,id) namespace,id,deleted FROM flows WHERE tenant_id='main'
           AND (namespace='company.sub' OR namespace LIKE 'company.sub.%') AND value->>'draft' IS DISTINCT FROM 'true'
@@ -92,15 +132,15 @@ export async function runRbacOnboardingDeployment({configuration,compose,saveCon
     await assertOwner();assert.match(namespace,/^[a-z][a-z0-9.]+$/);assert.match(id,/^namespace_[0-9]+$/)
     namespacePrefix=id
     const table=kind==='flow'?'flows':'kv_metadata',field=kind==='flow'?'id':'name'
-    return JSON.parse(query("SELECT coalesce(json_agg(value ORDER BY key),'[]'::json) FROM "+table+" WHERE tenant_id='main' AND namespace='"+namespace+"' AND "+field+"='"+id+"'"))
+    return JSON.parse(await query("SELECT coalesce(json_agg(value ORDER BY key),'[]'::json) FROM "+table+" WHERE tenant_id='main' AND namespace='"+namespace+"' AND "+field+"='"+id+"'"))
   }
   const seedNamespaceBaselines=async({id,sourceNamespace,namespaces})=>{
     await assertOwner();assert.equal(id,namespacePrefix);assert.equal(sourceNamespace,'company')
     for(const namespace of namespaces) {
       assert(['company.sub.child','company.other','company2','outside'].includes(namespace))
-      assert.equal(query("SELECT count(*) FROM flows WHERE namespace='company' AND id='"+id+"' AND key NOT LIKE 'main_company_%'"),'0')
-      assert.equal(query("SELECT count(*) FROM kv_metadata WHERE namespace='company' AND name='"+id+"' AND key NOT LIKE 'main_company_%'"),'0')
-      query("INSERT INTO flows(key,value,source_code) SELECT regexp_replace(key,'^main_company_','main_"+namespace+"_'),jsonb_set(value,'{namespace}',to_jsonb('"+namespace+"'::text)) || CASE WHEN value ? 'source' THEN jsonb_build_object('source',replace(value->>'source','namespace: company','namespace: "+namespace+"')) ELSE '{}'::jsonb END,replace(source_code,'namespace: company','namespace: "+namespace+"') FROM flows WHERE namespace='company' AND id='"+id+"'; INSERT INTO kv_metadata(key,value) SELECT regexp_replace(key,'^main_company_','main_"+namespace+"_'),jsonb_set(value,'{namespace}',to_jsonb('"+namespace+"'::text)) FROM kv_metadata WHERE namespace='company' AND name='"+id+"'")
+      assert.equal(await query("SELECT count(*) FROM flows WHERE namespace='company' AND id='"+id+"' AND key NOT LIKE 'main_company_%'"),'0')
+      assert.equal(await query("SELECT count(*) FROM kv_metadata WHERE namespace='company' AND name='"+id+"' AND key NOT LIKE 'main_company_%'"),'0')
+      await query("INSERT INTO flows(key,value,source_code) SELECT regexp_replace(key,'^main_company_','main_"+namespace+"_'),jsonb_set(value,'{namespace}',to_jsonb('"+namespace+"'::text)) || CASE WHEN value ? 'source' THEN jsonb_build_object('source',replace(value->>'source','namespace: company','namespace: "+namespace+"')) ELSE '{}'::jsonb END,replace(source_code,'namespace: company','namespace: "+namespace+"') FROM flows WHERE namespace='company' AND id='"+id+"'; INSERT INTO kv_metadata(key,value) SELECT regexp_replace(key,'^main_company_','main_"+namespace+"_'),jsonb_set(value,'{namespace}',to_jsonb('"+namespace+"'::text)) FROM kv_metadata WHERE namespace='company' AND name='"+id+"'")
       // Use the actual persisted file location, and require a unique source file.
       const source=command('docker',['exec',hostContainer,'find','/app/storage','-type','f','-path','*/company/_kv/'+id+'.ion']).split('\n').filter(Boolean)
       assert.equal(source.length,1,'Expected one actual KV seed value')
@@ -127,14 +167,14 @@ export async function runRbacOnboardingDeployment({configuration,compose,saveCon
   }
   const installationState=async()=>{
     await assertOwner()
-    const present=query("SELECT to_regclass('public.rbac_application_group_state') IS NOT NULL")==='t'
-    const pluginTables=JSON.parse(query("SELECT coalesce(json_agg(table_name ORDER BY table_name),'[]'::json) FROM information_schema.tables WHERE table_schema='public' AND table_name LIKE 'rbac\\_%' ESCAPE '\\'"))
-    const counts=JSON.parse(query("SELECT json_build_object('accounts',(SELECT count(*) FROM oidc_user),'installations',(SELECT count(*) FROM oidc_setup),'groups',"+(present?'(SELECT count(*) FROM rbac_application_group_state)':'0')+
+    const present=await query("SELECT to_regclass('public.rbac_application_group_state') IS NOT NULL")==='t'
+    const pluginTables=JSON.parse(await query("SELECT coalesce(json_agg(table_name ORDER BY table_name),'[]'::json) FROM information_schema.tables WHERE table_schema='public' AND table_name LIKE 'rbac\\_%' ESCAPE '\\'"))
+    const counts=JSON.parse(await query("SELECT json_build_object('accounts',(SELECT count(*) FROM oidc_user),'installations',(SELECT count(*) FROM oidc_setup),'groups',"+(present?'(SELECT count(*) FROM rbac_application_group_state)':'0')+
       ",'clients',(SELECT count(*) FROM oidc_client),'credentials',(SELECT count(*) FROM oidc_user_auth_method))"))
     counts.pluginTables=pluginTables
     if(counts.groups===0)return counts
     assert.equal(counts.groups,1)
-    const group=JSON.parse(query("SELECT json_build_object('builtInGroupId',bootstrap.builtin_group_id,'catalogRevision',bootstrap.catalog_revision,'subjects',(SELECT jsonb_agg(grant_value->>'subject' ORDER BY grant_value->>'subject') FROM jsonb_array_elements(state.document_json::jsonb->'userGrants') grant_value),'scopeKeys',(SELECT jsonb_agg(scope_value->>'key' ORDER BY scope_value->>'key') FROM jsonb_array_elements(state.document_json::jsonb->'scopes') scope_value)) FROM rbac_application_group_bootstrap bootstrap JOIN rbac_application_group_state state ON state.group_id=bootstrap.builtin_group_id"))
+    const group=JSON.parse(await query("SELECT json_build_object('builtInGroupId',bootstrap.builtin_group_id,'catalogRevision',bootstrap.catalog_revision,'subjects',(SELECT jsonb_agg(grant_value->>'subject' ORDER BY grant_value->>'subject') FROM jsonb_array_elements(state.document_json::jsonb->'userGrants') grant_value),'scopeKeys',(SELECT jsonb_agg(scope_value->>'key' ORDER BY scope_value->>'key') FROM jsonb_array_elements(state.document_json::jsonb->'scopes') scope_value)) FROM rbac_application_group_bootstrap bootstrap JOIN rbac_application_group_state state ON state.group_id=bootstrap.builtin_group_id"))
     return {...counts,...group}
   }
   async function waitForHost() {
@@ -231,6 +271,7 @@ export async function runRbacOnboardingDeployment({configuration,compose,saveCon
   } finally {
     const failures=[]
     for(const [name,cleanup] of [
+      ['database',async()=>{await persistentQuery?.close()}],
       ['adapter',async()=>{if(adapter&&!uiAdapter)await adapter.dispose()}],
       ['context',async()=>context?.close()],['browser',async()=>browser?.close()],
       ['host',async()=>{if(hostContainer)command('docker',['stop',hostContainer],{timeout:120000})}],

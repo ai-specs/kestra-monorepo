@@ -20,7 +20,10 @@ for(const scenario of ['missing-jar','normal'])test(scenario+': orchestration us
     configuration.services.kestra.environment.KESTRA_CONFIGURATION+='  anonymous-usage-report:\n    enabled: false\n  ui-anonymous-usage-report:\n    enabled: false\n  oidc:\n    enabled: true\nmicronaut:\n  security:\n    oauth2:\n      clients:\n        kestra:\n          scopes: [openid, profile, email]\n'
     const original=structuredClone(configuration.services.kestra),snapshots=[],commands=[],composeCalls=[],reports=[]
     const postgres='1'.repeat(64),host='2'.repeat(64)
+    let currentDatabase=''
+    const argsDatabase=sql=>currentDatabase
     const command=(program,args)=>{
+      const create=args.find(value=>value.startsWith('CREATE DATABASE '));if(create)currentDatabase=create.slice('CREATE DATABASE '.length).split(' ')[0]
       commands.push({program,args})
       if(args[0]==='ps')return args.some(value=>value.startsWith('label=com.docker.compose.service=kestra'))?host:postgres
       if(args[0]==='start'||args[0]==='stop')return ''
@@ -49,7 +52,7 @@ for(const scenario of ['missing-jar','normal'])test(scenario+': orchestration us
     const oldFetch=globalThis.fetch
     globalThis.fetch=async()=>({ok:true,body:{async cancel(){}}})
     try {
-      await assert.rejects(runRbacOnboardingDeployment({configuration,compose,command,output,project,base,inputs,formalJar,uiAdapter:adapter,scenario,sessionState:{value:{}},
+      await assert.rejects(runRbacOnboardingDeployment({configuration,compose,command,output,project,base,inputs,formalJar,uiAdapter:adapter,scenario,sessionState:{value:{}},queryTransport:async sql=>command('docker',['exec',postgres,'psql','-X','-q','-A','-t','-U','kestra','-d',argsDatabase(sql),'-v','ON_ERROR_STOP=1','-c',sql]),
         saveConfiguration:async()=>snapshots.push(structuredClone(configuration)),record:async report=>reports.push(report)}),/deliberate first browser navigation failure/)
     } finally {globalThis.fetch=oldFetch}
     assert.deepEqual(configuration.services.kestra,original)
