@@ -254,7 +254,7 @@ export async function runNamespacePermissionBrowser(page,{base,account,controls,
     assert.equal(result.status,403,'Out-of-scope '+kind+' '+action+' '+ns)
     const immediate=await controls.namespaceEffects();assert.deepEqual(immediate,before)
     const start=Date.now(),minimumObservationMs=2500,samples=[]
-    do {await new Promise(resolve=>setTimeout(resolve,250));const snapshot=await controls.namespaceEffects();samples.push({elapsedMs:Date.now()-start,snapshot});assert.deepEqual(snapshot,before,'Delayed rejected-write effect')}while(Date.now()-start<minimumObservationMs)
+    do {await new Promise(resolve=>setTimeout(resolve,samples.length?250:0));const snapshot=await controls.namespaceEffects();samples.push({elapsedMs:Date.now()-start,snapshot});assert.deepEqual(snapshot,before,'Delayed rejected-write effect')}while(Date.now()-start<minimumObservationMs||samples.length<2)
     return {transport:'same-production-session-adversarial-request',response:result.response,before,immediate,samples,minimumObservationMs,observedMs:Date.now()-start}
   }
   async function lists(namespaces) {

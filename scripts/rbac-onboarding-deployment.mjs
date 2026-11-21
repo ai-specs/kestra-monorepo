@@ -110,7 +110,10 @@ export async function runRbacOnboardingDeployment({configuration,compose,saveCon
     for(const table of ['flows','kv_metadata','executions','triggers','execution_outputs','execution_queued','queues']) {
       const present=await query("SELECT to_regclass('public."+table+"') IS NOT NULL")==='t'
       const filter=['queues','execution_outputs','execution_queued'].includes(table)?'':" WHERE row_to_json(t)::text LIKE '%"+namespacePrefix+"%'"
-      tables[table]=present?JSON.parse(await query("SELECT coalesce(json_agg(x ORDER BY x::text),'[]'::json) FROM (SELECT row_to_json(t) x FROM "+table+" t"+filter+") q")):[]
+      // Side-effect observation needs equality, not row-by-row report expansion.
+      // Hash every row in a deterministic JSON order inside PostgreSQL, retain
+      // the row count, and keep the full owner-table/storage coverage claim.
+      tables[table]=present?JSON.parse(await query("SELECT json_build_object('count',count(*),'sha256',encode(sha256(convert_to(coalesce(string_agg(row_to_json(t)::text,E'\\n' ORDER BY row_to_json(t)::text),''),'UTF8')),'hex')) FROM "+table+" t"+filter)):{count:0,sha256:'empty-table'}
     }
     const storage=command('docker',['exec',hostContainer,'sh','-c',"find /app/storage -type f -exec sha256sum {} + | LC_ALL=C sort"])
     return {tables,storage,coverage:{queues:'full-owner-table',execution_outputs:'full-owner-table',execution_queued:'full-owner-table',storage:'all-owner-files'}}
