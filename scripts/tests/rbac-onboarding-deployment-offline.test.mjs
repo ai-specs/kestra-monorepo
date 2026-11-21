@@ -44,7 +44,7 @@ for(const scenario of ['missing-jar','normal'])test(scenario+': orchestration us
       if(args[0]==='ps')return args.at(-1)==='postgres'?postgres:host
       return ''
     }
-    const adapter={redactSecrets(){},async restoreOwnedSession(){return {source:'previous-production-onboarding',restored:true}},async diagnostics(){return {events:[],integrity:[]}},async goto(){throw new Error('deliberate first browser navigation failure')},
+    const adapter={redactSecrets(){},async restoreOwnedSession(){return {source:'previous-production-onboarding',restored:true}},async reconnectAfterServerRestart(){},async diagnostics(){return {events:[],integrity:[]}},async goto(){throw new Error('deliberate first browser navigation failure')},
       async captureFailure(){},async diagnosticEvidenceReference(){return writeBrowserDiagnosticEvidence({events:[],integrity:[]},join(output,'diagnostics'))}}
     const oldFetch=globalThis.fetch
     globalThis.fetch=async()=>({ok:true,body:{async cancel(){}}})

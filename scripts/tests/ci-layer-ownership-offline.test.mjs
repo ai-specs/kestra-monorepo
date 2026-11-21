@@ -52,6 +52,11 @@ test('root runner does not retain executable theme loops or migrated literal vis
 })
 
 
+test('publication gate does not repeat registry inspection through buildx CLI',()=>{
+  const source=readFileSync(new URL('../blackbox-application-projects.mjs',import.meta.url),'utf8')
+  assert(!source.includes("docker','buildx','imagetools'"))
+})
+
 test('root Compose runner pulls the exact formal digest through Docker',()=>{
   const source=readFileSync(new URL('../blackbox-application-projects.mjs',import.meta.url),'utf8')
   assert(!source.includes("compose('pull','kestra')"))

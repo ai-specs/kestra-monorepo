@@ -537,7 +537,6 @@ export async function main(argv=process.argv.slice(2),runtime={}) {
       assert.equal(lifecycleGate.hostExecutableSha256,provenance.sha256,'Downloaded lifecycle evidence used another host executable')
       const pin=git(report.sources.plugin.path,'show',report.inputs.pluginCommit+':host-contract.properties').match(/^overlay\.image=(.+)$/m)?.[1]
       assert.equal(pin,report.inputs.image,'plugin commit host-contract pin differs')
-      command('docker',['buildx','imagetools','inspect',report.inputs.image])
       // The mounted file is the actual CI download, not the caller's copy.
       const mount=composeConfig.services.kestra.volumes.find(item=>item.target==='/app/libs/kestra-rbac-authorizer.jar');mount.source=jar;saveCompose()
       return {overlayRunId:evidence.overlayRunId,pluginRunId:evidence.pluginRunId,artifactId:artifact.id,downloadedJar:jar,jarSha256:report.inputs.jarSha256,hostExecutableSha256:provenance.sha256,promoted:true}
