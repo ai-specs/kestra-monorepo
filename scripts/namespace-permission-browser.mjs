@@ -146,6 +146,28 @@ export function redactNamespacePermissionError(error,secrets) {
   for(const secret of [...new Set(secrets)].filter(value=>typeof value==='string'&&value.length).sort((a,b)=>b.length-a.length))message=message.replaceAll(secret,'[redacted]')
   return new Error(message,{cause:error})
 }
+export async function observeNamespaceDenied({snapshot,invoke,verify,record=async()=>{},now=Date.now,wait=ms=>new Promise(resolve=>setTimeout(resolve,ms))}) {
+  const evidence={transport:'same-production-session-adversarial-request',samples:[],minimumObservationMs:2500}
+  let failure
+  try {
+    evidence.before=await snapshot();await record(evidence)
+    let result
+    try {result=await invoke();evidence.response=result.response;verify(result)} catch(error) {failure=error}
+    evidence.immediate=await snapshot();await record(evidence)
+    const start=now()
+    do {
+      await wait(evidence.samples.length?250:0)
+      evidence.samples.push({elapsedMs:now()-start,snapshot:await snapshot()})
+      evidence.observedMs=now()-start;await record(evidence)
+    } while(evidence.observedMs<evidence.minimumObservationMs||evidence.samples.length<2)
+    try {
+      assert.deepEqual(evidence.immediate,evidence.before,'Immediate rejected-write effect')
+      for(const sample of evidence.samples)assert.deepEqual(sample.snapshot,evidence.before,'Delayed rejected-write effect')
+    } catch(error) {failure??=error}
+    if(failure)throw failure
+    return evidence
+  } catch(error) {error.evidence=evidence;throw error}
+}
 export async function runNamespacePermissionBrowser(page,{base,account,controls,record=async()=>{}}) {
   const secrets=[account.password]
   const rememberSecret=value=>{assert(typeof value==='string'&&value.length>0);secrets.push(value);page.redactSecrets([value])}
@@ -157,7 +179,7 @@ export async function runNamespacePermissionBrowser(page,{base,account,controls,
   async function check(name,operation) {
     const row=report.cases.find(item=>item.id===name);assert(row);row.status='running';await persist()
     try {row.evidence=await operation();row.status='passed';row.passed=true}
-    catch(error){const safe=redactNamespacePermissionError(error,secrets);row.status='failed';row.error=safe.message;throw safe}
+    catch(error){const safe=redactNamespacePermissionError(error,secrets);row.status='failed';row.error=safe.message;if(error.evidence)row.evidence=JSON.parse(JSON.stringify(error.evidence,(key,value)=>typeof value==='string'?redactNamespacePermissionError(new Error(value),secrets).message:value));throw safe}
     finally{await persist()}
   }
   async function sourceResponse(path,method,status,before,{allowDraftQuery=false}={}) {
@@ -264,17 +286,14 @@ export async function runNamespacePermissionBrowser(page,{base,account,controls,
     return {transport:'native-ui',before:kind==='flow'?before.at(-1)?.description:before.at(-1)?.value,value,readBack,response,stored}
   }
   async function deny(ns,kind,action) {
-    const before=await controls.namespaceEffects()
     const path=kind==='flow'?flowPath(ns):kvPath(ns)
     const createId=id+'_denied'
-    const result=action==='read'?await request(path):kind==='flow'
-      ?await request(action==='create'?api+'/flows':path,action==='create'?'POST':action==='update'?'PUT':'DELETE',action==='delete'?undefined:yaml(ns,'must-not-persist').replace('id: '+id,'id: '+(action==='create'?createId:id)),undefined,'application/x-yaml')
-      :await request(action==='create'?path+'_denied':path,action==='delete'?'DELETE':'PUT',action==='delete'?undefined:'must-not-persist',undefined,'text/plain')
-    assert.equal(result.status,403,'Out-of-scope '+kind+' '+action+' '+ns)
-    const immediate=await controls.namespaceEffects();assert.deepEqual(immediate,before)
-    const start=Date.now(),minimumObservationMs=2500,samples=[]
-    do {await new Promise(resolve=>setTimeout(resolve,samples.length?250:0));const snapshot=await controls.namespaceEffects();samples.push({elapsedMs:Date.now()-start,snapshot});assert.deepEqual(snapshot,before,'Delayed rejected-write effect')}while(Date.now()-start<minimumObservationMs||samples.length<2)
-    return {transport:'same-production-session-adversarial-request',response:result.response,before,immediate,samples,minimumObservationMs,observedMs:Date.now()-start}
+    return observeNamespaceDenied({snapshot:()=>controls.namespaceEffects(),
+      invoke:()=>action==='read'?request(path):kind==='flow'
+        ?request(action==='create'?api+'/flows':path,action==='create'?'POST':action==='update'?'PUT':'DELETE',action==='delete'?undefined:yaml(ns,'must-not-persist').replace('id: '+id,'id: '+(action==='create'?createId:id)),undefined,'application/x-yaml')
+        :request(action==='create'?path+'_denied':path,action==='delete'?'DELETE':'PUT',action==='delete'?undefined:'must-not-persist',undefined,'text/plain'),
+      verify:result=>assert.equal(result.status,403,'Out-of-scope '+kind+' '+action+' '+ns),
+      record:async evidence=>{report.cases.find(row=>row.status==='running').evidence=structuredClone(evidence);await persist()}})
   }
   async function lists(namespaces) {
     const results={}

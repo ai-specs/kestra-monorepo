@@ -8,14 +8,18 @@ const api='/api/v1/main/extensions/rbac'
 export const canonicalTargetValue=value=>Array.isArray(value)?value.map(canonicalTargetValue).sort((left,right)=>JSON.stringify(left).localeCompare(JSON.stringify(right))):value&&typeof value==='object'?Object.fromEntries(Object.entries(value).sort(([left],[right])=>left.localeCompare(right)).map(([name,item])=>[name,canonicalTargetValue(item)])):value
 export const targetUiCheckIds=Object.freeze(['ui-permission-runtime-projection','ui-subject-runtime-revoke'])
 
-export function visibleNativeFlowCell() {
+export function visibleNativeFlowCell({id,namespace}) {
   const visible=node=>node.getClientRects?.().length>0&&getComputedStyle(node).visibility!=='hidden'&&getComputedStyle(node).display!=='none'
-  const hasCell=root=>[...root.querySelectorAll('tbody td,[role="cell"],[role="gridcell"]')].some(cell=>visible(cell)&&cell.textContent.trim().length>0)||[...root.querySelectorAll('*')].some(node=>node.shadowRoot&&hasCell(node.shadowRoot))
-  return location.pathname==='/ui/main/flows'&&hasCell(document)
+  const hasRow=root=>[...root.querySelectorAll('tbody tr,[role="row"]')].some(row=>{
+    const cells=[...row.querySelectorAll('td,[role="cell"],[role="gridcell"]')].filter(visible).map(cell=>cell.textContent.trim())
+    return visible(row)&&cells.includes(id)&&cells.includes(namespace)
+  })||[...root.querySelectorAll('*')].some(node=>node.shadowRoot&&hasRow(node.shadowRoot))
+  return location.pathname==='/ui/main/flows'&&typeof id==='string'&&id.length>0&&typeof namespace==='string'&&namespace.length>0&&hasRow(document)
 }
 
-export async function waitForNativeFlowCell(page) {
-  await page.waitForFunction(visibleNativeFlowCell)
+export async function waitForNativeFlowCell(page,target) {
+  assert(target?.id&&target?.namespace,'Exact target Flow identity required')
+  await page.waitForFunction(visibleNativeFlowCell,target)
 }
 
 export async function runTargetGroupBrowser(page,base,fixture,{management,planned,effects},record) {
@@ -81,7 +85,7 @@ export async function runTargetGroupBrowser(page,base,fixture,{management,planne
     const baseline=await sameCookie('/api/v1/main/flows/search?size=100')
     assert(Array.isArray(baseline.body.results)&&baseline.body.results.some(flow=>flow.id===referenceFlowId),'freshly seeded reference flow missing from authorized search')
     assert(baseline.body.results.every(flow=>flow.namespace===fixture.referenceNamespace),'reference UI list leaked another namespace')
-    await waitForNativeFlowCell(page)
+    await waitForNativeFlowCell(page,{id:referenceFlowId,namespace:fixture.referenceNamespace})
     return {subject:account.subject,namespace:fixture.referenceNamespace,referenceFlowId,permissionKeys:selected.map(permission=>permission.key),status:baseline.status,firstPasswordChange:'real-browser',visibleResults:baseline.body.results.map(flow=>({id:flow.id,namespace:flow.namespace}))}
   })
   await check(1,async()=>{

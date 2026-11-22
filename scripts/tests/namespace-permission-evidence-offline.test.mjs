@@ -22,7 +22,7 @@ function sample({automaticFinal=false}={}) {
   Object.assign(evidence('second-account-control-plane-preparation'),{subject:second})
   Object.assign(evidence('second-account-password-change-and-login'),{subject:second})
   Object.assign(evidence('logout-switch-back-to-admin'),{subject:firstSubject})
-  const effects={tables:Object.fromEntries(['flows','kv_metadata','executions','triggers','queues','execution_outputs','execution_queued'].map(table=>[table,[]])),storage:'complete hash',
+  const effects={tables:Object.fromEntries(['flows','kv_metadata','executions','triggers','queues','execution_outputs','execution_queued'].map(table=>[table,{count:table==='flows'?2:0,sha256:'a'.repeat(64)}])),storage:'complete hash',
     coverage:{queues:'full-owner-table',execution_outputs:'full-owner-table',execution_queued:'full-owner-table',storage:'all-owner-files'}}
   function business(actor,doc) {
     for(const row of journey.cases) {
@@ -184,4 +184,79 @@ test('automatic final exit requires actual same-origin logout evidence',()=>{
   const id=finalLogin.previousDocument.documentId
   value.events=value.events.filter(event=>!(event.documentId===id&&event.url===value.base+'/oidc/logout'))
   assert.throws(()=>assertNamespacePermissionEvidence(value))
+})
+
+const effectTables=['flows','kv_metadata','executions','triggers','queues','execution_outputs','execution_queued']
+const deniedEffects=value=>value.journey.cases.find(row=>row.id==='admin-outside-kv-update-denied').evidence
+const effectSnapshots=evidence=>[evidence.before,evidence.immediate,...evidence.samples.map(sample=>sample.snapshot)]
+
+for(const table of effectTables) {
+  for(const [name,mutate] of [
+    ['missing table',tables=>delete tables[table]],
+    ['legacy array',tables=>tables[table]=[]],
+    ['null summary',tables=>tables[table]=null],
+    ['string summary',tables=>tables[table]='empty-table'],
+    ['missing count',tables=>delete tables[table].count],
+    ['negative count',tables=>tables[table].count=-1],
+    ['fractional count',tables=>tables[table].count=0.5],
+    ['unsafe count',tables=>tables[table].count=Number.MAX_SAFE_INTEGER+1],
+    ['string count',tables=>tables[table].count='0'],
+    ['null count',tables=>tables[table].count=null],
+    ['NaN count',tables=>tables[table].count=NaN],
+    ['infinite count',tables=>tables[table].count=Infinity],
+    ['missing digest',tables=>delete tables[table].sha256],
+    ['empty-table digest',tables=>tables[table].sha256='empty-table'],
+    ['empty digest',tables=>tables[table].sha256=''],
+    ['short digest',tables=>tables[table].sha256='a'.repeat(63)],
+    ['long digest',tables=>tables[table].sha256='a'.repeat(65)],
+    ['nonhex digest',tables=>tables[table].sha256='g'.repeat(64)],
+    ['numeric digest',tables=>tables[table].sha256=123],
+    ['null digest',tables=>tables[table].sha256=null],
+    ['extra summary field',tables=>tables[table].rows=[]],
+  ])test('effect summary rejects '+table+' '+name+' even when every snapshot agrees',()=>{
+    const value=sample()
+    for(const snapshot of effectSnapshots(deniedEffects(value)))mutate(snapshot.tables)
+    assert.throws(()=>assertNamespacePermissionEvidence(refresh(value)),/observed effect/)
+  })
+  for(const stage of ['immediate','delayed'])for(const field of ['count','sha256'])test('effect equality rejects '+table+' '+field+' change in '+stage,()=>{
+    const value=sample(),evidence=deniedEffects(value)
+    const snapshot=stage==='immediate'?evidence.immediate:evidence.samples.at(-1).snapshot
+    snapshot.tables[table][field]=field==='count'?42:'b'.repeat(64)
+    assert.throws(()=>assertNamespacePermissionEvidence(refresh(value)))
+  })
+}
+
+test('effect summaries accept zero and maximum safe counts and mixed-case hex digests',()=>{
+  const value=sample()
+  for(const snapshot of effectSnapshots(deniedEffects(value))) {
+    snapshot.tables.flows={count:0,sha256:'0123456789aAbBcC'.repeat(4)}
+    snapshot.tables.queues={count:Number.MAX_SAFE_INTEGER,sha256:'F'.repeat(64)}
+  }
+  assertNamespacePermissionEvidence(refresh(value))
+})
+
+for(const [name,mutate] of [
+  ['missing tables',snapshot=>delete snapshot.tables],
+  ['array tables',snapshot=>snapshot.tables=[]],
+])test('effect snapshot rejects '+name,()=>{
+  const value=sample()
+  for(const snapshot of effectSnapshots(deniedEffects(value)))mutate(snapshot)
+  assert.throws(()=>assertNamespacePermissionEvidence(refresh(value)),/observed effect/)
+})
+
+for(const [name,mutate] of [
+  ['short minimum window',evidence=>evidence.minimumObservationMs=2499],
+  ['short observed window',evidence=>evidence.observedMs=2499],
+  ['missing delayed samples',evidence=>evidence.samples=[]],
+  ['only one delayed sample',evidence=>evidence.samples.splice(0,1)],
+  ['nonincreasing sample times',evidence=>evidence.samples[1].elapsedMs=evidence.samples[0].elapsedMs],
+  ['last sample before required window',evidence=>evidence.samples[1].elapsedMs=2499],
+  ['last sample after observed window',evidence=>evidence.samples[1].elapsedMs=2501],
+  ['immediate storage change',evidence=>evidence.immediate.storage='changed'],
+  ['delayed storage change',evidence=>evidence.samples[1].snapshot.storage='changed'],
+  ['immediate coverage change',evidence=>delete evidence.immediate.coverage.queues],
+  ['delayed coverage change',evidence=>delete evidence.samples[1].snapshot.coverage.queues],
+])test('effect evidence retains rejection of '+name,()=>{
+  const value=sample();mutate(deniedEffects(value))
+  assert.throws(()=>assertNamespacePermissionEvidence(refresh(value)))
 })

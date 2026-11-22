@@ -15,6 +15,19 @@ export const namespacePermissionCaseIds=Object.freeze([
 ])
 
 const nonempty=(value,label)=>assert(typeof value==='string'&&value.length>0,label)
+const effectTables=Object.freeze(['flows','kv_metadata','executions','triggers','queues','execution_outputs','execution_queued'])
+const assertEffectSnapshot=snapshot=>{
+  assert(snapshot&&typeof snapshot.storage==='string','Missing observed storage snapshot')
+  assert(snapshot.tables&&typeof snapshot.tables==='object'&&!Array.isArray(snapshot.tables),'Missing observed effect tables')
+  for(const table of effectTables) {
+    assert(Object.hasOwn(snapshot.tables,table),'Missing observed effect table '+table)
+    const summary=snapshot.tables[table]
+    assert(summary&&typeof summary==='object'&&!Array.isArray(summary),'Invalid observed effect summary '+table)
+    assert.deepEqual(Object.keys(summary).sort(),['count','sha256'],'Invalid observed effect summary fields '+table)
+    assert(Number.isSafeInteger(summary.count)&&summary.count>=0,'Invalid observed effect count '+table)
+    assert(typeof summary.sha256==='string'&&/^[a-fA-F0-9]{64}$/.test(summary.sha256),'Invalid observed effect sha256 '+table)
+  }
+}
 const responseKinds=new Set(['http-response','http-error'])
 const identity=request=>JSON.stringify([request.requestId,request.source?.documentId,request.path,request.method,request.status])
 const sortedRows=rows=>rows.map(row=>({namespace:row.namespace,id:row.id})).sort((a,b)=>a.namespace.localeCompare(b.namespace)||a.id.localeCompare(b.id))
@@ -210,13 +223,13 @@ export function assertNamespacePermissionEvidence({journey,caseJourney,events,ba
       const method=action==='read'?'GET':action==='delete'?'DELETE':kind==='kv'?'PUT':action==='create'?'POST':'PUT'
       response=ownedReference(row.evidence.response,{path,method,status:403})
       const deniedEvidence=row.evidence
-      assert(deniedEvidence.before&&typeof deniedEvidence.before.storage==='string')
-      for(const table of ['flows','kv_metadata','executions','triggers','queues','execution_outputs','execution_queued'])assert(Array.isArray(deniedEvidence.before.tables?.[table]),'Missing observed effect table '+table)
+      assertEffectSnapshot(deniedEvidence.before)
+      assertEffectSnapshot(deniedEvidence.immediate)
       assert.deepEqual(deniedEvidence.before.coverage,{queues:'full-owner-table',execution_outputs:'full-owner-table',execution_queued:'full-owner-table',storage:'all-owner-files'})
       assert.deepEqual(deniedEvidence.before,deniedEvidence.immediate)
       assert(deniedEvidence.samples.length>=2&&deniedEvidence.minimumObservationMs>=2500&&deniedEvidence.observedMs>=deniedEvidence.minimumObservationMs)
       let elapsed=-1
-      for(const sample of deniedEvidence.samples){assert(sample.elapsedMs>elapsed);elapsed=sample.elapsedMs;assert.deepEqual(sample.snapshot,deniedEvidence.before)}
+      for(const sample of deniedEvidence.samples){assertEffectSnapshot(sample.snapshot);assert(sample.elapsedMs>elapsed);elapsed=sample.elapsedMs;assert.deepEqual(sample.snapshot,deniedEvidence.before)}
       assert(elapsed>=deniedEvidence.minimumObservationMs&&elapsed<=deniedEvidence.observedMs)
     }
     assert(!businessResponses.has(response.id),'One response was reused for multiple business cases');businessResponses.add(response.id)

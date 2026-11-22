@@ -1,13 +1,16 @@
 import assert from 'node:assert/strict'
 import {copyFileSync,mkdirSync,readFileSync,writeFileSync,chmodSync} from 'node:fs'
 import {spawn} from 'node:child_process'
-import {createHash,randomBytes,randomUUID} from 'node:crypto'
+import {persistentPsqlSession} from './access-control-v3-ui-controls.mjs'
+import {createHash,randomBytes} from 'node:crypto'
 import {createRequire} from 'node:module'
 import {join} from 'node:path'
 import {createPlaywrightApplicationProjectAdapter} from './application-project-browser-adapters.mjs'
 import {runRbacOnboardingBrowser} from './rbac-onboarding-browser.mjs'
 import {ApplicationGroupManagement} from './application-project-fixture.mjs'
 import {applicationProjectFeature} from './application-project-fixture.mjs'
+
+export const ownedStorageSnapshotCommand="set -eu; sums=$(find /app/storage -type f -exec sha256sum {} +); printf '%s\\n' \"$sums\" | LC_ALL=C sort"
 
 export async function runRbacOnboardingDeployment({configuration,compose,saveConfiguration,command,output,project,base,inputs,formalJar,uiAdapter,scenario='missing-jar',sessionState,record,queryTransport}) {
   assert(['missing-jar','normal'].includes(scenario))
@@ -32,53 +35,19 @@ export async function runRbacOnboardingDeployment({configuration,compose,saveCon
   const account={username:'onboarding-'+randomBytes(6).toString('hex'),password:randomBytes(24).toString('base64url')+'Aa1!'}
   let postgresContainer,hostContainer,browser,context,adapter
   const inspect=(format,id)=>command('docker',['inspect','-f',format,id])
-  const createPersistentQuery=()=>{
-    let child,pending
-    const ensure=()=>{
-      if(child)return
+  let persistentQuery
+  const query=queryTransport??(sql=>{
+    if(!persistentQuery) {
       assert(/^[a-z0-9_]+$/.test(database),'isolated database name required')
-      child=spawn('docker',['exec','-i',postgresContainer,'sh','-c',`exec env PGPASSWORD="$POSTGRES_PASSWORD" psql -X -q -A -t -U kestra -d ${database} -v ON_ERROR_STOP=1`],{stdio:['pipe','pipe','pipe']})
-      let output='',errors=''
-      child.stdout.on('data',chunk=>{
-        if(!pending)return
-        output+=chunk
-        const lines=output.split('\n')
-        const end=lines.findIndex(line=>line===pending.token)
-        if(end<0)return
-        const value=lines.slice(0,end).join('\n')
-        const resolve=pending.resolve;pending=null;output='';resolve(value)
-      })
-      child.stderr.on('data',chunk=>{errors+=chunk})
-      child.on('error',error=>{if(pending){const reject=pending.reject;pending=null;reject(error)}})
-      child.on('close',status=>{if(pending){const reject=pending.reject;pending=null;reject(new Error('persistent psql exited with status '+status+(errors?': '+errors.trim():'')))}})
+      const child=spawn('docker',['exec','-i',postgresContainer,'sh','-c',`exec env PGPASSWORD="$POSTGRES_PASSWORD" PGOPTIONS="-c statement_timeout=55000" psql -X -q -A -t -U kestra -d ${database} -v ON_ERROR_STOP=1`],{stdio:['pipe','pipe','pipe']})
+      persistentQuery=persistentPsqlSession(child,{commandTimeoutMs:60000})
     }
-    return {
-      query(sql){
-        ensure()
-        const token='__ACCEPTANCE_QUERY_'+randomUUID().replaceAll('-','_')+'__'
-        return new Promise((resolve,reject)=>{
-          if(pending){reject(new Error('persistent psql observer cannot overlap queries'));return}
-          const timer=setTimeout(()=>{if(pending?.token===token){const fail=pending.reject;pending=null;child?.kill('SIGTERM');fail(new Error('persistent psql query timeout'))}},60_000)
-          pending={token,resolve:value=>{clearTimeout(timer);resolve(value)},reject:error=>{clearTimeout(timer);reject(error)}}
-          child.stdin.write(sql.replace(/;\s*$/,'')+';\n\\echo '+token+'\n',error=>{if(error&&pending){const reject=pending.reject;pending=null;reject(error)}})
-        })
-      },
-      async close(){
-        if(!child)return
-        child.stdin.end()
-        await new Promise(resolve=>{if(child.exitCode!==null)resolve();else child.once('close',resolve)})
-        child=null
-      }
-    }
-  }
-  const persistentQuery=queryTransport?null:createPersistentQuery()
-  const query=queryTransport??persistentQuery.query
+    return persistentQuery.query(sql.replace(/;\s*$/,'')+';')
+  })
   let immutableOwnershipVerified=false
   const assertOwner=async()=>{
-    // Docker Desktop 4.94 can return inspect stdout but leave its CLI process
-    // alive for 15 minutes. Container identity and deployment binding do not
-    // change within one isolated first-install stage: verify them once, then
-    // continue to use the same IDs for every real database observation.
+    // Verify immutable container IDs and deployment binding once per isolated
+    // first-install stage; every later observation still executes real SQL.
     if(immutableOwnershipVerified)return
     for(const id of [postgresContainer,hostContainer]) {
       assert(/^[a-f0-9]{12,64}$/.test(id??''))
@@ -113,9 +82,10 @@ export async function runRbacOnboardingDeployment({configuration,compose,saveCon
       // Side-effect observation needs equality, not row-by-row report expansion.
       // Hash every row in a deterministic JSON order inside PostgreSQL, retain
       // the row count, and keep the full owner-table/storage coverage claim.
-      tables[table]=present?JSON.parse(await query("SELECT json_build_object('count',count(*),'sha256',encode(sha256(convert_to(coalesce(string_agg(row_to_json(t)::text,E'\\n' ORDER BY row_to_json(t)::text),''),'UTF8')),'hex')) FROM "+table+" t"+filter)):{count:0,sha256:'empty-table'}
+      assert(present,'Missing observed effect table '+table)
+      tables[table]=JSON.parse(await query("SELECT json_build_object('count',count(*),'sha256',encode(sha256(convert_to(coalesce(string_agg(row_to_json(t)::text,chr(10) ORDER BY row_to_json(t)::text),''),'UTF8')),'hex')) FROM "+table+" t"+filter))
     }
-    const storage=command('docker',['exec',hostContainer,'sh','-c',"find /app/storage -type f -exec sha256sum {} + | LC_ALL=C sort"])
+    const storage=command('docker',['exec',hostContainer,'sh','-c',ownedStorageSnapshotCommand])
     return {tables,storage,coverage:{queues:'full-owner-table',execution_outputs:'full-owner-table',execution_queued:'full-owner-table',storage:'all-owner-files'}}
   }
   const expectedNamespaceLists=async()=>{
@@ -171,7 +141,7 @@ export async function runRbacOnboardingDeployment({configuration,compose,saveCon
   const installationState=async()=>{
     await assertOwner()
     const present=await query("SELECT to_regclass('public.rbac_application_group_state') IS NOT NULL")==='t'
-    const pluginTables=JSON.parse(await query("SELECT coalesce(json_agg(table_name ORDER BY table_name),'[]'::json) FROM information_schema.tables WHERE table_schema='public' AND table_name LIKE 'rbac\\_%' ESCAPE '\\'"))
+    const pluginTables=JSON.parse(await query("SELECT coalesce(json_agg(table_name ORDER BY table_name),'[]'::json) FROM information_schema.tables WHERE table_schema='public' AND starts_with(table_name,'rbac_')"))
     const counts=JSON.parse(await query("SELECT json_build_object('accounts',(SELECT count(*) FROM oidc_user),'installations',(SELECT count(*) FROM oidc_setup),'groups',"+(present?'(SELECT count(*) FROM rbac_application_group_state)':'0')+
       ",'clients',(SELECT count(*) FROM oidc_client),'credentials',(SELECT count(*) FROM oidc_user_auth_method))"))
     counts.pluginTables=pluginTables
@@ -196,6 +166,7 @@ export async function runRbacOnboardingDeployment({configuration,compose,saveCon
     writeFileSync(reportPath,JSON.stringify(report,null,2)+'\n',{mode:0o600})
     await record(report)
   }
+  let primaryFailure
   try {
     compose('up','-d','postgres')
     postgresContainer=compose('ps','-q','postgres')
@@ -271,6 +242,9 @@ export async function runRbacOnboardingDeployment({configuration,compose,saveCon
       await persist(result)
     }
     return result
+  } catch(error) {
+    primaryFailure=error
+    throw error
   } finally {
     const failures=[]
     for(const [name,cleanup] of [
@@ -282,7 +256,8 @@ export async function runRbacOnboardingDeployment({configuration,compose,saveCon
     ])try{await cleanup()}catch(error){failures.push({name,error:error.name})}
     if(failures.length) {
       writeFileSync(join(directory,'cleanup-failures.json'),JSON.stringify(failures),{mode:0o600})
-      throw new Error('First-install cleanup failed; inspect retained cleanup-failures.json')
+      if(primaryFailure)primaryFailure.cleanupFailures=failures
+      else throw new Error('First-install cleanup failed; inspect retained cleanup-failures.json')
     }
   }
 }
