@@ -735,7 +735,7 @@ export async function main(argv=process.argv.slice(2),runtime={}) {
       try {
         transactions=await runAccessControlV3Transactions({base:planned.base,planned,management:new ApplicationGroupManagement(planned.base,planned.admin),
           assertOwner:verifyTransactionOwnership,
-          query:async sql=>String(await transactionSql.query(sql)).trim(),
+          query:async sql=>String(await transactionSql.query(/;\s*$/.test(sql)?sql:sql+';')).trim(),
           transactionObserver:{owner:transactionOwner,spawnPsql:spawnTransactionPsql},
           effects:new ProjectSideEffects({composeProject:project,postgresContainer:ids.postgres,kestraContainer:ids.kestra}),
           record:async fragment=>{report.gateEvidence??={};report.gateEvidence.transactions=fragment;await persist()},
