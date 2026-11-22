@@ -125,15 +125,18 @@ export async function runApplicationProjectSecurity(base,fixture={},record) {
     return {...evidence,responseValue:result.value}
   }
   async function quiesceBusiness(label) {
-    const start=performance.now();let stableSince=start,last=effects.snapshot().hash
+    const start=performance.now();let stableSince=start,last=effects.snapshot()
     const samples=[]
-    do {
-      await delay(250);const current=effects.snapshot().hash,now=performance.now()
-      if(current!==last){stableSince=now;last=current}
-      samples.push({elapsedMs:Math.ceil(now-start),hash:current})
-      assert(now-start<=30000,'business persistence did not become quiescent before '+label)
-    }while(performance.now()-stableSince<5000)
-    await step('business-quiescent',{label,stableWindowMs:5000,hash:last,samples})
+    try {
+      do {
+        await delay(250);const current=effects.snapshot(),now=performance.now()
+        if(current.hash!==last.hash){stableSince=now;last=current}
+        samples.push({elapsedMs:Math.ceil(now-start),hash:current.hash,sources:current.sources})
+        assert(now-start<=30000,'business persistence did not become quiescent before '+label)
+      }while(performance.now()-stableSince<5000)
+    } finally {
+      await step('business-quiescent',{label,stableWindowMs:5000,hash:last.hash,sources:last.sources,samples})
+    }
   }
   async function restore(name,run) {
     try{await run();report.cleanup.push({check:active.id,name,passed:true});await persist()}
