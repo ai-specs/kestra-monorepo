@@ -226,6 +226,8 @@ JAR_SHA256=$(python3 -c 'import json; print(json.load(open(".work/compose-releas
 
 此入口要求三仓干净，使用正式镜像与实际下载的正式 jar；只运行一套验收 Compose。
 开始前停止已有本地测试 Compose，保留其卷；不要同时运行另一套 PostgreSQL。
+macOS 长时间本地验收时，在验收命令前加 `caffeinate -dimsu`，使防睡眠只持续到该命令结束。
+本机睡眠会暂停浏览器和 Docker，恢复后产生的传输超时不能作为授权通过或失败的证据。
 `.work/compose-release` 已有下载时，改用新目录并相应替换上述路径，不删除旧证据。
 默认执行 `new-install` 及必需的 schema2 declaration-upgrade 门；没有显式选择
 `legacy-migration` 时，不运行 schema1、旧凭据与物理回滚，也不将其计为通过。
