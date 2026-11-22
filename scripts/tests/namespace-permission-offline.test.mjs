@@ -123,7 +123,7 @@ test('login landing accepts visible native table headers with current data on an
 test('native namespace option marker traverses shadow DOM and rejects ambiguity',()=>{
   const previous={document:globalThis.document,getComputedStyle:globalThis.getComputedStyle}
   const rect=()=>[{}]
-  const option=text=>({innerText:text,getClientRects:rect,disabled:false,getAttribute:()=>null,setAttribute(name,value){this[name]=value},removeAttribute(name){delete this[name]}})
+  const option=text=>({innerText:text,getClientRects:rect,disabled:false,getAttribute(name){return this[name]??null},setAttribute(name,value){this[name]=value},removeAttribute(name){delete this[name]}})
   const exact=option('company'),prefix=option('company.sub'),duplicate=option(' company ')
   duplicate.getClientRects=()=>[]
   const shadowRoot={querySelectorAll:selector=>selector==='[role="option"]'?[exact,prefix]:[]}
@@ -134,9 +134,10 @@ test('native namespace option marker traverses shadow DOM and rejects ambiguity'
     assert.equal(markExactNativeNamespaceOption('company'),true)
     assert.equal(exact.getAttribute('data-namespace-permission-option'),'true')
     assert.equal(duplicate.getAttribute('data-namespace-permission-option'),null)
+    duplicate.getClientRects=rect
+    assert.equal(markExactNativeNamespaceOption('company'),false)
     duplicate.getClientRects=()=>[]
     assert.equal(markExactNativeNamespaceOption('company'),true)
-    duplicate.getClientRects=rect
     const other=option('company');shadowRoot.querySelectorAll=selector=>selector==='[role="option"]'?[exact,other]:[]
     assert.equal(markExactNativeNamespaceOption('company'),false)
     assert.equal(exact.getAttribute('data-namespace-permission-option'),null)
