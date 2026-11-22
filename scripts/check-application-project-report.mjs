@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import {assertPublishedNativeFlowReport,extractPublishedNativeClassifier} from './published-native-flow-evidence.mjs'
+import {assertPublishedNativeFlowReport,assertPublishedNativeClassifierSource,extractPublishedNativeClassifier} from './published-native-flow-evidence.mjs'
 import {assertPublishedNativeFlowDetailReport} from './published-native-flow-detail-evidence.mjs'
 import {execFileSync} from 'node:child_process'
 import {readFileSync} from 'node:fs'
@@ -202,9 +202,7 @@ const nativeFlow=report.sources.overlay.downloadedNativeFlowGate
 assert.equal(nativeFlow.commit,overlayCommit)
 const nativeLock=JSON.parse(readFileSync(new URL('./native-flow-published-inputs.json',import.meta.url),'utf8'))
 assert.equal(nativeLock.overlayCommit,overlayCommit);assert.deepEqual(nativeFlow.expectedHashes,nativeLock.hashes)
-const nativeSource=extractPublishedNativeClassifier(execFileSync('git',['-C',report.sources.overlay.path,'show',overlayCommit+':patches/webserver/0404-flow-execution-capabilities.patch'],{encoding:'utf8'}))
-assert.equal(nativeSource,nativeFlow.classifierSource)
-assert.equal(createHash('sha256').update(nativeSource).digest('hex'),nativeLock.hashes['./diagnostics.mjs'])
+const nativeSource=assertPublishedNativeClassifierSource(nativeFlow.classifierSource,nativeLock.hashes['./diagnostics.mjs'])
 const nativeModule=await import('data:text/javascript;base64,'+Buffer.from(nativeSource).toString('base64'))
 assert.deepEqual(nativeFlow.validation,assertPublishedNativeFlowReport(nativeFlow.rawReport,nativeFlow.rawReadiness,{commit:overlayCommit,expectedHashes:nativeLock.hashes,classify:nativeModule.classifyDiagnostics}))
 const nativeDetail=report.sources.overlay.downloadedNativeFlowDetailGate

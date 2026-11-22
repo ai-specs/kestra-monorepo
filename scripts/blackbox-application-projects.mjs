@@ -12,7 +12,7 @@
  * --config-check does not start containers or prove image publication.
  * --run starts only after immutable image promotion and artifact download gates.
  */
-import {assertPublishedNativeFlowReport,extractPublishedNativeClassifier} from './published-native-flow-evidence.mjs'
+import {assertPublishedNativeFlowReport,assertPublishedNativeClassifierSource,extractPublishedNativeClassifier} from './published-native-flow-evidence.mjs'
 import {assertPublishedNativeFlowDetailReport} from './published-native-flow-detail-evidence.mjs'
 import assert from 'node:assert/strict'
 import {execFileSync,spawnSync,spawn} from 'node:child_process'
@@ -315,9 +315,8 @@ export async function main(argv=process.argv.slice(2),runtime={}) {
       if(!nativeCached){mkdirSync(nativeDirectory,{mode:0o700});command('gh',['run','download',String(evidence.overlayRunId),'-R','ai-specs/kestra-overlay','--name','native-flow-execution-browser','--dir',nativeDirectory],{timeout:180000})}
       const nativeLock=JSON.parse(readFileSync(join(repository,'scripts/native-flow-published-inputs.json'),'utf8'))
       assert.equal(nativeLock.overlayCommit,report.inputs.overlayCommit,'Native component input lock must be reviewed for the final host')
-      const nativeClassifier=extractPublishedNativeClassifier(git(report.sources.overlay.path,'show',report.inputs.overlayCommit+':patches/webserver/0404-flow-execution-capabilities.patch'))
-      assert.equal(hash(nativeClassifier),nativeLock.hashes['./diagnostics.mjs'])
-      const nativeClassifierPath=join(nativeDirectory,'published-classifier.mjs');writeFileSync(nativeClassifierPath,nativeClassifier)
+      const nativeClassifierPath=join(nativeDirectory,'published-classifier.mjs')
+      const nativeClassifier=assertPublishedNativeClassifierSource(readFileSync(nativeClassifierPath,'utf8'),nativeLock.hashes['./diagnostics.mjs'])
       const {classifyDiagnostics}=await import(pathToFileURL(nativeClassifierPath).href)
       const nativeRaw=readFileSync(join(nativeDirectory,'browser.json'),'utf8'),nativeReadiness=readFileSync(join(nativeDirectory,'readiness.json'),'utf8')
       report.sources.overlay.downloadedNativeFlowGate={commit:report.inputs.overlayCommit,runId:evidence.overlayRunId,artifactId:nativeArtifacts[0].id,rawReport:nativeRaw,rawReadiness:nativeReadiness,classifierSource:nativeClassifier,expectedHashes:nativeLock.hashes,

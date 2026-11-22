@@ -6,6 +6,16 @@ export const nativeFlowCaseNames=Object.freeze([
  'identity-switch-ignores-pending-flow-response','identity-switch-cancels-pending-latest-and-unmounts-chart','identity-switch-cancels-pending-capability-projection','pagination-ignores-older-flow-page-response',
  'current-page-30s-expiry-rechecks-and-unmounts-revoked-content','mode-a-native-oss-without-capability-request',
 ])
+// This source is a formal host report artifact. Validate its independently
+// reviewed content lock before importing it; never infer final source from a
+// single patch when later patches may update the same file.
+export function assertPublishedNativeClassifierSource(source,expectedSha256) {
+ assert.equal(typeof source,'string');assert(source.length>0,'Published native classifier source missing')
+ assert.match(expectedSha256,/^[a-f0-9]{64}$/,'Reviewed classifier SHA-256 required')
+ assert.equal(createHash('sha256').update(source).digest('hex'),expectedSha256,'Published native classifier differs from reviewed source')
+ assert(source.includes('export function classifyDiagnostics'),'Published classifier export missing')
+ return source
+}
 export function assertPublishedNativeFlowReport(raw,readinessRaw,{commit,expectedHashes,classify}) {
  return assertPublishedNativeReport(raw,readinessRaw,{commit,expectedHashes,classify,caseNames:nativeFlowCaseNames,requireViewport:true})
 }
