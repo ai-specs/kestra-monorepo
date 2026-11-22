@@ -2,9 +2,14 @@ import assert from 'node:assert/strict'
 import {readFileSync} from 'node:fs'
 import {createHash} from 'node:crypto'
 export const nativeFlowCaseNames=Object.freeze([
+ 'mode-a-natural-first-load-same-config-in-flight','mode-a-natural-first-load-same-config-after-commit',
+ 'mode-b-natural-first-load-same-config-in-flight','mode-b-natural-first-load-same-config-after-commit',
+ 'unknown-to-mode-a-recovers-delayed-first-load','unknown-to-mode-b-recovers-delayed-first-load',
  'none-native-list-no-latest-no-chart-no-expected403','mixed-native-target-row-latest-and-chart','all-native-allowed-path-preserved','provider503-native-clears-content-and-displays-error',
- 'identity-switch-ignores-pending-flow-response','identity-switch-cancels-pending-latest-and-unmounts-chart','identity-switch-cancels-pending-capability-projection','pagination-ignores-older-flow-page-response',
- 'current-page-30s-expiry-rechecks-and-unmounts-revoked-content','mode-a-native-oss-without-capability-request',
+ 'identity-switch-ignores-pending-flow-response','identity-switch-cancels-pending-latest-and-unmounts-chart','identity-switch-cancels-pending-capability-projection',
+ 'pagination-ignores-older-flow-page-response','current-page-30s-expiry-rechecks-and-unmounts-revoked-content','mode-a-native-oss-without-capability-request',
+ 'mode-b-to-a-recovers-current-query-with-stale-response','mode-a-to-b-recovers-current-query-with-stale-response',
+ 'tenant-change-recovers-filter-sort-and-page','logout-suppresses-reload-and-login-recovers','unmount-cancels-queued-identity-reload',
 ])
 // This source is a formal host report artifact. Validate its independently
 // reviewed content lock before importing it; never infer final source from a
