@@ -216,7 +216,17 @@ export async function runNamespacePermissionBrowser(page,{base,account,controls,
         // Let Playwright's strict locator wait for and click the one exact native
         // option. A test-authored “dropdown settled” predicate is not a UI action.
         selection=await page.evaluate(namespacePickerState,ns)
-        if(!selection.selected)await page.click('[role="option"]:text-is('+JSON.stringify(ns)+')')
+        if(!selection.selected) {
+          const target=await page.evaluate(namespace=>{
+            const visible=node=>node.getClientRects().length&&getComputedStyle(node).visibility!=='hidden'&&getComputedStyle(node).display!=='none'
+            const normalize=value=>String(value??'').replace(/\s+/g,' ').trim()
+            const matches=[...document.querySelectorAll('[role="option"]')].filter(node=>visible(node)&&normalize(node.innerText??node.textContent)===namespace&&!node.disabled&&node.getAttribute('aria-disabled')!=='true')
+            if(matches.length===1)matches[0].setAttribute('data-namespace-permission-option','true')
+            return matches.map(node=>normalize(node.innerText??node.textContent))
+          },ns)
+          assert.deepEqual(target,[ns],'Expected one exact visible native namespace option')
+          await page.click('[data-namespace-permission-option="true"]')
+        }
       }
       await page.waitForFunction(namespacePickerState,{namespace:ns,waitFor:'selected'})
       // Focus the next real field; saving below still requires the exact namespace
