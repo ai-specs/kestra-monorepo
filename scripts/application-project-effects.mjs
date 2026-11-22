@@ -44,6 +44,20 @@ export class ProjectSideEffects {
     const sources = {database: hash(database), queue: hash(queue), storage: hash(storage)}
     return {hash: hash(JSON.stringify(sources)), sources}
   }
+  async waitForIdle({timeoutMs = 90000, intervalMs = 250} = {}) {
+    assert(timeoutMs >= 5000 && timeoutMs <= 120000 && intervalMs > 0 && intervalMs <= 1000)
+    const started = performance.now()
+    for (;;) {
+      const pattern = this.#prefix + '%'
+      const active = Number(this.#sql(`SELECT (SELECT count(*) FROM executions WHERE value->>'namespace' LIKE '${pattern}'
+        AND value->'state'->>'current' IN ('CREATED','RUNNING','PAUSED','RESTARTED','QUEUED'))
+        + (SELECT count(*) FROM execution_queued WHERE value::text LIKE '%${this.#prefix}%')
+        + (SELECT count(*) FROM queues WHERE value::text LIKE '%${this.#prefix}%')`))
+      if (active === 0) return {waitedMs: Math.ceil(performance.now() - started), active}
+      assert(performance.now() - started < timeoutMs, 'Acceptance namespace did not become idle before denied operation')
+      await wait(intervalMs)
+    }
+  }
   async waitForStable({windowMs = 5000, timeoutMs = 60000, intervalMs = 250} = {}) {
     assert(windowMs >= 5000 && timeoutMs >= windowMs && timeoutMs <= 60000)
     const started = performance.now()
