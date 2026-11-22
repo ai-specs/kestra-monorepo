@@ -85,6 +85,24 @@ export function namespaceFlowLandingReady() {
     &&visible(document.querySelector('.flows-table'))
     &&[...document.querySelectorAll('.flows-table thead th,.flows-table [role="columnheader"]')].some(node=>visible(node)&&node.textContent.trim().length>0)
 }
+// Native option popups may live in an open shadow root. Find and mark only one
+// exact visible option; this never changes its text, state, or selection.
+export function markExactNativeNamespaceOption(namespace) {
+  const normalize=value=>String(value??'').replace(/\s+/g,' ').trim()
+  const visible=node=>node.getClientRects().length&&getComputedStyle(node).visibility!=='hidden'&&getComputedStyle(node).display!=='none'
+  const matches=[]
+  const visit=root=>{
+    for(const node of root.querySelectorAll('[role="option"]')) {
+      node.removeAttribute('data-namespace-permission-option')
+      if(visible(node)&&normalize(node.innerText??node.textContent)===namespace&&!node.disabled&&node.getAttribute('aria-disabled')!=='true')matches.push(node)
+    }
+    for(const node of root.querySelectorAll('*'))if(node.shadowRoot)visit(node.shadowRoot)
+  }
+  visit(document)
+  if(matches.length===1)matches[0].setAttribute('data-namespace-permission-option','true')
+  return matches.length===1
+}
+
 // Only the committed selected label proves selection. The input holds a search
 // query and becomes empty after selection in the production design-system select.
 // The object form returns a boolean for the same function used by browser waits.
@@ -213,18 +231,9 @@ export async function runNamespacePermissionBrowser(page,{base,account,controls,
       let selection=await page.evaluate(namespacePickerState,ns)
       if(!selection.selected) {
         await page.fill('[data-test="kv-namespace"] input',ns)
-        // Let Playwright's strict locator wait for and click the one exact native
-        // option. A test-authored “dropdown settled” predicate is not a UI action.
-        selection=await page.evaluate(namespacePickerState,ns)
-        if(!selection.selected) {
-          const target=await page.evaluate(namespace=>{
-            const visible=node=>node.getClientRects().length&&getComputedStyle(node).visibility!=='hidden'&&getComputedStyle(node).display!=='none'
-            const normalize=value=>String(value??'').replace(/\s+/g,' ').trim()
-            const matches=[...document.querySelectorAll('[role="option"]')].filter(node=>visible(node)&&normalize(node.innerText??node.textContent)===namespace&&!node.disabled&&node.getAttribute('aria-disabled')!=='true')
-            if(matches.length===1)matches[0].setAttribute('data-namespace-permission-option','true')
-            return matches.map(node=>normalize(node.innerText??node.textContent))
-          },ns)
-          assert.deepEqual(target,[ns],'Expected one exact visible native namespace option')
+        await page.click('[data-test="kv-namespace"] input')
+        if(!(await page.evaluate(namespacePickerState,ns)).selected) {
+          await page.waitForFunction(markExactNativeNamespaceOption,ns)
           await page.click('[data-namespace-permission-option="true"]')
         }
       }
