@@ -12,6 +12,7 @@ export async function runFirstAccountExecutions(page,{base,prefix,readExecution,
     const flowId=prefix+'_'+index
     const row={index,namespace,flowId,status:'running'}
     report.executions.push(row);await record(report)
+    if(index)await page.reconnectAfterServerRestart()
     try {
       await page.goto(base+'/ui/main/flows/new')
       await page.waitForFunction(()=>Boolean(document.querySelector('.monaco-editor .view-lines')))
