@@ -40,7 +40,7 @@ import {prepareFrozenBaseline,runPreparedFrozenBaselineUi} from './access-contro
 import {ownedPermissionDependencyControls} from './access-control-v3-dependency.mjs'
 import {derive as deriveAccessControlGates,lifecycleXmlInputs,parseLifecycleJUnit,assertHostHttpOriginReport} from './access-control-v3-gates.mjs'
 import {runAccessControlV3Transactions} from './access-control-v3-transactions.mjs'
-import {createOwnedAccessControlUiControls} from './access-control-v3-ui-controls.mjs'
+import {createOwnedAccessControlUiControls,persistentPsqlSession} from './access-control-v3-ui-controls.mjs'
 import {assertApplicationGroupPluginEntries,assertApplicationGroupSchemaTables} from './application-group-artifact-contract.mjs'
 import {assertPluginUiBrowserReport,assertHostAuthenticationUiReports,assertHostBookmarkReports,committedHostBookmarkHashes,assertHostAuthenticationRecoveryBrowserReport,committedPluginUiHashes,aggregateUiHashes,assertStablePopupReferenceCases,stablePopupReferenceCaseName} from './published-ui-browser-evidence.mjs'
 
@@ -723,21 +723,24 @@ export async function main(argv=process.argv.slice(2),runtime={}) {
         }
         transactionOwnershipVerified=true
       }
-      const transactions=await runAccessControlV3Transactions({base:planned.base,planned,management:new ApplicationGroupManagement(planned.base,planned.admin),
-        assertOwner:verifyTransactionOwnership,
-        query:async sql=>command('docker',['exec',ids.postgres,'psql','-X','-U','kestra','-d','kestra','-v','ON_ERROR_STOP=1','-Atc',sql]),
-        transactionObserver:{
-          owner:{composeProject:project,postgresComposeProject:project,postgresContainer:ids.postgres,database:'kestra',isolated:true,exclusiveWriters:true},
-          spawnPsql:async({owner,applicationName})=>{
-            assert.equal(owner.composeProject,project);assert.equal(owner.postgresContainer,ids.postgres);assert.equal(owner.database,'kestra')
-            assert(/^root_t6_barrier_[a-f0-9]{24}$/.test(applicationName))
-            await verifyTransactionOwnership()
-            return spawn('docker',['exec','-i','-e','PGAPPNAME='+applicationName,ids.postgres,'psql','-X','-q','-A','-t','-U','kestra','-d','kestra','-v','ON_ERROR_STOP=1'],{stdio:['pipe','pipe','pipe'],shell:false})
-          },
-        },
-        effects:new ProjectSideEffects({composeProject:project,postgresContainer:ids.postgres,kestraContainer:ids.kestra}),
-        record:async fragment=>{report.gateEvidence??={};report.gateEvidence.transactions=fragment;await persist()},
-      })
+      const transactionOwner={composeProject:project,postgresComposeProject:project,postgresContainer:ids.postgres,database:'kestra',isolated:true,exclusiveWriters:true}
+      const spawnTransactionPsql=async({owner,applicationName})=>{
+        assert.equal(owner.composeProject,project);assert.equal(owner.postgresContainer,ids.postgres);assert.equal(owner.database,'kestra')
+        assert(/^root_t6_barrier_[a-f0-9]{24}$/.test(applicationName))
+        await verifyTransactionOwnership()
+        return spawn('docker',['exec','-i','-e','PGAPPNAME='+applicationName,ids.postgres,'psql','-X','-q','-A','-t','-U','kestra','-d','kestra','-v','ON_ERROR_STOP=1'],{stdio:['pipe','pipe','pipe'],shell:false})
+      }
+      const transactionSql=persistentPsqlSession(await spawnTransactionPsql({owner:transactionOwner,applicationName:'root_t6_barrier_'+randomBytes(12).toString('hex')}),{commandTimeoutMs:5000})
+      let transactions
+      try {
+        transactions=await runAccessControlV3Transactions({base:planned.base,planned,management:new ApplicationGroupManagement(planned.base,planned.admin),
+          assertOwner:verifyTransactionOwnership,
+          query:async sql=>String(await transactionSql.query(sql)).trim(),
+          transactionObserver:{owner:transactionOwner,spawnPsql:spawnTransactionPsql},
+          effects:new ProjectSideEffects({composeProject:project,postgresContainer:ids.postgres,kestraContainer:ids.kestra}),
+          record:async fragment=>{report.gateEvidence??={};report.gateEvidence.transactions=fragment;await persist()},
+        })
+      } finally {await transactionSql.close()}
       assert.equal(transactions.completed,true,'Real account transaction composition did not complete safely')
       return {...transactions,browserIsolation}
     })
