@@ -125,6 +125,7 @@ test('native namespace option marker traverses shadow DOM and rejects ambiguity'
   const rect=()=>[{}]
   const option=text=>({innerText:text,getClientRects:rect,disabled:false,getAttribute:()=>null,setAttribute(name,value){this[name]=value},removeAttribute(name){delete this[name]}})
   const exact=option('company'),prefix=option('company.sub'),duplicate=option(' company ')
+  duplicate.getClientRects=()=>[]
   const shadowRoot={querySelectorAll:selector=>selector==='[role="option"]'?[exact,prefix]:[]}
   const host={getClientRects:rect,shadowRoot}
   globalThis.getComputedStyle=()=>({visibility:'visible',display:'block'})
