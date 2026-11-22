@@ -23,6 +23,24 @@ UI86/88通过，最后权限投影超时及依赖该前置的撤权失败，完�
 证据目录 `.work/mode-b-permission-counterexamples/target-ui-diagnostic/`。其中private文件为本轮测试配置，不得提交或上传。
 后续按宿主发布→插件正式消费→根仓组合与最终CI顺序推进；不得用本段局部结果代替交付。
 
+2026-11-23 当前修复检查点：overlay `e27864ce6521da239148a29027607b8e8aea689a` 已提交推送，
+自动CI `45069032782` 正在执行，尚未发布。0406按独立watch来源比较，保留真实身份变化的同步失效、
+旧generation隔离与挂载后当前查询补偿。0404仅移出两行生命周期接线，最终62补丁重放443文件一致。
+完整local-ci为webserver625（623通过，2原镜像专用）、core3、UI153；后续镜像门实际4份MCP XML各1项
+零跳过，classpath、OIDC35、form/env各11份报告均通过；列表Ego/Playwright各21，详情各37，SDK949和
+几何64通过。完整门之后10个测试文件改变，生产4711文件与executable资源hash未变，按独立绑定记录证明，
+不伪称后端以最终测试hash重跑。根仓已复核全部来源与具名报告。
+
+主控另用候选镜像在最小生产现场Ego验证：模式B受限账号真实登录回到Flow列表即显示目标行，reload仍显示；
+模式A关闭RBAC且无插件jar挂载，首次访问和reload也通过，均未点击Refresh data。证据为上述目录
+`ego-candidate-mode-{a,b}.json`，明确candidateOnly，不代替正式组合。测试现场已暂停、保留卷。
+
+原生Playwright测试另发现async predicate被Promise truthy提前放行，实际Chromium的async false反例可复现。
+候选在两个原生门共用有界await evaluate等待，仅literal true成功，保留异常来源；6项离线反例与实际浏览器
+验证已执行。根仓不从0404初始new-file段推断被后续补丁修改的分类器，改为消费正式报告附属原文件并核对
+独立SHA锁。根仓离线801项通过。上述为本地和源码检查点，正式镜像、插件兼容发布、完整组合及根仓CI仍待完成。
+
+
 
 ## 2026-11-18 模式 B 首装权限反例调查（进行中）
 
