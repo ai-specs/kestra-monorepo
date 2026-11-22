@@ -23,3 +23,21 @@ for(const [name,source,hash]of [
  ['unreviewed hash',classifier,'not-a-sha256'],
  ['missing export','const classifier = true',classifierHash('const classifier = true')],
 ])test('published classifier rejects '+name,()=>assert.throws(()=>assertPublishedNativeClassifierSource(source,hash)))
+
+function noRequestUnmount(){
+ const r=fixture(),last=r.cases.at(-1),previous=r.cases.at(-2)
+ last.documentId=previous.documentId;last.eventIds=[];last.network.calls=[];last.dom={rows:[],canvases:0,errors:[]}
+ r.diagnostics.events.pop();r.diagnostics.events.push({id:'live-document',kind:'document',documentId:previous.documentId})
+ return r
+}
+test('no-request unmount retains the preceding live document source without inventing a network event',()=>assert.equal(check(noRequestUnmount()).checks,21))
+for(const[name,change]of[
+ ['another document',r=>r.cases.at(-1).documentId='unknown'],
+ ['new final document',r=>r.diagnostics.events.push({id:'other-doc',kind:'document',documentId:'other'})],
+ ['wrong predecessor',r=>r.cases.at(-2).name='other'],
+ ['request after unmount',r=>r.cases.at(-1).network.calls=[{kind:'flows'}]],
+ ['retained rows',r=>r.cases.at(-1).dom.rows=[{id:'old'}]],
+ ['retained chart',r=>r.cases.at(-1).dom.canvases=1],
+ ['application error',r=>r.cases.at(-1).dom.errors=['failure']],
+ ['other case missing events',r=>r.cases[0].eventIds=[]],
+])test('no-request source evidence rejects '+name,()=>{const r=noRequestUnmount();change(r);assert.throws(()=>check(r))})

@@ -44,7 +44,18 @@ export function assertPublishedNativeReport(raw,readinessRaw,{commit,expectedHas
   assert(Array.isArray(row.eventIds));assert.equal(new Set(row.eventIds).size,row.eventIds.length)
   const actual=report.diagnostics.events.filter(event=>row.eventIds.includes(event.id))
   assert.equal(actual.length,row.eventIds.length)
-  assert(actual.some(event=>event.documentId===row.documentId),'Native case document has no source event')
+  if(actual.length===0&&row.name==='unmount-cancels-queued-identity-reload') {
+   const previous=report.cases[report.cases.indexOf(row)-1]
+   assert.equal(previous?.name,'logout-suppresses-reload-and-login-recovers','Unmount must follow the same-document login recovery')
+   assert.equal(previous.documentId,row.documentId,'Unmount lost the live document binding')
+   const document=report.diagnostics.events.filter(event=>event.kind==='document').at(-1)
+   assert.equal(document?.documentId,row.documentId,'Unmount source is not the final live document')
+   assert(previous.eventIds.some(id=>report.diagnostics.events.some(event=>event.id===id&&event.documentId===row.documentId)),'Preceding recovery has no source event')
+   assert.deepEqual(row.network.calls,[],'Unmount emitted a test-transport request')
+   assert.deepEqual(row.dom.rows,[],'Unmount retained Flow rows')
+   assert.equal(row.dom.canvases,0,'Unmount retained charts')
+   assert.deepEqual(row.dom.errors,[],'Unmount recorded application errors')
+  } else assert(actual.some(event=>event.documentId===row.documentId),'Native case document has no source event')
   for(const id of row.eventIds){assert(!covered.has(id));covered.add(id)}
   const before=new Set(report.diagnostics.events.filter(event=>!row.eventIds.includes(event.id)).map(event=>event.id))
   const verdict=classify(report.diagnostics,row.name,row.documentId,before)
