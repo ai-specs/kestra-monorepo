@@ -483,7 +483,7 @@ export async function runAccessControlV3Transactions({base,planned,management,as
   try {
     assert(!recordFailed,'initial evidence persistence failed')
     await assertOwner();ownerVerified=true
-    tables=JSON.parse(await sql("SELECT coalesce(json_agg(tablename ORDER BY tablename),'[]')::text FROM pg_tables WHERE schemaname='public' AND (tablename LIKE 'oidc\\_%' ESCAPE '\\' OR tablename LIKE 'rbac\\_application\\_group\\_%' ESCAPE '\\' OR tablename='rbac_management_audit')"))
+    tables=JSON.parse(await sql("SELECT coalesce(json_agg(tablename ORDER BY tablename),'[]')::text FROM pg_tables WHERE schemaname='public' AND (starts_with(tablename,'oidc_') OR starts_with(tablename,'rbac_application_group_') OR tablename='rbac_management_audit')"))
     assert(tables.every(name=>identifier.test(name)))
     for(const required of ['oidc_user','oidc_user_auth_method','oidc_authorization_code','oidc_token','rbac_application_group_state','rbac_application_group_invalidation','rbac_application_group_bootstrap','rbac_application_group_retired','rbac_management_audit'])assert(tables.includes(required),'required snapshot table missing: '+required)
     manager=await fresh()
