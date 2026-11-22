@@ -714,20 +714,24 @@ export async function main(argv=process.argv.slice(2),runtime={}) {
       }else browserIsolation={source:'separate-frozen-ci-browser-already-closed'}
       const ids=report.resources.containerIds
       planned.transactionInputs={isolated:true,exclusiveWriters:true,profile:'new-install',sourceRef:'stages.publication-gate+resources.containerIds',imageDigest:report.inputs.image.split('@')[1],jarHash:report.inputs.jarSha256,bootstrapSubject:planned.admin.subject,effectsWindowMs:5000}
+      let transactionOwnershipVerified=false
+      const verifyTransactionOwnership=async()=>{
+        if(transactionOwnershipVerified)return
+        for(const id of [ids.postgres,ids.kestra]) {
+          assert.equal(command('docker',['inspect','-f','{{index .Config.Labels "owner"}}',id]),project)
+          assert.equal(command('docker',['inspect','-f','{{index .Config.Labels "com.docker.compose.project"}}',id]),project)
+        }
+        transactionOwnershipVerified=true
+      }
       const transactions=await runAccessControlV3Transactions({base:planned.base,planned,management:new ApplicationGroupManagement(planned.base,planned.admin),
-        assertOwner:async()=>{
-          for(const id of [ids.postgres,ids.kestra]) {
-            assert.equal(command('docker',['inspect','-f','{{index .Config.Labels "owner"}}',id]),project)
-            assert.equal(command('docker',['inspect','-f','{{index .Config.Labels "com.docker.compose.project"}}',id]),project)
-          }
-        },
+        assertOwner:verifyTransactionOwnership,
         query:async sql=>command('docker',['exec',ids.postgres,'psql','-X','-U','kestra','-d','kestra','-v','ON_ERROR_STOP=1','-Atc',sql]),
         transactionObserver:{
           owner:{composeProject:project,postgresComposeProject:project,postgresContainer:ids.postgres,database:'kestra',isolated:true,exclusiveWriters:true},
           spawnPsql:async({owner,applicationName})=>{
             assert.equal(owner.composeProject,project);assert.equal(owner.postgresContainer,ids.postgres);assert.equal(owner.database,'kestra')
             assert(/^root_t6_barrier_[a-f0-9]{24}$/.test(applicationName))
-            for(const id of [ids.postgres,ids.kestra])assert.equal(command('docker',['inspect','-f','{{index .Config.Labels "owner"}}',id]),project)
+            await verifyTransactionOwnership()
             return spawn('docker',['exec','-i','-e','PGAPPNAME='+applicationName,ids.postgres,'psql','-X','-q','-A','-t','-U','kestra','-d','kestra','-v','ON_ERROR_STOP=1'],{stdio:['pipe','pipe','pipe'],shell:false})
           },
         },
