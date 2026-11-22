@@ -58,14 +58,14 @@ export async function runRbacOnboardingDeployment({configuration,compose,saveCon
         const token='__ACCEPTANCE_QUERY_'+randomUUID().replaceAll('-','_')+'__'
         return new Promise((resolve,reject)=>{
           if(pending){reject(new Error('persistent psql observer cannot overlap queries'));return}
-          const timer=setTimeout(()=>{if(pending&&pending.reject===reject){pending=null;child?.kill('SIGTERM');reject(new Error('persistent psql query timeout'))}},60_000)
+          const timer=setTimeout(()=>{if(pending?.token===token){const fail=pending.reject;pending=null;child?.kill('SIGTERM');fail(new Error('persistent psql query timeout'))}},60_000)
           pending={token,resolve:value=>{clearTimeout(timer);resolve(value)},reject:error=>{clearTimeout(timer);reject(error)}}
           child.stdin.write(sql.replace(/;\s*$/,'')+';\n\\echo '+token+'\n',error=>{if(error&&pending){const reject=pending.reject;pending=null;reject(error)}})
         })
       },
       async close(){
         if(!child)return
-        child.stdin.end('\q\n')
+        child.stdin.end()
         await new Promise(resolve=>{if(child.exitCode!==null)resolve();else child.once('close',resolve)})
         child=null
       }
