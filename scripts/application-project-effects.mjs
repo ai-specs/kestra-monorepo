@@ -38,7 +38,7 @@ export class ProjectSideEffects {
       'executions',(SELECT md5(coalesce(string_agg(value::text,'|' ORDER BY value::text),'')) FROM executions WHERE value->>'namespace' LIKE '${pattern}'),
       'pending',(SELECT md5(coalesce(string_agg(value::text,'|' ORDER BY value::text),'')) FROM execution_queued WHERE value::text LIKE '%${this.#prefix}%')
     )::text`)
-    const queue = this.#sql(`SELECT md5(coalesce(string_agg(value::text,'|' ORDER BY value::text),'')) FROM queues WHERE value::text LIKE '%${this.#prefix}%'`)
+    const queue = this.#sql(`SELECT md5(coalesce(string_agg(value::text,'|' ORDER BY value::text),'')) FROM execution_queued WHERE value::text LIKE '%${this.#prefix}%'`)
     const storage = execFileSync('docker', ['exec', this.#kestra, 'sh', '-c',
       "set -eu; listing=$(find /app/storage -mindepth 1 ! -name .oidc-installation -print); printf '%s\\n' \"$listing\" | LC_ALL=C sort; sums=$(find /app/storage -type f ! -name .oidc-installation -exec sha256sum {} +); printf '%s\\n' \"$sums\" | LC_ALL=C sort"], {encoding: 'utf8', timeout: 20000, maxBuffer: 32 * 1024 * 1024})
     const sources = {database: hash(database), queue: hash(queue), storage: hash(storage)}
@@ -51,8 +51,7 @@ export class ProjectSideEffects {
       const pattern = this.#prefix + '%'
       const active = Number(this.#sql(`SELECT (SELECT count(*) FROM executions WHERE value->>'namespace' LIKE '${pattern}'
         AND value->'state'->>'current' IN ('CREATED','RUNNING','PAUSED','RESTARTED','QUEUED'))
-        + (SELECT count(*) FROM execution_queued WHERE value::text LIKE '%${this.#prefix}%')
-        + (SELECT count(*) FROM queues WHERE value::text LIKE '%${this.#prefix}%')`))
+        + (SELECT count(*) FROM execution_queued WHERE value::text LIKE '%${this.#prefix}%')`))
       if (active === 0) return {waitedMs: Math.ceil(performance.now() - started), active}
       assert(performance.now() - started < timeoutMs, 'Acceptance namespace did not become idle before denied operation')
       await wait(intervalMs)
