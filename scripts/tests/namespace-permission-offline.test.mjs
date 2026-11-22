@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import {namespacePermissionCaseIds,initialNamespacePermissionReport,assertNamespacePermissionReport,runNamespacePermissionBrowser,redactNamespacePermissionError,namespacePickerState,waitNamespacePermissionResponse,namespaceFlowLandingReady,namespaceKvTargetReady,dismissNamespaceInstallPrompt} from '../namespace-permission-browser.mjs'
+import {namespacePermissionCaseIds,initialNamespacePermissionReport,assertNamespacePermissionReport,runNamespacePermissionBrowser,redactNamespacePermissionError,namespacePickerState,markExactNativeNamespaceOption,waitNamespacePermissionResponse,namespaceFlowLandingReady,namespaceKvTargetReady,dismissNamespaceInstallPrompt} from '../namespace-permission-browser.mjs'
 import {namespaceFlowDetailCanonicalQueryReady} from '../namespace-flow-detail-browser.mjs'
 
 export function completeNamespacePermissionReport() {
