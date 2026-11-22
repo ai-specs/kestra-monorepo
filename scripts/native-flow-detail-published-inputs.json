@@ -1,6 +1,6 @@
 {
-  "overlayCommit": "84fe6146742f377b529e1a1b60a88ac06c905ebc",
-  "provenance": "Controller audited committed BASE plus 61 patches, normalized patch replay equals tested development and full local-ci trees across 5732 files; hashes computed from source and independently compared before artifact download.",
+  "overlayCommit": "e27864ce6521da239148a29027607b8e8aea689a",
+  "provenance": "Controller reviewed fixed BASE plus 62 committed patches; 443 touched files equal frozen development and full local-ci production inputs; native report sources independently rehashed. This is an expected input lock; acceptance additionally requires successful formal CI artifacts and published image.",
   "hashes": {
     "../../src/components/flows/Overview.vue": "fbbad22a1be584d9ad27da0943dbfeb05e9623780e5b1a6942b28b3da911b270",
     "../../src/components/flows/FlowRuntimeTab.vue": "4953ccb14a082be6372ea4ec0db000ee553a9a2a21679f9a2fb6787382fa1ce2",
@@ -23,7 +23,7 @@
     "../../../core/src/main/resources/dashboards/default_flow_definition.yaml": "10a51f138ddb811a60a7a59a0b8d5084f0f539c19f48ddf63fb5d8c0c1c47f30",
     "../../src/translations/en.json": "8a2b2bd18e6b42050b085250de64d28600a87423ff75181417cd22f27b1ba7ec",
     "../../src/translations/zh_CN.json": "3b3b62966ed7adb108bdea1ee78370f715f7fdb195e5e1a508969d4565569308",
-    "./cases.mjs": "d8f53e5a759cc3c563d4b072d8ee04b7f5e6a8e308d15b5470794e028837ba95",
+    "./cases.mjs": "eebc6d61a6264aa2828c96d581520e5ae4c11eda9b2c401e225b1d50a8e147c5",
     "./index.html": "afd695d1644b4e1ad8faf5efb2e827a058e1e964c049deef80d483fa6760e37d",
     "./main.ts": "6f9713eac3694111bd48cf6d8f7f923ef559a2854d58a7ad6e737edfaa077a26",
     "./transport.ts": "2d2e77b1b712c0407ebf79800543f374c918a7d4937d3d5bd981b7385a157372",
@@ -32,7 +32,9 @@
     "./diagnostics.test.mjs": "dfd28c46ec64181c377028e075739b55304db66cb0defb2d20bc1aa8bc124901",
     "./browser.mjs": "4fd3d7efe366635c2ccc61150a3313e3d5599fdc2b53c5741d199514d6140630",
     "./run-browser.mjs": "f377e549f35bcd6276a12d4cf40f3a29ff579995b4c420c260b4381490b87609",
-    "./playwright.mjs": "4537a175481aa68e9d5a7ef03decf20fcfcd02ef365b7102852243cbdef84af0",
+    "./playwright.mjs": "8cd73572a421d18d13905755830f002985990083083cec0f565f997beb083386",
+    "../flow-execution-capabilities/wait-for-condition.mjs": "4c318c1d1c2fa422acebc90c2ef00056ddec7e9287c6c29d4a2ef490c03e1d68",
+    "../flow-execution-capabilities/wait-for-condition.test.mjs": "b339f4aec2cba9afcb3e62253576815830a6c7760bd3b5344a49a44ddcbc36d5",
     "./check-report.mjs": "cb9e90044e5e1ab356bbbaa49d91328ccbe41e31a7d5d786bd5d946de0d4114d",
     "./check-report.test.mjs": "66bc4ec2c49633e3f593ba497d36d8490497f0d166c71d29d2f7de41e7b070b7",
     "../../package-lock.json": "89f2e4ff96a05f6ebcaa7197c73bd2fcf3eb5ee802485b2d03f1c71463db0d60",
