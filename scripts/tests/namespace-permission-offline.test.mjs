@@ -128,7 +128,7 @@ test('native namespace option marker traverses shadow DOM and rejects ambiguity'
   const shadowRoot={querySelectorAll:selector=>selector==='[role="option"]'?[exact,prefix]:[]}
   const host={getClientRects:rect,shadowRoot}
   globalThis.getComputedStyle=()=>({visibility:'visible',display:'block'})
-  globalThis.document={querySelectorAll:selector=>selector==='*'?[]:selector==='[role="option"]'?[duplicate]:[]}
+  globalThis.document={querySelectorAll:selector=>selector==='*'?[host]:selector==='[role="option"]'?[duplicate]:[]}
   try {
     assert.equal(markExactNativeNamespaceOption('company'),true)
     assert.equal(exact.getAttribute('data-namespace-permission-option'),'true')
