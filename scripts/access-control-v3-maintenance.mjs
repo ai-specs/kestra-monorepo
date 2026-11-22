@@ -93,8 +93,9 @@ export async function runLoginClientMaintenance({clientId,originalSecret,command
     await step('confirmed-rollback-material-removed',{credentialRevision:revision,rollbackRejected:true,failure:'CONFLICT'})
     await verifyLogin('confirmed-production-login')
     report.status='passed';report.passed=true;report.completed=true
-  }catch{
+  }catch(error){
     report.status='failed';report.error='Login client maintenance failed; retained step receipts contain no credential values'
+    report.failure={name:error?.name??'Error',credentialFailure:error?.credentialFailure??null,lastStepId:report.steps.at(-1)?.id??null}
     try {
       await stop()
       const current=await status()
