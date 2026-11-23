@@ -131,14 +131,14 @@ Compose 默认关闭上游匿名用量与 UI 事件上报，使用
 `kestra.anonymous-usage-report.enabled: false` 和
 `kestra.ui-anonymous-usage-report.enabled: false`。这两个配置不影响 RBAC 授权或生产登录。
 
-本仓当前选定插件提交 `c45cd91`，成功 CI run `44470593272`，正式 jar SHA-256：
+本仓当前选定插件提交 `c45cd91`，成功 CI run `45075036950`，正式 jar SHA-256：
 `3d2835ef14d13782d858dab81c06e87c9ebee3455650217c7de58ee7b42bd728`。
 先安装并登录 GitHub CLI（`gh auth login`），账号须能读取插件仓 Actions artifact：
 
 ```bash
 # macOS / Linux；在本仓根目录执行
 mkdir -p .work/rbac-release deployment/libs
-gh run download 44470593272 -R ai-specs/kestra-plugin-rbac \
+gh run download 45075036950 -R ai-specs/kestra-plugin-rbac \
   --name kestra-rbac-authorizer --dir .work/rbac-release
 cp .work/rbac-release/build/libs/kestra-rbac-authorizer.jar deployment/libs/kestra-rbac-authorizer.jar
 # macOS
@@ -150,7 +150,7 @@ sha256sum deployment/libs/kestra-rbac-authorizer.jar
 ```powershell
 # Windows PowerShell；在本仓根目录执行
 New-Item -ItemType Directory -Force .work/rbac-release, deployment/libs | Out-Null
-gh run download 44470593272 -R ai-specs/kestra-plugin-rbac `
+gh run download 45075036950 -R ai-specs/kestra-plugin-rbac `
   --name kestra-rbac-authorizer --dir .work/rbac-release
 Copy-Item .work/rbac-release/build/libs/kestra-rbac-authorizer.jar deployment/libs/kestra-rbac-authorizer.jar
 (Get-FileHash deployment/libs/kestra-rbac-authorizer.jar -Algorithm SHA256).Hash.ToLower()
@@ -185,16 +185,16 @@ Copy-Item .work/rbac-release/build/libs/kestra-rbac-authorizer.jar deployment/li
 
 > 当前正式宿主 `e27864c` 的 CI `45069032782` 五个 job 成功，镜像 digest
 > `116c5503bbca8b889c65de95ae86afdf196be461f1201dabda7e5f2fc8b492f8` 已推广并下载审计。
-> 插件 `c45cd91` 消费该正式宿主输入，CI `44470593272` 成功；本提交 artifact 已实际下载，
+> 插件 `c45cd91` 消费该正式宿主输入，CI `45075036950` 成功；本提交 artifact 已实际下载，
 > 后端324、PostgreSQL113、生命周期30、声明升级9及页面960全部通过，jar/bundle来源一致。
-> 本轮根仓正式组合验收尚未完成，不能用独立仓 CI 证明新权限范围已通过全部生产流程。
+> 根仓 CI 独立验证正式组合的生产流程、授权范围与副作用；不能用独立仓 CI 代替。
 > AI 入口需要显式租户 READ/EXECUTE；普通资源的全域读取不隐含执行、输出或租户级功能授权。
 
 受限账号应通过已获授权页面的书签进入。登录前访问目标、认证重定向及回调目标必须实际
 核对；不得通过登录后手动改路径掩盖丢失书签的问题。原 URI 保留机制已在宿主
 `d3247f9` / CI `44407072165` 正式发布，列表有限能力已在 `86e4365` /
-CI `44423330738` 正式发布。宿主首屏与详情修复已发布；插件当前输入升级仍待对应成功 CI 与正式产物，
-不能用宿主单仓成功代替本仓生产组合验收。
+CI `44423330738` 正式发布。宿主首屏与详情修复及插件兼容输入均已发布；本仓 CI 仍须独立验证生产组合，
+不能用宿主单仓成功代替。
 
 普通资源 grants 按其命名空间、资源及动作求值。管理员可以在访问控制页面复核和修改
 初始策略，撤销授权后不保留首账号特权。
