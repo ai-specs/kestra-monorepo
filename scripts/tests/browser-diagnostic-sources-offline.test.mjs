@@ -208,3 +208,21 @@ for(const[name,change]of[
  ['no replacement',e=>e.pop()],['same document',e=>e[2].documentId='old'],['other frame',e=>e[2].frameId='another'],
  ['not canceled',e=>e[1].cancelled=false],['other error',e=>e[1].message='net::ERR_FAILED'],
 ])test('Flow capability cancellation rejects '+name,()=>{const events=flowProjectionUnload();change(events);assert.equal(classify({events,base}).errors.length,1)})
+
+function authConfigBodyUnload() {
+  const source={url:base+'/api/v1/configs',documentUrl:base+'/ui/main/dashboards'}
+  return [event('auth-request','request',{...source,frameId:'frame',observedAt:time(0)}),
+    event('auth-response','http-response',{...source,status:200,observedAt:time(90)}),
+    event('auth-abort','request-failed',{...source,message:'net::ERR_ABORTED',cancelled:true,observedAt:time(100)}),
+    event('auth-console','console-error',{...source,url:source.documentUrl,requestId:undefined,message:'Error during authentication check: TypeError: Failed to fetch',stack:[{url:base+'/ui/assets/app-frozen.js',functionName:'checkAuth',line:115}],observedAt:time(100)}),
+    event('auth-next','document-navigation',{documentId:'new',frameId:'frame',url:base+'/ui/main/ai',requestId:undefined,observedAt:time(110)})]
+}
+test('exact single 200 auth config body cancellation binds console to real document unload',()=>assert.equal(run(authConfigBodyUnload()).errors.length,0))
+for(const [name,mutate] of [
+  ['no navigation',x=>x.pop()],['no original request',x=>x.shift()],['no 200 response',x=>x.splice(1,1)],
+  ['denied response',x=>x[1].status=403],['uncancelled transport',x=>x[2].cancelled=false],
+  ['different frame',x=>x[4].frameId='other'],['same document',x=>x[4].documentId='old'],
+  ['late console',x=>x[3].observedAt=time(500)],['foreign stack',x=>x[3].stack[0].url='https://foreign.invalid/app.js'],
+  ['business endpoint',x=>{for(const i of [0,1,2])x[i].url=base+'/api/v1/main/flows/search'}],
+  ['duplicate auth console',x=>x.splice(4,0,{...x[3],id:'auth-duplicate'})],
+])test('auth body '+name+' remains unclassified',()=>{const events=authConfigBodyUnload();mutate(events);assert(run(events).errors.some(e=>e.id==='auth-console'))})
