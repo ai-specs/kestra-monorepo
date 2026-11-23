@@ -1,6 +1,6 @@
 {
-  "overlayCommit": "e27864ce6521da239148a29027607b8e8aea689a",
-  "provenance": "Controller reviewed fixed BASE plus 62 committed patches; 443 touched files equal frozen development and full local-ci production inputs; native report sources independently rehashed. This is an expected input lock; acceptance additionally requires successful formal CI artifacts and published image.",
+  "overlayCommit": "434955d1482eda7fa462195b362198c41216451e",
+  "provenance": "Controller reviewed fixed BASE plus 63 committed patches; 444 touched files equal tested production inputs. All native source hashes remain unchanged and match downloaded successful CI45104521508 reports. This is an expected input lock; acceptance additionally requires successful formal CI artifacts and published image.",
   "hashes": {
     "../../src/components/flows/Overview.vue": "fbbad22a1be584d9ad27da0943dbfeb05e9623780e5b1a6942b28b3da911b270",
     "../../src/components/flows/FlowRuntimeTab.vue": "4953ccb14a082be6372ea4ec0db000ee553a9a2a21679f9a2fb6787382fa1ce2",

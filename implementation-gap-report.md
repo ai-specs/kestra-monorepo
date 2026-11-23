@@ -16,14 +16,27 @@
 根仓另补清理前完整脱敏应用/PG日志与artifact保留，828项离线通过，仅增加证据，不放宽任何门。
 
 0407已提交并推送为overlay `434955d1482eda7fa462195b362198c41216451e`，
-自动CI `45104521508`正在运行，尚未发布。主控已核对显式12文件工作树与暂存区SHA一致、
+自动CI `45104521508`五个job全部成功并完成推广，正式digest为
+`sha256:2ca77ebb0f2318f809741c89e5057e677555a010499645d7a731f22fa9f94aa9`。
+11份artifact已实际下载，459文件SHA逐项复核，正式arm64 executable SHA为
+`a97b79cb41a48a5977b4132db1ae3759f4ec96c20ed4fb178d8903021fd1ae99`。
+双架构事件提交/run/BASE匹配，BuildKit completeness=false及空builder id限制保留。
+完整发布审计位于overlay `.work/queue-context-20261123/ci-45104521508/RELEASE-AUDIT.json`。
+插件已从该正式registry输入独立提取并通过本地门，提交`5e6a299999dca39ba659bfb427fe5500641dc970`
+已推送，自动CI`45110689834`成功。artifact `14789922094`已实际下载，后端324、PG113、
+生命周期30、schema2声明升级9、真实浏览器960零失败/跳过/未运行；349个jar UI文件的
+聚合SHA与已测浏览器bundle一致，源码/测试工具/SDK/lock均经正式提交来源复核。
+正式jar SHA仍为`3d2835ef14d13782d858dab81c06e87c9ebee3455650217c7de58ee7b42bd728`，
+其provenance镜像与上述宿主digest一致。下载审计在`.work/compose-release-434955d/`。
+根仓生产组合及最终提交成功CI仍未通过，不用独立仓结果替代。
+主控已核对显式12文件工作树与暂存区SHA一致、
 cached检查退出0；63补丁独立重放444文件与已测源码一致。完整local-ci退出0，core3、UI153通过；
 后端原631项XML未及时在镜像专项覆盖前封存，保留原日志及当时计数，随后单独真实重跑的
 134份XML为631项零失败/错误、2项原镜像专项跳过，不冒充原完整门报告或拼接一次运行。
 本机候选classpath、OIDC35、MCP4份XML零跳过、form/env各11份报告、原生列表21/详情37、
 SDK949及geometry64均通过。主控复核SDK949唯一用例、23934事件/483文档、零错误事件、
 源文件SHA和与geometry相同的镜像/buildId。证据在overlay
-`.work/queue-context-20261123/`；候选不能作为插件编译输入，正式发布与生产组合仍未通过。
+`.work/queue-context-20261123/`；本地候选不作为插件编译输入，生产组合仍未通过。
 
 本节下述第60/61轮为历史失败检查点，保留原因与未通过门，不代表当前正式版本。
 当前正式输入为overlay `e27864ce6521da239148a29027607b8e8aea689a`，CI `45069032782`五job成功并推广
