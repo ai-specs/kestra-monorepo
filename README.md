@@ -131,7 +131,7 @@ Compose 默认关闭上游匿名用量与 UI 事件上报，使用
 `kestra.anonymous-usage-report.enabled: false` 和
 `kestra.ui-anonymous-usage-report.enabled: false`。这两个配置不影响 RBAC 授权或生产登录。
 
-本仓当前选定插件提交 `c45cd91`，成功 CI run `45075036950`，正式 jar SHA-256：
+本仓当前选定插件提交 `3645f7b`，成功 CI run `45075036950`，正式 jar SHA-256：
 `3d2835ef14d13782d858dab81c06e87c9ebee3455650217c7de58ee7b42bd728`。
 先安装并登录 GitHub CLI（`gh auth login`），账号须能读取插件仓 Actions artifact：
 
@@ -185,7 +185,7 @@ Copy-Item .work/rbac-release/build/libs/kestra-rbac-authorizer.jar deployment/li
 
 > 当前正式宿主 `e27864c` 的 CI `45069032782` 五个 job 成功，镜像 digest
 > `116c5503bbca8b889c65de95ae86afdf196be461f1201dabda7e5f2fc8b492f8` 已推广并下载审计。
-> 插件 `c45cd91` 消费该正式宿主输入，CI `45075036950` 成功；本提交 artifact 已实际下载，
+> 插件 `3645f7b` 消费该正式宿主输入，CI `45075036950` 成功；本提交 artifact 已实际下载，
 > 后端324、PostgreSQL113、生命周期30、声明升级9及页面960全部通过，jar/bundle来源一致。
 > 根仓 CI 独立验证正式组合的生产流程、授权范围与副作用；不能用独立仓 CI 代替。
 > AI 入口需要显式租户 READ/EXECUTE；普通资源的全域读取不隐含执行、输出或租户级功能授权。
