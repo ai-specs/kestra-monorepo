@@ -20,3 +20,10 @@ for(const scenario of ['allowed-denial','wrong-status','immediate-mutation','del
   if(scenario==='immediate-mutation')assert.equal(evidence.immediate.value,'changed')
   if(scenario==='delayed-mutation')assert(evidence.samples.some(row=>row.snapshot.value==='changed'))
 })
+
+test('slow snapshot recording cannot end the window before its final sample reaches the deadline',async()=>{
+ let clock=0
+ const evidence=await observeNamespaceDenied({snapshot:async()=>{clock+=80;return {same:true}},invoke:async()=>({status:403,response:{status:403}}),verify:value=>assert.equal(value.status,403),now:()=>clock,wait:async ms=>{clock+=Math.max(ms,1)},record:async()=>{clock+=90}})
+ assert(evidence.samples.at(-1).elapsedMs>=2500)
+ assert(evidence.samples.at(-1).elapsedMs<=evidence.observedMs)
+})

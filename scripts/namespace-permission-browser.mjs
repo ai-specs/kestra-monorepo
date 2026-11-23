@@ -157,9 +157,10 @@ export async function observeNamespaceDenied({snapshot,invoke,verify,record=asyn
     const start=now()
     do {
       await wait(evidence.samples.length?250:0)
-      evidence.samples.push({elapsedMs:now()-start,snapshot:await snapshot()})
+      const observed=await snapshot()
+      evidence.samples.push({elapsedMs:now()-start,snapshot:observed})
       evidence.observedMs=now()-start;await record(evidence)
-    } while(evidence.observedMs<evidence.minimumObservationMs||evidence.samples.length<2)
+    } while(evidence.samples.at(-1).elapsedMs<evidence.minimumObservationMs||evidence.samples.length<2)
     try {
       assert.deepEqual(evidence.immediate,evidence.before,'Immediate rejected-write effect')
       for(const sample of evidence.samples)assert.deepEqual(sample.snapshot,evidence.before,'Delayed rejected-write effect')

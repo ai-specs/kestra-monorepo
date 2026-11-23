@@ -260,3 +260,10 @@ for(const [name,mutate] of [
   const value=sample();mutate(deniedEffects(value))
   assert.throws(()=>assertNamespacePermissionEvidence(refresh(value)))
 })
+
+test('late same-document route observations cannot move login completion after logout',()=>{
+ const value=sample()
+ const transition=value.journey.loginTransitions[0]
+ value.events.push({id:'late-old-flow-route',kind:'document-route',documentId:transition.finalDocument.documentId,url:value.base+transition.finalDocument.path})
+ assertNamespacePermissionEvidence(value)
+})

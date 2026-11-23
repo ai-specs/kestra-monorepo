@@ -107,7 +107,10 @@ export function assertNamespacePermissionEvidence({journey,caseJourney,events,ba
     assert(Number.isFinite(document.timeOrigin)&&document.timeOrigin>0,'Document time origin missing')
     const rows=events.filter(event=>['document-navigation','document-route'].includes(event.kind)&&event.documentId===document.documentId&&sameOriginPath(event)===path)
     assert(rows.length>0,'Referenced document/path never appeared in diagnostics')
-    return rows.at(-1)
+    // The first arrival establishes this document/path boundary. Later SPA
+    // observations can arrive while that document unloads; they are retained
+    // as diagnostics but cannot move a completed login past its logout.
+    return rows[0]
   }
   const pathResponse=(reference,path,status)=>{
     nonempty(reference?.requestId,'Redirect response request ID missing');nonempty(reference?.documentId,'Redirect response document ID missing')
