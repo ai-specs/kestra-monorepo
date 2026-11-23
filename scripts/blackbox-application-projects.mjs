@@ -14,6 +14,7 @@
  */
 import {assertPublishedNativeFlowReport,assertPublishedNativeClassifierSource,extractPublishedNativeClassifier} from './published-native-flow-evidence.mjs'
 import {assertPublishedNativeFlowDetailReport} from './published-native-flow-detail-evidence.mjs'
+import {redactOwnedServiceLog} from './owned-service-log.mjs'
 import assert from 'node:assert/strict'
 import {execFileSync,spawnSync,spawn} from 'node:child_process'
 import {createHash,randomBytes} from 'node:crypto'
@@ -1215,6 +1216,15 @@ export async function main(argv=process.argv.slice(2),runtime={}) {
         const host=compose('ps','-a','-q','kestra')
         if(host){report.fragments.hostRuntimeState=JSON.parse(command('docker',['inspect','-f','{{json .State}}',host]));const logs=spawnSync('docker',['logs',host],{encoding:'utf8',timeout:20000,maxBuffer:128*1024*1024});if(logs.status!==0)report.stages.push({id:'host-diagnostics',status:'failed',error:'owned host diagnostic collection failed'});else report.fragments.hostMcpDiagnostics=(logs.stdout+logs.stderr).split('\n').filter(line=>line.includes('MCP_TOOL_CALL_FAILED exception=')).map(line=>line.slice(line.indexOf('MCP_TOOL_CALL_FAILED exception=')))}
         if(host){const diagnostic=spawnSync('docker',['logs',host],{encoding:'utf8',timeout:20000,maxBuffer:128*1024*1024});report.fragments.hostFatalDiagnostics=applicationProjectFatalDiagnostics(diagnostic.stdout+diagnostic.stderr);report.fragments.hostExitDiagnostics=(diagnostic.stdout+diagnostic.stderr).replace(/eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+/g,'[redacted-jwt]').split('\n').slice(-200).filter(line=>/shutdown|shutting|stopping|stopped|fatal|outofmemory|exception|error|signal/i.test(line))}
+        const serviceLogDirectory=join(output,'service-logs');mkdirSync(serviceLogDirectory,{mode:0o700})
+        report.resources.serviceLogEvidence=[]
+        for(const id of ownIds) {
+          const captured=spawnSync('docker',['logs','--timestamps',id],{encoding:'utf8',timeout:20000,maxBuffer:128*1024*1024})
+          const content=redactOwnedServiceLog(String(captured.stdout??'')+String(captured.stderr??''))
+          const path=join(serviceLogDirectory,id+'.log');writeFileSync(path,content,{mode:0o600})
+          report.resources.serviceLogEvidence.push({containerId:id,path,sha256:hash(content),captureStatus:captured.status})
+          if(captured.status!==0)report.stages.push({id:'service-log-capture-'+id,status:'failed',error:'Owned service log capture failed'})
+        }
         compose('down','--volumes')
         // Compose omits volumes no longer mounted after restoring the main host.
         // Remove only this run's detached first-install storage volumes.
