@@ -131,14 +131,14 @@ Compose 默认关闭上游匿名用量与 UI 事件上报，使用
 `kestra.anonymous-usage-report.enabled: false` 和
 `kestra.ui-anonymous-usage-report.enabled: false`。这两个配置不影响 RBAC 授权或生产登录。
 
-本仓当前选定插件提交 `5e6a299`，成功 CI run `45110689834`，正式 jar SHA-256：
-`3d2835ef14d13782d858dab81c06e87c9ebee3455650217c7de58ee7b42bd728`。
+本仓当前选定插件提交 `594cfec`，成功 CI run `45167220275`，正式 jar SHA-256：
+`918b5eb892ee8511360288ceaa0aadc99b29128c2d35ae5a4f8deb44b6385fef`。
 先安装并登录 GitHub CLI（`gh auth login`），账号须能读取插件仓 Actions artifact：
 
 ```bash
 # macOS / Linux；在本仓根目录执行
 mkdir -p .work/rbac-release deployment/libs
-gh run download 45110689834 -R ai-specs/kestra-plugin-rbac \
+gh run download 45167220275 -R ai-specs/kestra-plugin-rbac \
   --name kestra-rbac-authorizer --dir .work/rbac-release
 cp .work/rbac-release/build/libs/kestra-rbac-authorizer.jar deployment/libs/kestra-rbac-authorizer.jar
 # macOS
@@ -150,7 +150,7 @@ sha256sum deployment/libs/kestra-rbac-authorizer.jar
 ```powershell
 # Windows PowerShell；在本仓根目录执行
 New-Item -ItemType Directory -Force .work/rbac-release, deployment/libs | Out-Null
-gh run download 45110689834 -R ai-specs/kestra-plugin-rbac `
+gh run download 45167220275 -R ai-specs/kestra-plugin-rbac `
   --name kestra-rbac-authorizer --dir .work/rbac-release
 Copy-Item .work/rbac-release/build/libs/kestra-rbac-authorizer.jar deployment/libs/kestra-rbac-authorizer.jar
 (Get-FileHash deployment/libs/kestra-rbac-authorizer.jar -Algorithm SHA256).Hash.ToLower()
@@ -185,10 +185,14 @@ Copy-Item .work/rbac-release/build/libs/kestra-rbac-authorizer.jar deployment/li
 
 > 当前正式宿主 `434955d` 的 CI `45104521508` 五个 job 成功，镜像 digest
 > `2ca77ebb0f2318f809741c89e5057e677555a010499645d7a731f22fa9f94aa9` 已推广并下载审计。
-> 插件 `5e6a299` 消费该正式宿主输入，CI `45110689834` 成功；本提交 artifact 须按上方命令下载，
+> 插件 `594cfec` 消费该正式宿主输入，CI `45167220275` 成功；本提交 artifact 须按上方命令下载，
 > 后端324、PostgreSQL113、生命周期30、声明升级9及页面960全部通过；部署前核对 jar 哈希。
 > 根仓 CI 独立验证正式组合的生产流程、授权范围与副作用；不能用独立仓 CI 代替。
 > AI 入口需要显式租户 READ/EXECUTE；普通资源的全域读取不隐含执行、输出或租户级功能授权。
+
+权限明细优先显示表达式，仅补集等容易误解的部分提供悬停或键盘聚焦解释。同一权限key的
+明细在其他条件一致时合并显示；合并资源前缀要求后续动作集合与ID范围相同。原始多条grant
+仍受支持，不改变保存格式或授权行为。
 
 受限账号应通过已获授权页面的书签进入。登录前访问目标、认证重定向及回调目标必须实际
 核对；不得通过登录后手动改路径掩盖丢失书签的问题。原 URI 保留机制已在宿主
