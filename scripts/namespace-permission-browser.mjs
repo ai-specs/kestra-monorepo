@@ -146,6 +146,15 @@ export function redactNamespacePermissionError(error,secrets) {
   for(const secret of [...new Set(secrets)].filter(value=>typeof value==='string'&&value.length).sort((a,b)=>b.length-a.length))message=message.replaceAll(secret,'[redacted]')
   return new Error(message,{cause:error})
 }
+export async function unloadNamespaceControlPlanePage(page,base) {
+  const csrf=await page.evaluate(()=>document.querySelector('meta[name="csrf-token"]')?.content)
+  assert(typeof csrf==='string'&&csrf.length>0,'Production CSRF token missing before control-plane isolation')
+  page.redactSecrets([csrf])
+  await page.goto(base+'/oidc/login')
+  await page.waitForFunction(()=>location.pathname==='/oidc/login'&&document.readyState==='complete'
+    &&Boolean(document.querySelector('input[name="username"]')?.getClientRects().length))
+  return csrf
+}
 export async function observeNamespaceDenied({snapshot,invoke,verify,record=async()=>{},now=Date.now,wait=ms=>new Promise(resolve=>setTimeout(resolve,ms))}) {
   const evidence={transport:'same-production-session-adversarial-request',samples:[],minimumObservationMs:2500}
   let failure
@@ -188,14 +197,15 @@ export async function runNamespacePermissionBrowser(page,{base,account,controls,
     const actual=new URL(event.url),request={path:actual.pathname+actual.search,method,status:event.status,requestId:event.requestId,source:{documentId:event.documentId},expectedStatuses:[event.status]}
     report.requests.push(request);return request
   }
-  async function request(path,method='GET',body,revision,contentType='application/json') {
+  async function request(path,method='GET',body,revision,contentType='application/json',preparationCsrf) {
     const before=new Set((await page.diagnostics()).events.map(event=>event.id))
-    const result=await page.evaluate(async({path,method,body,revision,contentType})=>{
-      if(!['GET','HEAD'].includes(method)&&!document.querySelector('meta[name="csrf-token"]')?.content)throw Error('Production CSRF token missing')
-      const response=await fetch(path,{method,credentials:'same-origin',redirect:'manual',signal:AbortSignal.timeout(15000),headers:{'X-CSRF-TOKEN':document.querySelector('meta[name="csrf-token"]')?.content??'',...(body===undefined?{}:{'Content-Type':contentType}),...(revision===undefined?{}:{'If-Match':'"'+revision+'"'})},...(body===undefined?{}:{body:contentType==='application/json'?JSON.stringify(body):body})})
+    const result=await page.evaluate(async({path,method,body,revision,contentType,preparationCsrf})=>{
+      const csrf=preparationCsrf??document.querySelector('meta[name="csrf-token"]')?.content
+      if(!['GET','HEAD'].includes(method)&&!csrf)throw Error('Production CSRF token missing')
+      const response=await fetch(path,{method,credentials:'same-origin',redirect:'manual',signal:AbortSignal.timeout(15000),headers:{'X-CSRF-TOKEN':csrf??'',...(body===undefined?{}:{'Content-Type':contentType}),...(revision===undefined?{}:{'If-Match':'"'+revision+'"'})},...(body===undefined?{}:{body:contentType==='application/json'?JSON.stringify(body):body})})
       const text=await response.text();let value;try{value=JSON.parse(text)}catch{value=text}
       return {status:response.status,value}
-    },{path,method,body,revision,contentType})
+    },{path,method,body,revision,contentType,preparationCsrf})
     return {...result,response:await sourceResponse(path,method,result.status,before)}
   }
   const ok=result=>{assert(result.status>=200&&result.status<300,'Production HTTP '+result.status);return result.value}
@@ -430,13 +440,15 @@ export async function runNamespacePermissionBrowser(page,{base,account,controls,
       await page.waitForFunction(()=>Boolean(document.querySelector('#side-menu')))
       const appPath=group+'/applications/~'+Buffer.from('kestra-ui').toString('base64url')
       const app=ok(await request(appPath))
-      ok(await request(appPath+'/permissions','POST',{key:prefix.replaceAll('_','-'),name:'Company subtree '+prefix,scopeKeys:[prefix.replaceAll('_','-')],description:'Flow/KV subtree plus shared host metadata',enabled:true,managementGrants:[],grants:['FLOW','KVSTORE','NAMESPACE'].map(resource=>({scope:'NAMESPACE',tenant:'main',namespace:'company.sub',descendants:true,resource,actions:['READ','LIST','CREATE','UPDATE','DELETE'],ids:[],allIds:true})).concat([{scope:'TENANT',tenant:'main',namespace:null,descendants:false,resource:'METADATA',actions:['READ','LIST'],ids:[],allIds:true}])},app.revision))
+      const permissionCsrf=await unloadNamespaceControlPlanePage(page,base)
+      ok(await request(appPath+'/permissions','POST',{key:prefix.replaceAll('_','-'),name:'Company subtree '+prefix,scopeKeys:[prefix.replaceAll('_','-')],description:'Flow/KV subtree plus shared host metadata',enabled:true,managementGrants:[],grants:['FLOW','KVSTORE','NAMESPACE'].map(resource=>({scope:'NAMESPACE',tenant:'main',namespace:'company.sub',descendants:true,resource,actions:['READ','LIST','CREATE','UPDATE','DELETE'],ids:[],allIds:true})).concat([{scope:'TENANT',tenant:'main',namespace:null,descendants:false,resource:'METADATA',actions:['READ','LIST'],ids:[],allIds:true}])},app.revision,'application/json',permissionCsrf))
       await logout();await login(account.username,account.password);await page.waitForFunction(()=>Boolean(document.querySelector('#side-menu')))
       const supported=ok(await request(appPath)).supportedScopeKeys
       assert(Array.isArray(supported)&&supported.includes(prefix.replaceAll('_','-')),'Permission did not derive application support')
       assert(app.supportedScopeKeys.every(key=>supported.includes(key)),'Preparing the second account removed existing application support')
       current=ok(await request(group))
-      ok(await request(group+'/scope-grants','POST',{issuer:base,subject:second.username,scopeKeys:[prefix.replaceAll('_','-')]},current.revision))
+      const grantCsrf=await unloadNamespaceControlPlanePage(page,base)
+      ok(await request(group+'/scope-grants','POST',{issuer:base,subject:second.username,scopeKeys:[prefix.replaceAll('_','-')]},current.revision,'application/json',grantCsrf))
       return {transport:'production-management-api-assistance',subject:second.username,scopeKeys:[prefix.replaceAll('_','-')],namespace:'company.sub',resources:['FLOW','KVSTORE','NAMESPACE'],additionalGrants:[{resource:'METADATA',scope:'TENANT',tenant:'main',actions:['READ','LIST'],purpose:'shared-host-metadata-only'}],temporaryPasswordIssued:true}
     })
     await check('second-account-password-change-and-login',async()=>{

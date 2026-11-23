@@ -46,7 +46,7 @@ export function classifyAccessControlDiagnostics({events,base,requests=[],expect
     if(event.kind==='request-failed'&&original&&event.message==='net::ERR_ABORTED'&&event.cancelled===true) {
       const url=new URL(event.url),path=url.pathname
       const read=event.method==='GET'&&url.origin===base&&(path.startsWith('/api/v1/')||path.startsWith('/ui/assets/')||path==='/ui-extensions/main/manifest')
-      const query=event.method==='POST'&&url.origin===base&&['/api/v1/main/dashboards/charts/preview','/api/v1/main/namespaces/autocomplete'].includes(path)
+      const query=event.method==='POST'&&url.origin===base&&['/api/v1/main/dashboards/charts/preview','/api/v1/main/namespaces/autocomplete','/api/v1/main/ui/flows/execution-capabilities'].includes(path)
       const feed=event.method==='GET'&&event.url.startsWith('https://api.kestra.io/v1/feeds?')
       const next=navigation.find(next=>order.get(next.id)>order.get(original.id)&&next.frameId===original.frameId&&next.documentId!==event.documentId)
       if((read||query||feed)&&next&&Math.abs(at(next)-at(event))<=1000){add(event,'cancelled-read-on-document-unload',{requestId:event.requestId,documentId:event.documentId,nextDocumentId:next.documentId,navigationEventId:next.id});continue}

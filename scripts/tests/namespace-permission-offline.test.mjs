@@ -176,3 +176,11 @@ test('canonical Flow Overview readiness rejects a missing native time query',()=
   try {assert.equal(namespaceFlowDetailCanonicalQueryReady({path:'/ui/main/flows/edit/company.sub/one/overview',description:'saved',tab:'overview'}),false)}
   finally {if(previous===undefined)delete globalThis.location;else globalThis.location=previous}
 })
+
+test('control-plane epoch preparation uses the real static login page and redacts the in-memory CSRF',async()=>{
+ const {unloadNamespaceControlPlanePage}=await import('../namespace-permission-browser.mjs')
+ const actions=[];const page={goto:async url=>actions.push(['goto',url]),waitForFunction:async()=>actions.push(['wait']),evaluate:async()=>'test-csrf',redactSecrets:values=>actions.push(['redact',values])}
+ assert.equal(await unloadNamespaceControlPlanePage(page,'http://localhost:18128'),'test-csrf')
+ assert.deepEqual(actions,[['redact',['test-csrf']],['goto','http://localhost:18128/oidc/login'],['wait']])
+ await assert.rejects(unloadNamespaceControlPlanePage({...page,evaluate:async()=>undefined},'http://localhost:18128'),/CSRF token missing/)
+})

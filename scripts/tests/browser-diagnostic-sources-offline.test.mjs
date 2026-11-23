@@ -195,3 +195,16 @@ test('concurrent dashboard body abort logs require a complete same-unload cohort
   const changed=structuredClone(events);mutate(changed);assert(run(changed).errors.length>0)
  }
 })
+
+function flowProjectionUnload(){
+ const url=base+'/api/v1/main/ui/flows/execution-capabilities',documentUrl=base+'/ui/main/flows'
+ return [{...request,url,documentUrl,method:'POST'}, {...abort,url,documentUrl,method:'POST'}, {...navigation,url:base+'/oidc/login'}]
+}
+test('exact read-only Flow capability POST cancellation requires actual document replacement',()=>{
+ const events=flowProjectionUnload();assert.equal(classify({events,base}).errors.length,0)
+})
+for(const[name,change]of[
+ ['write POST',e=>e.forEach(x=>x.url=x.url.replace('/ui/flows/execution-capabilities','/flows'))],
+ ['no replacement',e=>e.pop()],['same document',e=>e[2].documentId='old'],['other frame',e=>e[2].frameId='another'],
+ ['not canceled',e=>e[1].cancelled=false],['other error',e=>e[1].message='net::ERR_FAILED'],
+])test('Flow capability cancellation rejects '+name,()=>{const events=flowProjectionUnload();change(events);assert.equal(classify({events,base}).errors.length,1)})
