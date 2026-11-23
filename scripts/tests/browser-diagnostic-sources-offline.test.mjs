@@ -226,3 +226,10 @@ for(const [name,mutate] of [
   ['business endpoint',x=>{for(const i of [0,1,2])x[i].url=base+'/api/v1/main/flows/search'}],
   ['duplicate auth console',x=>x.splice(4,0,{...x[3],id:'auth-duplicate'})],
 ])test('auth body '+name+' remains unclassified',()=>{const events=authConfigBodyUnload();mutate(events);assert(run(events).errors.some(e=>e.id==='auth-console'))})
+
+test('Flow page chart body abort uses the same exact200 response and navigation constraints',()=>{
+ const url=base+'/api/v1/main/dashboards/charts/preview',documentUrl=base+'/ui/main/flows'
+ const events=[{...request,url,documentUrl,method:'POST'},event('response','http-response',{url,documentUrl,method:'POST',status:200,observedAt:time(90)}),{...abort,url,documentUrl,method:'POST'},event('chart-console','console-error',{requestId:undefined,documentUrl,message:'TypeError: 200 Failed to fetch',stack:[{url:base+'/ui/assets/mf-shared-frozen.js',line:0,functionName:'logError'}]}),navigation]
+ assert.equal(run(events).errors.length,0)
+ for(const mutate of [e=>e.pop(),e=>e[1].status=403,e=>e[1].documentId='other',e=>e[2].cancelled=false,e=>{for(const i of [0,1,2])e[i].url=base+'/api/v1/main/flows'},e=>e[3].documentUrl=base+'/ui/main/extensions/rbac']){const copy=structuredClone(events);mutate(copy);assert(run(copy).errors.some(x=>x.id==='chart-console'))}
+})
