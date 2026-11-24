@@ -131,14 +131,14 @@ Compose 默认关闭上游匿名用量与 UI 事件上报，使用
 `kestra.anonymous-usage-report.enabled: false` 和
 `kestra.ui-anonymous-usage-report.enabled: false`。这两个配置不影响 RBAC 授权或生产登录。
 
-本仓当前选定插件提交 `998fb39`，成功 CI run `45307934491`，正式 jar SHA-256：
+本仓当前选定插件提交 `feb8230`，成功 CI run `45420684400`，正式 jar SHA-256：
 `455e2b91d865add5b110d0fbfc6a74a617675e2a03e8e05a775d7c53290018d7`。
 先安装并登录 GitHub CLI（`gh auth login`），账号须能读取插件仓 Actions artifact：
 
 ```bash
 # macOS / Linux；在本仓根目录执行
 mkdir -p .work/rbac-release deployment/libs
-gh run download 45307934491 -R ai-specs/kestra-plugin-rbac \
+gh run download 45420684400 -R ai-specs/kestra-plugin-rbac \
   --name kestra-rbac-authorizer --dir .work/rbac-release
 cp .work/rbac-release/build/libs/kestra-rbac-authorizer.jar deployment/libs/kestra-rbac-authorizer.jar
 # macOS
@@ -150,7 +150,7 @@ sha256sum deployment/libs/kestra-rbac-authorizer.jar
 ```powershell
 # Windows PowerShell；在本仓根目录执行
 New-Item -ItemType Directory -Force .work/rbac-release, deployment/libs | Out-Null
-gh run download 45307934491 -R ai-specs/kestra-plugin-rbac `
+gh run download 45420684400 -R ai-specs/kestra-plugin-rbac `
   --name kestra-rbac-authorizer --dir .work/rbac-release
 Copy-Item .work/rbac-release/build/libs/kestra-rbac-authorizer.jar deployment/libs/kestra-rbac-authorizer.jar
 (Get-FileHash deployment/libs/kestra-rbac-authorizer.jar -Algorithm SHA256).Hash.ToLower()
@@ -183,9 +183,9 @@ Copy-Item .work/rbac-release/build/libs/kestra-rbac-authorizer.jar deployment/li
 
 已经完成安装的数据库不会再次开放首装或自动补授管理员。不得删除安装凭据或清空用户来重复首装；已有部署按插件公开维护流程处理，先保护原数据。
 
-> 当前正式宿主 `434955d` 的 CI `45104521508` 五个 job 成功，镜像 digest
-> `2ca77ebb0f2318f809741c89e5057e677555a010499645d7a731f22fa9f94aa9` 已推广并下载审计。
-> 插件 `998fb39` 消费该正式宿主输入，CI `45307934491` 成功；本提交 artifact 须按上方命令下载，
+> 当前正式宿主 `1d50c01` 的 CI `45407070627` 五个 job 成功，镜像 digest
+> `05917c8f72777ab9f9fb01f106d33db344ff9d01435a3cd836b7c7a037c447e1` 已推广并下载审计。
+> 插件 `feb8230` 消费该正式宿主输入，CI `45420684400` 成功；本提交 artifact 须按上方命令下载，
 > 后端332、PostgreSQL115、生命周期30、声明升级9及页面960全部通过；部署前核对 jar 哈希。
 > 根仓 CI 独立验证正式组合的生产流程、授权范围与副作用；不能用独立仓 CI 代替。
 > AI 入口需要显式租户 READ/EXECUTE；普通资源的全域读取不隐含执行、输出或租户级功能授权。
@@ -250,6 +250,17 @@ macOS 长时间本地验收时，在验收命令前加 `caffeinate -dimsu`，使
 | [docs/rbac-ui-contract.md](docs/rbac-ui-contract.md) | RBAC UI 授权契约 |
 | [docs/access-control-ui-requirements.md](docs/access-control-ui-requirements.md) | 访问控制管理 UI 需求规格 |
 | [docs/rbac-onboarding-experience.md](docs/rbac-onboarding-experience.md) | RBAC 首次安装使用流程与验收条件 |
+| [docs/upstream-upgrade-acceptance.md](docs/upstream-upgrade-acceptance.md) | 上游升级、正式输入与模式 A/B 一致恢复验收 |
 | [docs/rbac-acceptance.md](docs/rbac-acceptance.md) | 组合验收记录（历史） |
 | [implementation-gap-report.md](implementation-gap-report.md) | 实施差异报告（历史） |
 | [deprecated.md](deprecated.md) | 已归档的历史验收记录 |
+
+### 已有安装升级与恢复验收
+
+上游版本升级除默认新安装门外，还必须执行已有安装的真实升级与一致恢复。
+影响评估脚本、固定升级规则和 AI 任务模板归宿主仓 `scripts/assess-upstream-upgrade.py`、
+`AGENTS.md` 与 `docs/upstream-upgrade-agent.md`。评估输出只提供证据，不替代主控逐项裁决。
+运行入口、正式产物验证和模式 A/B 输入见
+[上游升级组合验收](docs/upstream-upgrade-acceptance.md)。该入口使用已有 PostgreSQL
+中的独立测试数据库，不修改用户部署，不把只更换旧镜像称为回滚。
+本次组合使用 v2.0.11 正式宿主与对应正式插件。根仓 CI 在生产组合验收后串行执行模式 A、B 的真实升级与一致恢复；必须核对对应提交下载报告中的19阶段、发布输入和资源清理，脚本或离线测试存在不能替代真实结果。

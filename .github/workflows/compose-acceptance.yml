@@ -86,7 +86,7 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p .work/ci
-          node --test scripts/tests/*.test.mjs > .work/ci/root-observer-adapter-tests.log 2>&1
+          node --test scripts/tests/*.test.mjs scripts/upstream-upgrade-rehearsal.test.mjs > .work/ci/root-observer-adapter-tests.log 2>&1
       - name: Authenticate private published images
         env:
           READ_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -275,6 +275,65 @@ jobs:
           subprocess.run(['node', 'scripts/check-application-project-report.mjs', str(report_path)] +
                          [inputs[key] for key in ['image','jarSha256','rootCommit','overlayCommit','pluginCommit']], check=True)
           PYFINAL
+      - name: Rehearse published upstream upgrade and consistent recovery in modes A and B
+        timeout-minutes: 20
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          export UPGRADE_PG_CONTAINER="upgrade-ci-pg-${GITHUB_RUN_ID}"
+          export UPGRADE_PG_NETWORK="upgrade-ci-net-${GITHUB_RUN_ID}"
+          export UPGRADE_PG_ADMIN=postgres
+          owner="upgrade-ci-${GITHUB_RUN_ID}"
+          area="$RUNNER_TEMP/upstream-upgrade-${GITHUB_RUN_ID}"
+          mkdir -m 700 "$area"
+          network_created=false
+          cleanup_upgrade() {
+            for mode in a b; do
+              ids=$(docker ps -aq --filter "label=io.kestra.upgrade.owner=upgrade-ci-${mode}-${GITHUB_RUN_ID}")
+              if [ -n "$ids" ]; then docker rm -f $ids; fi
+              volumes=$(docker volume ls -q --filter "label=io.kestra.upgrade.owner=upgrade-ci-${mode}-${GITHUB_RUN_ID}")
+              if [ -n "$volumes" ]; then docker volume rm $volumes; fi
+              if [ -f "$area/report-${mode}/report.json" ]; then
+                mkdir -p .work/ci/upstream-upgrade
+                cp "$area/report-${mode}/report.json" ".work/ci/upstream-upgrade/mode-${mode}-report.json"
+                for service_log in "$area/report-${mode}"/app-*.log; do
+                  if [ -f "$service_log" ]; then
+                    mkdir -p ".work/ci/upstream-upgrade/mode-${mode}-service-logs"
+                    cp "$service_log" ".work/ci/upstream-upgrade/mode-${mode}-service-logs/"
+                  fi
+                done
+                if [ -f "$area/report-${mode}/publication.json" ]; then
+                  cp "$area/report-${mode}/publication.json" ".work/ci/upstream-upgrade/mode-${mode}-publication.json"
+                fi
+              fi
+            done
+            ids=$(docker ps -aq --filter "label=io.kestra.upgrade.ci=$owner")
+            if [ -n "$ids" ]; then docker rm -fv $ids; fi
+            if [ "$network_created" = true ]; then
+              test "$(docker network inspect -f '{{index .Labels "io.kestra.upgrade.ci"}}' "$UPGRADE_PG_NETWORK")" = "$owner"
+              docker network rm "$UPGRADE_PG_NETWORK"
+            fi
+          }
+          trap cleanup_upgrade EXIT
+          # The preceding production acceptance has removed its own PG before this serial stage.
+          test -z "$(docker ps -q)"
+          docker network create --label "io.kestra.upgrade.ci=$owner" "$UPGRADE_PG_NETWORK"
+          network_created=true
+          export POSTGRES_PASSWORD
+          POSTGRES_PASSWORD=$(openssl rand -hex 32)
+          docker run -d --name "$UPGRADE_PG_CONTAINER" --network "$UPGRADE_PG_NETWORK" \
+            --label "io.kestra.upgrade.ci=$owner" -e POSTGRES_PASSWORD postgres:18
+          for attempt in $(seq 1 60); do
+            if docker exec "$UPGRADE_PG_CONTAINER" pg_isready -U postgres; then break; fi
+            sleep 1
+          done
+          docker exec "$UPGRADE_PG_CONTAINER" pg_isready -U postgres
+          node scripts/prepare-upstream-upgrade-config.mjs .work/ci "$area/config"
+          for mode in a b; do
+            node scripts/upstream-upgrade-rehearsal.mjs --run --config "$area/config/mode-${mode}.json" --evidence "$area/report-${mode}"
+            node scripts/check-upstream-upgrade-report.mjs "$area/report-${mode}/report.json" "$(printf '%s' "$mode" | tr a-z A-Z)" "$(cat .work/ci/image)"
+          done
       - name: Sanitize artifact text even after diagnostic cleanup failure
         id: sanitize
         if: always()
