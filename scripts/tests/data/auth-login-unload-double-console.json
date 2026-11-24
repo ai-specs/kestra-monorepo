@@ -1,0 +1,96 @@
+{
+  "source": "CI45495697957 modeA; exact public diagnostic subset; no credentials",
+  "base": "http://localhost:18128",
+  "events": [
+    {
+      "id": "event:127",
+      "kind": "request",
+      "documentId": "document:7EF3CFDB0A3D9C24FEDE409606804E39:DF0AC1D020EDCB8A061B9EFF9534E0ED",
+      "documentUrl": "http://localhost:18128/ui/main/dashboards",
+      "url": "http://localhost:18128/api/v1/configs/login",
+      "message": "",
+      "observedAt": "2026-11-24T23:31:06.994Z",
+      "requestId": "233400.88",
+      "method": "GET",
+      "resourceType": "Fetch",
+      "frameId": "7EF3CFDB0A3D9C24FEDE409606804E39",
+      "loaderId": "DF0AC1D020EDCB8A061B9EFF9534E0ED",
+      "initiatorStack": [
+        {
+          "url": "http://localhost:18128/ui/assets/vendor-LLagYx4I.js",
+          "line": 5,
+          "column": 15182,
+          "functionName": "r"
+        }
+      ]
+    },
+    {
+      "id": "event:136",
+      "kind": "request-failed",
+      "documentId": "document:7EF3CFDB0A3D9C24FEDE409606804E39:DF0AC1D020EDCB8A061B9EFF9534E0ED",
+      "documentUrl": "http://localhost:18128/ui/main/dashboards",
+      "url": "http://localhost:18128/api/v1/configs/login",
+      "message": "net::ERR_ABORTED",
+      "observedAt": "2026-11-24T23:31:07.116Z",
+      "requestId": "233400.88",
+      "method": "GET",
+      "cancelled": true,
+      "resourceType": "Fetch"
+    },
+    {
+      "id": "event:142",
+      "kind": "console-error",
+      "documentId": "document:7EF3CFDB0A3D9C24FEDE409606804E39:DF0AC1D020EDCB8A061B9EFF9534E0ED",
+      "documentUrl": "http://localhost:18128/ui/main/dashboards",
+      "url": "http://localhost:18128/ui/main/dashboards",
+      "message": "Error during authentication check: TypeError: Failed to fetch",
+      "observedAt": "2026-11-24T23:31:07.116Z",
+      "level": "error",
+      "executionContextId": 7,
+      "stack": [
+        {
+          "url": "http://localhost:18128/ui/assets/app-DSJU0toW.js",
+          "line": 115,
+          "column": 184491,
+          "functionName": "Yy"
+        }
+      ]
+    },
+    {
+      "id": "event:143",
+      "kind": "console-error",
+      "documentId": "document:7EF3CFDB0A3D9C24FEDE409606804E39:DF0AC1D020EDCB8A061B9EFF9534E0ED",
+      "documentUrl": "http://localhost:18128/ui/main/dashboards",
+      "url": "http://localhost:18128/ui/main/dashboards",
+      "message": "Error during authentication check: TypeError: Failed to fetch",
+      "observedAt": "2026-11-24T23:31:07.116Z",
+      "level": "error",
+      "executionContextId": 7,
+      "stack": [
+        {
+          "url": "http://localhost:18128/ui/assets/app-DSJU0toW.js",
+          "line": 115,
+          "column": 182602,
+          "functionName": "Gy"
+        },
+        {
+          "url": "http://localhost:18128/ui/assets/app-DSJU0toW.js",
+          "line": 115,
+          "column": 184537,
+          "functionName": "Yy"
+        }
+      ]
+    },
+    {
+      "id": "event:151",
+      "kind": "document-navigation",
+      "documentId": "document:7EF3CFDB0A3D9C24FEDE409606804E39:5EAF9E740F419DB86C0D0FB7E8C60629",
+      "documentUrl": "http://localhost:18128/ui/main/ai",
+      "url": "http://localhost:18128/ui/main/ai",
+      "message": "",
+      "observedAt": "2026-11-24T23:31:07.191Z",
+      "frameId": "7EF3CFDB0A3D9C24FEDE409606804E39",
+      "loaderId": "5EAF9E740F419DB86C0D0FB7E8C60629"
+    }
+  ]
+}

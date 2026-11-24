@@ -87,6 +87,17 @@ export function classifyAccessControlDiagnostics({events,base,requests=[],expect
     const errorStack=[...event.message.matchAll(/\bat (?:async )?([^\s(]+) \((https?:\/\/[^\s)]+):(\d+):(\d+)\)/g)].map(match=>({functionName:match[1],url:match[2],line:Number(match[3])-1,column:Number(match[4])-1}))
     const originFrames=[...(event.stack??[]),...errorStack]
     const auth=first==='Error during authentication check: TypeError: Failed to fetch'
+    if(auth&&new URL(event.documentUrl).pathname==='/ui/main/dashboards') {
+      const cohort=(byDocument.get(event.documentId)??[]).filter(item=>item.kind==='console-error'&&item.message===event.message&&item.observedAt===event.observedAt)
+      const candidates=(byDocument.get(event.documentId)??[]).filter(failed=>failed.kind==='request-failed'&&failed.url===base+'/api/v1/configs/login'&&failed.method==='GET'&&failed.observedAt===event.observedAt&&indexed.get(failed.id)?.reason==='cancelled-read-on-document-unload')
+      const sameFrame=(a,b)=>a.url===b.url&&a.functionName===b.functionName&&a.line===b.line
+      const single=cohort.find(item=>item.stack?.length===1),double=cohort.find(item=>item.stack?.length===2)
+      if(cohort.length===2&&candidates.length===1&&single&&double&&sameFrame(single.stack[0],double.stack[1])
+        &&cohort.every(item=>item.stack.every(frame=>frame.url.startsWith(base+'/ui/assets/app-')&&typeof frame.functionName==='string'&&frame.functionName.length>0))
+        &&single.stack[0].url===double.stack[0].url&&single.stack[0].functionName!==double.stack[0].functionName) {
+        const failed=candidates[0];add(event,'host-auth-login-double-log-on-proven-document-unload',{documentId:event.documentId,requestId:failed.requestId,abortedEventId:failed.id,navigationEventId:indexed.get(failed.id).evidence.navigationEventId,consoleEventIds:cohort.map(item=>item.id)});continue
+      }
+    }
     if(auth&&new URL(event.documentUrl).pathname==='/ui/main/dashboards'&&event.stack?.length&&event.stack.every(frame=>frame.url.startsWith(base+'/ui/assets/app-'))) {
       const candidates=(byDocument.get(event.documentId)??[]).filter(failed=>failed.kind==='request-failed'&&failed.url===base+'/api/v1/configs'&&failed.method==='GET'&&indexed.get(failed.id)?.reason==='cancelled-read-on-document-unload'&&Math.abs(at(event)-at(failed))<=100&&(byRequest.get(failed.requestId)??[]).some(response=>response.kind==='http-response'&&same(response,failed)&&response.status===200&&order.get(response.id)<order.get(failed.id)&&at(failed)-at(response)>=0&&at(failed)-at(response)<=100))
       const cohort=(byDocument.get(event.documentId)??[]).filter(item=>item.kind==='console-error'&&item.message===event.message&&Math.abs(at(item)-at(event))<=100)
