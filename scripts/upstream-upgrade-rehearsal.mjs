@@ -65,7 +65,13 @@ function command(program, args, {input, binary = false, env} = {}, attempt = 0) 
   catch (failure) {
     const readOnly = program === 'gh' && (args[0] === 'api' && !args.some(arg => ['-X','--method','-f','--raw-field','-F','--field','--input'].includes(arg)) || args[0] === 'run' && ['view','download'].includes(args[1]))
     if (readOnly && attempt < 2 && /EOF|ETIMEDOUT|ECONNRESET|TLS handshake timeout|connection reset|502 Bad Gateway|503 Service Unavailable/i.test(String(failure.code)+' '+String(failure.stderr))) return command(program,args,{input,binary,env},attempt+1)
-    const error = new Error('External operation failed'); error.safeReason = 'External operation failed: ' + program; throw error
+    const error = new Error('External operation failed'); error.safeReason = 'External operation failed: ' + program
+    if(program==='docker' && args[0]==='pull') {
+      const diagnostic=String(failure.stderr??'')
+      const kind=/denied|unauthorized|forbidden/i.test(diagnostic)?'registry authorization':/no matching manifest/i.test(diagnostic)?'platform manifest':/no space left/i.test(diagnostic)?'disk space':/manifest unknown|not found/i.test(diagnostic)?'missing image':/timeout|TLS|EOF|connection|resolve|network/i.test(diagnostic)?'registry network':'unclassified registry error'
+      error.safeReason+=' pull ('+kind+'); exit='+String(failure.status??failure.code??'unknown')
+    }
+    throw error
   }
 }
 // A successful complete inventory is the only evidence of absence. Transport,

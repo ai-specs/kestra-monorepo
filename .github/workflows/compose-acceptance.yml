@@ -279,65 +279,6 @@ jobs:
           subprocess.run(['node', 'scripts/check-application-project-report.mjs', str(report_path)] +
                          [inputs[key] for key in ['image','jarSha256','rootCommit','overlayCommit','pluginCommit']], check=True)
           PYFINAL
-      - name: Rehearse published upstream upgrade and consistent recovery in modes A and B
-        timeout-minutes: 20
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          set -euo pipefail
-          export UPGRADE_PG_CONTAINER="upgrade-ci-pg-${GITHUB_RUN_ID}"
-          export UPGRADE_PG_NETWORK="upgrade-ci-net-${GITHUB_RUN_ID}"
-          export UPGRADE_PG_ADMIN=postgres
-          owner="upgrade-ci-${GITHUB_RUN_ID}"
-          area="$RUNNER_TEMP/upstream-upgrade-${GITHUB_RUN_ID}"
-          mkdir -m 700 "$area"
-          network_created=false
-          cleanup_upgrade() {
-            for mode in a b; do
-              ids=$(docker ps -aq --filter "label=io.kestra.upgrade.owner=upgrade-ci-${mode}-${GITHUB_RUN_ID}")
-              if [ -n "$ids" ]; then docker rm -f $ids; fi
-              volumes=$(docker volume ls -q --filter "label=io.kestra.upgrade.owner=upgrade-ci-${mode}-${GITHUB_RUN_ID}")
-              if [ -n "$volumes" ]; then docker volume rm $volumes; fi
-              if [ -f "$area/report-${mode}/report.json" ]; then
-                mkdir -p .work/ci/upstream-upgrade
-                cp "$area/report-${mode}/report.json" ".work/ci/upstream-upgrade/mode-${mode}-report.json"
-                for service_log in "$area/report-${mode}"/app-*.log; do
-                  if [ -f "$service_log" ]; then
-                    mkdir -p ".work/ci/upstream-upgrade/mode-${mode}-service-logs"
-                    cp "$service_log" ".work/ci/upstream-upgrade/mode-${mode}-service-logs/"
-                  fi
-                done
-                if [ -f "$area/report-${mode}/publication.json" ]; then
-                  cp "$area/report-${mode}/publication.json" ".work/ci/upstream-upgrade/mode-${mode}-publication.json"
-                fi
-              fi
-            done
-            ids=$(docker ps -aq --filter "label=io.kestra.upgrade.ci=$owner")
-            if [ -n "$ids" ]; then docker rm -fv $ids; fi
-            if [ "$network_created" = true ]; then
-              test "$(docker network inspect -f '{{index .Labels "io.kestra.upgrade.ci"}}' "$UPGRADE_PG_NETWORK")" = "$owner"
-              docker network rm "$UPGRADE_PG_NETWORK"
-            fi
-          }
-          trap cleanup_upgrade EXIT
-          # The preceding production acceptance has removed its own PG before this serial stage.
-          test -z "$(docker ps -q)"
-          docker network create --label "io.kestra.upgrade.ci=$owner" "$UPGRADE_PG_NETWORK"
-          network_created=true
-          export POSTGRES_PASSWORD
-          POSTGRES_PASSWORD=$(openssl rand -hex 32)
-          docker run -d --name "$UPGRADE_PG_CONTAINER" --network "$UPGRADE_PG_NETWORK" \
-            --label "io.kestra.upgrade.ci=$owner" -e POSTGRES_PASSWORD postgres:18
-          for attempt in $(seq 1 60); do
-            if docker exec "$UPGRADE_PG_CONTAINER" pg_isready -U postgres; then break; fi
-            sleep 1
-          done
-          docker exec "$UPGRADE_PG_CONTAINER" pg_isready -U postgres
-          node scripts/prepare-upstream-upgrade-config.mjs .work/ci "$area/config"
-          for mode in a b; do
-            node scripts/upstream-upgrade-rehearsal.mjs --run --config "$area/config/mode-${mode}.json" --evidence "$area/report-${mode}"
-            node scripts/check-upstream-upgrade-report.mjs "$area/report-${mode}/report.json" "$(printf '%s' "$mode" | tr a-z A-Z)" "$(cat .work/ci/image)"
-          done
       - name: Sanitize artifact text even after diagnostic cleanup failure
         id: sanitize
         if: always()
@@ -404,3 +345,176 @@ jobs:
             kestra-plugin-rbac/build/reports/tests/
             kestra-plugin-rbac/build/test-results/
             kestra-plugin-rbac/.integration/host-provenance.json
+
+  upgrade:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Checkout private submodules at root gitlinks using repository read-only keys
+        env:
+          OVERLAY_KEY: ${{ secrets.OVERLAY_READ_DEPLOY_KEY }}
+          RBAC_KEY: ${{ secrets.RBAC_READ_DEPLOY_KEY }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          test -n "$OVERLAY_KEY" || { echo 'Missing OVERLAY_READ_DEPLOY_KEY'; exit 1; }
+          test -n "$RBAC_KEY" || { echo 'Missing RBAC_READ_DEPLOY_KEY'; exit 1; }
+          area=$(mktemp -d "$RUNNER_TEMP/monorepo-read-keys.XXXXXXXX")
+          export MONOREPO_KEY_AREA="$area"
+          cleanup_keys() {
+            python3 - <<'PYKEY'
+          import os, pathlib, shutil
+          root = pathlib.Path(os.environ['RUNNER_TEMP']).resolve()
+          area = pathlib.Path(os.environ['MONOREPO_KEY_AREA'])
+          assert area.parent.resolve() == root and area.name.startswith('monorepo-read-keys.') and not area.is_symlink()
+          shutil.rmtree(area)
+          PYKEY
+          }
+          trap cleanup_keys EXIT
+          chmod 700 "$area"
+          gh api meta --jq '.ssh_keys[] | "github.com " + .' > "$area/known_hosts"
+          test -s "$area/known_hosts"
+          checkout_pin() {
+            local repo="$1" key="$2" commit mode type name
+            read -r mode type commit name < <(git ls-tree HEAD -- "$repo")
+            test "$mode" = 160000 && test "$type" = commit && test "$name" = "$repo"
+            [[ "$commit" =~ ^[0-9a-f]{40}$ ]]
+            printf '%s\n' "$key" > "$area/key"
+            chmod 600 "$area/key"
+            git init "$repo"
+            git -C "$repo" remote add origin "git@github.com:ai-specs/$repo.git"
+            GIT_SSH_COMMAND="ssh -i $area/key -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile=$area/known_hosts" git -C "$repo" fetch --depth=1 origin "$commit"
+            git -C "$repo" checkout --detach "$commit"
+            test "$(git -C "$repo" rev-parse HEAD)" = "$commit"
+            rm "$area/key"
+          }
+          checkout_pin kestra-overlay "$OVERLAY_KEY"
+          checkout_pin kestra-plugin-rbac "$RBAC_KEY"
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '25'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Verify root acceptance observer and browser-adapter regressions
+        run: |
+          set -euo pipefail
+          mkdir -p .work/ci
+          node --test scripts/tests/*.test.mjs scripts/upstream-upgrade-rehearsal.test.mjs > .work/ci/root-observer-adapter-tests.log 2>&1
+      - name: Authenticate private published images
+        env:
+          READ_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          printf '%s' "$READ_TOKEN" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+      - name: Verify tools and immutable composition inputs
+        run: |
+          set -euo pipefail
+          mkdir -p .work/ci
+          python3 scripts/check-access-control-prototype.py > .work/ci/access-control-prototype.json
+          python3 - <<'PY'
+          import json, pathlib, re, subprocess
+          version = subprocess.check_output(['docker', 'compose', 'version', '--short'], text=True).strip()
+          match = re.match(r'v?(\d+)\.(\d+)\.(\d+)', version)
+          assert match and tuple(map(int, match.groups())) >= (2, 24, 4), 'Docker Compose >= 2.24.4 required'
+          def pin(file, key):
+              values = [line.split('=', 1)[1].strip() for line in open(file) if line.startswith(key + '=')]
+              assert len(values) == 1 and re.fullmatch(r'ghcr.io/ai-specs/kestra-overlay@sha256:[0-9a-f]{64}', values[0]), 'Invalid image digest'
+              return values[0]
+          image = pin('.env.example', 'KESTRA_IMAGE')
+          plugin_image = pin('kestra-plugin-rbac/host-contract.properties', 'overlay.image')
+          print(f'Deployment image: {image}')
+          print(f'Plugin host image: {plugin_image}')
+          pathlib.Path('.work/ci/composition-inputs.json').write_text(json.dumps({
+              'deployment_image': image,
+              'plugin_host_image': plugin_image,
+              'compose_version': version,
+          }, indent=2) + '\n')
+          assert image == plugin_image, 'Deployment and plugin host contracts differ'
+          with open('.work/ci/image', 'w') as stream:
+              stream.write(image + '\n')
+          PY
+          git submodule status --recursive > .work/ci/submodules.log
+          POSTGRES_PASSWORD=local-ci-only KESTRA_OIDC_UI_CLIENT_SECRET=local-ci-only docker compose --env-file .env.example config --format json > .work/ci/default-compose.json
+          python3 scripts/check-default-multi-policy.py .work/ci/default-compose.json
+          node --check scripts/blackbox-application-projects.mjs
+          node --check scripts/application-project-browser-ci.cjs
+          node --check scripts/check-application-project-report.mjs
+          node --check scripts/ci-acceptance-progress.mjs
+      - name: Select and download independently published plugin artifact
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          test -n "$GH_TOKEN" || { echo "Missing GitHub Actions token for published release evidence"; exit 1; }
+          python3 scripts/select-application-project-release.py .work/ci
+      - name: Rehearse published upstream upgrade and consistent recovery in modes A and B
+        timeout-minutes: 20
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          export UPGRADE_PG_CONTAINER="upgrade-ci-pg-${GITHUB_RUN_ID}"
+          export UPGRADE_PG_NETWORK="upgrade-ci-net-${GITHUB_RUN_ID}"
+          export UPGRADE_PG_ADMIN=postgres
+          owner="upgrade-ci-${GITHUB_RUN_ID}"
+          area="$RUNNER_TEMP/upstream-upgrade-${GITHUB_RUN_ID}"
+          mkdir -m 700 "$area"
+          network_created=false
+          cleanup_upgrade() {
+            for mode in a b; do
+              ids=$(docker ps -aq --filter "label=io.kestra.upgrade.owner=upgrade-ci-${mode}-${GITHUB_RUN_ID}")
+              if [ -n "$ids" ]; then docker rm -f $ids; fi
+              volumes=$(docker volume ls -q --filter "label=io.kestra.upgrade.owner=upgrade-ci-${mode}-${GITHUB_RUN_ID}")
+              if [ -n "$volumes" ]; then docker volume rm $volumes; fi
+              if [ -f "$area/report-${mode}/report.json" ]; then
+                mkdir -p .work/ci/upstream-upgrade
+                cp "$area/report-${mode}/report.json" ".work/ci/upstream-upgrade/mode-${mode}-report.json"
+                for service_log in "$area/report-${mode}"/app-*.log; do
+                  if [ -f "$service_log" ]; then
+                    mkdir -p ".work/ci/upstream-upgrade/mode-${mode}-service-logs"
+                    cp "$service_log" ".work/ci/upstream-upgrade/mode-${mode}-service-logs/"
+                  fi
+                done
+                if [ -f "$area/report-${mode}/publication.json" ]; then
+                  cp "$area/report-${mode}/publication.json" ".work/ci/upstream-upgrade/mode-${mode}-publication.json"
+                fi
+              fi
+            done
+            ids=$(docker ps -aq --filter "label=io.kestra.upgrade.ci=$owner")
+            if [ -n "$ids" ]; then docker rm -fv $ids; fi
+            if [ "$network_created" = true ]; then
+              test "$(docker network inspect -f '{{index .Labels "io.kestra.upgrade.ci"}}' "$UPGRADE_PG_NETWORK")" = "$owner"
+              docker network rm "$UPGRADE_PG_NETWORK"
+            fi
+          }
+          trap cleanup_upgrade EXIT
+          # The preceding production acceptance has removed its own PG before this serial stage.
+          test -z "$(docker ps -q)"
+          docker network create --label "io.kestra.upgrade.ci=$owner" "$UPGRADE_PG_NETWORK"
+          network_created=true
+          export POSTGRES_PASSWORD
+          POSTGRES_PASSWORD=$(openssl rand -hex 32)
+          docker run -d --name "$UPGRADE_PG_CONTAINER" --network "$UPGRADE_PG_NETWORK" \
+            --label "io.kestra.upgrade.ci=$owner" -e POSTGRES_PASSWORD postgres:18
+          for attempt in $(seq 1 60); do
+            if docker exec "$UPGRADE_PG_CONTAINER" pg_isready -U postgres; then break; fi
+            sleep 1
+          done
+          docker exec "$UPGRADE_PG_CONTAINER" pg_isready -U postgres
+          node scripts/prepare-upstream-upgrade-config.mjs .work/ci "$area/config"
+          for mode in a b; do
+            node scripts/upstream-upgrade-rehearsal.mjs --run --config "$area/config/mode-${mode}.json" --evidence "$area/report-${mode}"
+            node scripts/check-upstream-upgrade-report.mjs "$area/report-${mode}/report.json" "$(printf '%s' "$mode" | tr a-z A-Z)" "$(cat .work/ci/image)"
+          done
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: upstream-upgrade-${{ github.run_id }}-${{ github.run_attempt }}
+          include-hidden-files: true
+          if-no-files-found: error
+          path: .work/ci/upstream-upgrade/
