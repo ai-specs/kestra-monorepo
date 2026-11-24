@@ -1,3 +1,4 @@
+import {assertAiToolAnnotations} from './application-project-ai-runtime.mjs'
 #!/usr/bin/env node
 import {assertPublishedNativeFlowReport,assertPublishedNativeClassifierSource,extractPublishedNativeClassifier} from './published-native-flow-evidence.mjs'
 import {assertPublishedNativeFlowDetailReport} from './published-native-flow-detail-evidence.mjs'
@@ -185,6 +186,9 @@ const committedUi=committedPluginUiHashes(fileURLToPath(new URL('../kestra-plugi
 assert.equal(pluginBrowser.expectedHashes.sourceSha256,committedUi.sourceSha256)
 assert.equal(pluginBrowser.expectedHashes.lockSha256,committedUi.lockSha256)
 assert.equal(pluginBrowser.expectedHashes.harnessSha256,committedUi.harnessSha256)
+assert.equal(report.resources.aiToolContract?.source,'actual-running-formal-host-executable')
+assert.equal(report.resources.aiToolContract.hostExecutableSha256,report.resources.hostExecutableSha256)
+assert.deepEqual(report.resources.aiToolContract.validation,assertAiToolAnnotations(report.resources.aiToolContract.raw))
 assert.equal(report.resources.uiSdk.source,'actual-running-formal-host-executable')
 assert.equal(report.resources.uiSdk.hostExecutableSha256,report.resources.hostExecutableSha256)
 assert.equal(report.resources.uiSdk.sha256,aggregateUiHashes(report.resources.uiSdk.files))

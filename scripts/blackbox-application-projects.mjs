@@ -1,3 +1,4 @@
+import {assertAiToolAnnotations} from './application-project-ai-runtime.mjs'
 #!/usr/bin/env node
 /** Entry point: --static | --config-check | --publication-check | --run.
  * --image ghcr.io/ai-specs/kestra-overlay@sha256:... --jar PATH --sha256 HASH
@@ -582,6 +583,9 @@ export async function main(argv=process.argv.slice(2),runtime={}) {
       const hostExecutable=join(output,'running-host.jar')
       command('docker',['cp',ids.kestra+':/app/kestra',hostExecutable])
       assert.equal(hash(readFileSync(hostExecutable)),hostSha)
+      const toolAnnotations=Object.fromEntries([['listFlows','ListFlowsTool'],['restartExecution','RestartExecutionTool']].map(([key,name])=>[key,command('javap',['-v','-classpath',hostExecutable,'io.kestra.webserver.services.ai.agent.tool.'+name])]))
+      report.resources.aiToolContract={source:'actual-running-formal-host-executable',hostExecutableSha256:hostSha,raw:toolAnnotations,validation:assertAiToolAnnotations(toolAnnotations)}
+
       const sdkFiles=JSON.parse(command('python3',['-c',
         'import hashlib,json,sys,zipfile\nwith zipfile.ZipFile(sys.argv[1]) as z:\n prefix="META-INF/kestra/ui-sdk/v1/"\n files={n[len(prefix):]:hashlib.sha256(z.read(n)).hexdigest() for n in z.namelist() if n.startswith(prefix) and not n.endswith("/")}\n assert files\n print(json.dumps(files))',hostExecutable]))
       const runtimeSdkSha256=aggregateUiHashes(sdkFiles)

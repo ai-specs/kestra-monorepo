@@ -1,3 +1,4 @@
+import {aiRuntimeToolNames} from './application-project-ai-runtime.mjs'
 import assert from 'node:assert/strict'
 import {createHash} from 'node:crypto'
 import {randomBytes} from 'node:crypto'
@@ -191,7 +192,7 @@ export function createAiControls({base,project,command,configuration,record,time
             assert(waitScenario?.id && waitScenario.mode==='wait','runtime must supply a dedicated wait scenario, not reuse an already completed scenario')
             assert.equal(typeof scenario?.release,'function','owned transport release needed for late tool/connection test')
             assert.equal(typeof scenario?.read,'function');assert.equal(typeof scenario?.prepare,'function')
-            assert.equal(waitScenario.tool?.name,'restart-execution','wait scenario must release a real restart tool call')
+            assert.equal(waitScenario.tool?.name,aiRuntimeToolNames.restartExecution,'wait scenario must release a real restart tool call')
             const executionId=waitScenario.tool.args?.executionId
             assert(id(executionId),'wait restart execution ID required')
             assert(account?.subject)

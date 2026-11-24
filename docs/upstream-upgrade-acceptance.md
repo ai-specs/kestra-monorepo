@@ -213,3 +213,12 @@ SUCCESS、终止 KILLED；重启必须增加历史，重放必须生成新执行
 核对真实GitHub发布、独立报告、源码锁与产物后，在创建应用或PostgreSQL前停止。
 输出 `mode:publication-check`、`publicationOnly:true`，不表示组合验收通过。修改中的根仓
 可显式加 `--allow-dirty-root`，仍不放宽独立仓与正式产物要求。该模式不替代完整根仓CI。
+
+正式宿主启动早期同时对复制出的实际 executable 执行 JDK `javap`，读取 ListFlowsTool、
+RestartExecutionTool 的真实 `@Tool` 名称。名称必须与根仓受控模型场景一致，且每类只有
+一个注解；原始注解元数据与 hash 保存在正式报告，最终检查器再次核对。此门不执行
+宿主构建或插件编译。v2.0.11 使用 `list_flows`、`restart_execution`，不兼容旧连字符名。
+真实AI调用、确认/拒绝、撤权和副作用仍在末尾生产门执行，元数据不能代替它们。
+
+根仓 job 预算为150分钟；生产组合保留全部检查，升级恢复阶段单独限制20分钟。预算
+覆盖历史长业务矩阵、升级门及诊断清理，不保证固定完成时间，也不把提高时限当成提速。

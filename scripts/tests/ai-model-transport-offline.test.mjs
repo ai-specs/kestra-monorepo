@@ -206,3 +206,38 @@ test('authorization denial accepts only exact production refusal and cannot mask
  const result=await f.request(endpoint,model('denied',[{id:'call-denied',name:'restart-execution',response:{response:'Error: AI authorization denied'}}],'restart-execution'))
  assert.equal(result.status,200);await result.text();assert.equal((await f.state('denied')).functionResponses,1)
 })
+
+test('runtime scenarios use the published v2.0.11 list_flows and restart_execution declarations', async t => {
+    const {aiRuntimeToolNames}=await import('../application-project-ai-runtime.mjs');
+    assert.deepEqual(aiRuntimeToolNames,{listFlows:'list_flows',restartExecution:'restart_execution'});
+    const f=await fixture(t);
+    for(const [key,publishedName] of [['listFlows','list_flows'],['restartExecution','restart_execution']]) {
+        const id='published-'+key;
+        await f.create({id,mode:'tool',text:'verified',tool:{name:aiRuntimeToolNames[key],args:{},expect:{exact:{ok:true}}}});
+        const reply=await f.request(endpoint,model(id,[],publishedName));assert.equal(reply.status,200);
+        const call=JSON.parse((await reply.text()).slice(6).trim()).candidates[0].content.parts[0].functionCall;
+        assert.equal(call.name,publishedName);
+        const result=await f.request(endpoint,model(id,[{id:call.id,name:publishedName,response:{response:'{"ok":true}'}}],publishedName));
+        assert.equal(result.status,200);await result.text();assert.equal((await f.state(id)).phase,'done');
+    }
+});
+
+test('published underscore declarations reject stale hyphenated scenario names without tool output', async t => {
+    const f=await fixture(t);
+    for(const [legacy,published] of [['list-flows','list_flows'],['restart-execution','restart_execution']]) {
+        const id='legacy-'+legacy;
+        await f.create({id,mode:'tool',text:'must not succeed',tool:{name:legacy,args:{},expect:{exact:{ok:true}}}});
+        const response=await f.request(endpoint,model(id,[],published));assert.equal(response.status,422);
+        assert.match(await response.text(),/tool_not_declared/);
+        const state=await f.state(id);assert.equal(state.functionResponses,0);assert.notEqual(state.phase,'done');
+    }
+});
+
+test('actual published tool metadata rejects stale names, missing and duplicated annotations', async()=>{
+    const {assertAiToolAnnotations}=await import('../application-project-ai-runtime.mjs');
+    const annotation=name=>'dev.langchain4j.agent.tool.Tool(\n name="'+name+'"\n value=["published tool"]\n)';
+    const current={listFlows:annotation('list_flows'),restartExecution:annotation('restart_execution')};
+    assert.deepEqual(assertAiToolAnnotations(current).names,{listFlows:'list_flows',restartExecution:'restart_execution'});
+    for(const change of [{listFlows:annotation('list-flows')},{restartExecution:annotation('restart-execution')},{listFlows:''},{listFlows:current.listFlows+'\n'+current.listFlows}]) assert.throws(()=>assertAiToolAnnotations({...current,...change}));
+    assert.throws(()=>assertAiToolAnnotations({listFlows:current.listFlows}));
+});

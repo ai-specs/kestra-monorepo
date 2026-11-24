@@ -9,6 +9,19 @@ import {startModelTransport} from './ai-model-transport.mjs'
 import {sanitizeUiEvidence} from './access-control-v3-ui.mjs'
 import {permissionWriteBody} from './access-control-v3-rest-cases.mjs'
 
+export const aiRuntimeToolNames = Object.freeze({listFlows:'list_flows',restartExecution:'restart_execution'})
+export function assertAiToolAnnotations(raw) {
+    assert.deepEqual(Object.keys(raw).sort(),Object.keys(aiRuntimeToolNames).sort(),'Both actual published tool classes required')
+    const names={},classMetadataSha256={}
+    for(const [key,expected] of Object.entries(aiRuntimeToolNames)) {
+        assert.equal(typeof raw[key],'string')
+        const annotations=[...raw[key].matchAll(/dev\.langchain4j\.agent\.tool\.Tool\(\s+name="([^"]+)"/g)]
+        assert.equal(annotations.length,1,'One actual Tool annotation required: '+key)
+        assert.equal(annotations[0][1],expected,'Published AI tool differs from runtime scenario: '+key)
+        names[key]=annotations[0][1];classMetadataSha256[key]=createHash('sha256').update(raw[key]).digest('hex')
+    }
+    return {names,classMetadataSha256}
+}
 const api = '/api/v1/main'
 const digest = value => createHash('sha256').update(value).digest('hex')
 const namespace = 'company.a'
@@ -242,10 +255,10 @@ export async function runApplicationProjectAiRuntime(options) {
                 async prepare(value) {
                     let definition = {id:value.id,mode:'text',text:value.expectedText}
                     if(value.id===scenarios.cancel.id || value.mode==='wait')definition.mode='wait'
-                    if(value.id===scenarios.list.id)definition={...definition,mode:'tool',tool:{name:'list-flows',args:{},expect:{flowIds:aiSentinels(suffix,mode),namespaces:aiSentinels(suffix,mode).map(value=>value.namespace),minItems:1}}}
+                    if(value.id===scenarios.list.id)definition={...definition,mode:'tool',tool:{name:aiRuntimeToolNames.listFlows,args:{},expect:{flowIds:aiSentinels(suffix,mode),namespaces:aiSentinels(suffix,mode).map(value=>value.namespace),minItems:1}}}
                     if(seedByScenario.has(value.id)) {
                         const seeded = seedByScenario.get(value.id)
-                        definition={...definition,mode:value.mode==='wait'?'wait':'tool',tool:{name:'restart-execution',args:{executionId:seeded.executionId},
+                        definition={...definition,mode:value.mode==='wait'?'wait':'tool',tool:{name:aiRuntimeToolNames.restartExecution,args:{executionId:seeded.executionId},
                             expect:value.expectedDenied?{authorizationDenied:true}:value.id===scenarios.reject.id?{rejectedText:true}:{exact:{executionId:seeded.executionId}}}}
                     }
                     await scenarioRequest('/scenarios',definition)
@@ -377,7 +390,7 @@ export async function runApplicationProjectAiRuntime(options) {
                 }
                 const waitScenario={...spec('revoke'),mode:'wait'}
                 const revokeSeed=await seed(waitScenario)
-                waitScenario.tool={name:'restart-execution',args:{executionId:revokeSeed.executionId}}
+                waitScenario.tool={name:aiRuntimeToolNames.restartExecution,args:{executionId:revokeSeed.executionId}}
                 active.revocation = await controls.revokeWait({page,base,account,scenario,seed,effects,revoke,mode,waitScenario})
                 assert(active.revocation?.completed && active.revocation.denied && active.revocation.noBusinessSideEffects,'scope revocation wait must deny without business effects')
             }

@@ -27,7 +27,9 @@ jobs:
     runs-on: ubuntu-24.04
     # Production workflow/integration only. Independent repositories own their
     # browser visual matrices; consume their immutable published reports instead.
-    timeout-minutes: 120
+    # Prior production acceptance reached 117 minutes; reserve the separately
+    # bounded 20-minute upgrade/recovery stage and diagnostic/artifact cleanup.
+    timeout-minutes: 150
     env:
       ADMIN_UI_REPORT_DIR: ${{ github.workspace }}/.work/admin-ui
       BB_BROWSER_DRIVER: ci
