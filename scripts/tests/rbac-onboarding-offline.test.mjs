@@ -212,3 +212,31 @@ for(const [name,change]of [
  ['not canceled',x=>x.events[2].cancelled=false],['different failure',x=>x.events[2].message='net::ERR_FAILED'],
  ['late failure',x=>x.events[2].observedAt='2026-11-19T00:00:02Z'],['duplicate success',x=>x.events.push({...x.events[1],id:'duplicate-response'})],
 ])test('empty native response classification rejects '+name,()=>{const x=emptyKvResponseFixture();change(x);assert(classifyRbacOnboardingDiagnostics(x).errors.length>0)})
+
+function departingDenialProbe() {
+  const base='http://localhost:18128',time=n=>new Date(1700000000000+n).toISOString()
+  const url=base+'/api/v1/main/extensions/rbac/capabilities'
+  const source={documentId:'old',documentUrl:base+'/ui/access-denied',url,requestId:'probe',observedAt:time(20)}
+  return {base,requests:[],restartWindows:[],events:[
+    {id:'logout',kind:'http-response',url:base+'/oidc/logout',status:307,observedAt:time(10)},
+    {...source,id:'request',kind:'request',method:'GET',resourceType:'Fetch',frameId:'frame'},
+    {...source,id:'response',kind:'http-error',method:'GET',status:401},
+    {...source,id:'console',kind:'console-error',status:401,source:'network',message:'Failed to load resource: the server responded with a status of 401 (Unauthorized)'},
+    {id:'navigation',kind:'document-navigation',documentId:'new',frameId:'frame',url:base+'/oidc/login?from=bookmark',observedAt:time(100)}],
+    namespaceJourney:{completed:true,logoutTransitions:[{clicked:true,automatic:false,finalDocument:{path:'/oidc/login',documentId:'new'},anonymous:{status:401,source:{documentId:'new'}},logoutResponses:[{id:'logout'}]}]}}
+}
+test('departing denial capability 401 requires proven logout and replacement login document',()=>{
+  const result=classifyRbacOnboardingDiagnostics(departingDenialProbe());assert.equal(result.errors.length,0)
+  assert.equal(result.classifications.length,2)
+})
+for(const [name,mutate] of [
+  ['no completed journey',x=>{x.namespaceJourney.completed=false}],
+  ['no logout',x=>{x.events.shift()}],['no replacement',x=>{x.events.pop()}],
+  ['different frame',x=>{x.events[4].frameId='other'}],
+  ['business source',x=>{x.events[1].documentUrl=x.events[2].documentUrl=x.base+'/ui/main/flows'}],
+  ['late probe',x=>{x.events[1].observedAt=x.events[2].observedAt=new Date(1700000002000).toISOString()}],
+  ['probe before logout',x=>{x.events[0].observedAt=new Date(1700000000030).toISOString()}],
+  ['wrong request',x=>{x.events[1].requestId='other'}],
+  ['same document',x=>{x.events[2].documentId='new'}],
+  ['unverified anonymous state',x=>{x.namespaceJourney.logoutTransitions[0].anonymous.status=200}],
+])test('logout probe remains failed: '+name,()=>{const input=departingDenialProbe();mutate(input);assert(classifyRbacOnboardingDiagnostics(input).errors.length>0)})

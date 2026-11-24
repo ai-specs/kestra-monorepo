@@ -152,6 +152,34 @@ export function classifyRbacOnboardingDiagnostics({events,base,requests,restartW
     }
   }
   const matches=(left,right)=>left.requestId===right.requestId&&left.documentId===right.documentId&&left.url===right.url
+  // A departing denial page may issue its final capability probe after logout
+  // cleared the session. Require the exact proven logout and replacement document.
+  if(namespaceJourney?.completed===true)for(const transition of namespaceJourney.logoutTransitions??[]) {
+    if(!transition.clicked||transition.automatic||transition.finalDocument?.path!=='/oidc/login'
+      ||transition.anonymous?.status!==401||transition.anonymous?.source?.documentId!==transition.finalDocument.documentId)continue
+    for(const ref of transition.logoutResponses??[]) {
+      const logout=events.find(event=>event.id===ref.id&&event.kind==='http-response'&&event.url===base+'/oidc/logout'&&event.status===307)
+      if(!logout)continue
+      const replacement=events.find(event=>event.kind==='document-navigation'&&event.documentId===transition.finalDocument.documentId&&new URL(event.url).origin===base&&new URL(event.url).pathname==='/oidc/login')
+      if(!replacement)continue
+      const probes=events.filter(event=>event.kind==='http-error'&&event.status===401&&event.method==='GET'
+        &&event.url===base+'/api/v1/main/extensions/rbac/capabilities'&&event.documentUrl===base+'/ui/access-denied'
+        &&event.documentId!==replacement.documentId&&Date.parse(event.observedAt)>=Date.parse(logout.observedAt)
+        &&Date.parse(event.observedAt)-Date.parse(logout.observedAt)<=1000)
+      for(const probe of probes) {
+        const request=events.find(event=>event.kind==='request'&&matches(event,probe)&&event.method==='GET'&&event.resourceType==='Fetch'
+          &&event.documentUrl===probe.documentUrl&&event.frameId===replacement.frameId)
+        if(!request||Date.parse(request.observedAt)<Date.parse(logout.observedAt)
+          ||Date.parse(replacement.observedAt)<Date.parse(probe.observedAt))continue
+        const evidence={requestId:probe.requestId,documentId:probe.documentId,logoutEventId:logout.id,replacementDocumentId:replacement.documentId}
+        classified.set(probe.id,{id:probe.id,reason:'departing-denial-page-probe-after-verified-logout',evidence})
+        for(const event of events.filter(event=>event.kind==='console-error'&&matches(event,probe)&&event.source==='network'
+          &&event.status===401&&event.message==='Failed to load resource: the server responded with a status of 401 (Unauthorized)'
+          &&Math.abs(Date.parse(event.observedAt)-Date.parse(probe.observedAt))<=100))
+          classified.set(event.id,{id:event.id,reason:'network-console-for-verified-logout-probe',evidence})
+      }
+    }
+  }
   for(const event of events) {
     const request=events.find(item=>item.kind==='request'&&matches(item,event))
     const timestamp=Date.parse(event.observedAt)
