@@ -1,5 +1,5 @@
-import {assertAiToolAnnotations} from './application-project-ai-runtime.mjs'
 #!/usr/bin/env node
+import {assertAiToolAnnotations} from './application-project-ai-runtime.mjs'
 /** Entry point: --static | --config-check | --publication-check | --run.
  * --image ghcr.io/ai-specs/kestra-overlay@sha256:... --jar PATH --sha256 HASH
  * --root PATH --overlay PATH --plugin PATH --release-evidence FILE
@@ -108,7 +108,7 @@ export async function main(argv=process.argv.slice(2),runtime={}) {
   const cli=(className,...args)=>compose('run','--rm','--no-deps','--user','0:0','--entrypoint','java','kestra','-cp','/app/kestra:/app/libs/kestra-rbac-authorizer.jar',className,...args)
   const writePlan=(name,value)=>{writeFileSync(join(output,name),JSON.stringify(value,null,2)+'\n',{mode:0o600});return '/work/'+name}
 
-  let persistence=Promise.resolve()
+  let persistence=Promise.resolve(),lastProgressAt=0,lastProgressStages=-1
   const persist=()=>{
     const current=persistence.then(async()=>{
       const rows=[...report.matrix,...report.checks,...report.ui]
@@ -122,6 +122,12 @@ export async function main(argv=process.argv.slice(2),runtime={}) {
       report.completed=!report.nonFinal&&mode==='run'&&report.stages.some(row=>row.id==='final-report-check'&&row.status==='passed')&&report.notRun===0&&report.failures===0
       report.blockers=report.completed?[]:[...fixtureGaps,...(legacyMigration?['explicit legacy-migration profile requires its historical credential and physical rollback checks']:[])]
       writeFileSync(reportPath+'.tmp',JSON.stringify(report,null,2)+'\n',{mode:0o600});renameSync(reportPath+'.tmp',reportPath)
+      const stagesPassed=report.stages.filter(row=>row.status==='passed').length
+      if(stagesPassed!==lastProgressStages||Date.now()-lastProgressAt>=30000||report.finishedAt) {
+        const passed=rows=>rows.filter(row=>row.status==='passed'&&row.passed!==false).length
+        console.log(JSON.stringify({acceptanceProgress:{stagesPassed,checksPassed:passed(report.checks),restPassed:passed(report.matrix),uiPassed:passed(report.ui),failures:report.failures,notRun:report.notRun}}))
+        lastProgressAt=Date.now();lastProgressStages=stagesPassed
+      }
       if(runtime.onReport)await runtime.onReport({reportPath,report:structuredClone(report)})
     })
     persistence=current.catch(()=>{})

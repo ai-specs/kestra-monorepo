@@ -1,5 +1,5 @@
-import {assertAiToolAnnotations} from './application-project-ai-runtime.mjs'
 #!/usr/bin/env node
+import {assertAiToolAnnotations} from './application-project-ai-runtime.mjs'
 import {assertPublishedNativeFlowReport,assertPublishedNativeClassifierSource,extractPublishedNativeClassifier} from './published-native-flow-evidence.mjs'
 import {assertPublishedNativeFlowDetailReport} from './published-native-flow-detail-evidence.mjs'
 import {execFileSync} from 'node:child_process'

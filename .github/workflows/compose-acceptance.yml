@@ -127,6 +127,8 @@ jobs:
           python3 scripts/check-default-multi-policy.py .work/ci/default-compose.json
           node --check scripts/blackbox-application-projects.mjs
           node --check scripts/application-project-browser-ci.cjs
+          node --check scripts/check-application-project-report.mjs
+          node --check scripts/ci-acceptance-progress.mjs
       - name: Select and download independently published plugin artifact
         env:
           GH_TOKEN: ${{ github.token }}
@@ -152,7 +154,7 @@ jobs:
             --image "$image" --jar "$jar" --sha256 "$hash" \
             --root "$GITHUB_WORKSPACE" --overlay "$GITHUB_WORKSPACE/kestra-overlay" \
             --plugin "$GITHUB_WORKSPACE/kestra-plugin-rbac" \
-            --release-evidence .work/ci/release-evidence.json > .work/ci/application-project-driver.log 2>&1
+            --release-evidence .work/ci/release-evidence.json 2>&1 | tee .work/ci/application-project-driver.log | node scripts/ci-acceptance-progress.mjs
       - name: Preserve application-project report after success or failure
         if: always()
         run: |
