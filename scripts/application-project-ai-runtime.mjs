@@ -23,8 +23,8 @@ export function assertAiRuntimeControls(controls, browserDriver) {
     assert.equal(browserDriver?.supportsExplicitCaseIds,true,'not implemented: browser driver explicit A/B applicability; A must not execute owner isolation')
 }
 export function aiRuntimeGrants() {
-    const tenant = (resource, actions) => ({scope:'TENANT',tenant:'main',namespace:null,descendants:false,resource,actions,ids:[],allIds:true})
-    const ns = (resource, actions) => ({scope:'NAMESPACE',tenant:'main',namespace:namespace,descendants:false,resource,actions,ids:[],allIds:true})
+    const tenant = (resource, actions) => ({scope:'TENANT',tenant:'main',namespace:null,resource,actions,ids:[],allIds:true})
+    const ns = (resource, actions) => ({scope:'NAMESPACE',tenant:'main',namespace:namespace,resource,actions,ids:[],allIds:true})
     return [tenant('AI',['READ','EXECUTE']),tenant('METADATA',['READ','LIST']),
         ns('FLOW',['READ','LIST','EXECUTE']),ns('EXECUTION',['READ','LIST','UPDATE','CREATE']),ns('LOG',['READ','LIST'])]
 }

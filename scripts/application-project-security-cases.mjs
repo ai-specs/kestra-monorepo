@@ -586,7 +586,7 @@ export async function runApplicationProjectSecurity(base,fixture={},record) {
     const groupMetadata=api+'/application-groups/'+target
     const assignmentPath=groupPath+'/scope-grants/detail?subject='+encodeURIComponent(account.subject)
     const policyFor=(namespace,actions,managementActions,targets)=>({description:'Independent exact security scope '+namespace,enabled:true,
-      grants:[{scope:'NAMESPACE',tenant:'main',namespace,descendants:false,resource:'FLOW',actions,ids:[],allIds:true}],
+      grants:[{scope:'NAMESPACE',tenant:'main',namespace,resource:'FLOW',actions,ids:[],allIds:true}],
       managementGrants:[{domain:'LOCAL_POLICY',actions:managementActions,applicationGroupIds:targets}]})
     const definitions={[readScope]:policyFor(namespaceDomains.b,['READ','LIST'],['READ'],[applicationProject]),
       [manageScope]:policyFor(namespaceDomains.a,['READ','LIST','UPDATE'],['MANAGE'],[target])}

@@ -33,7 +33,7 @@ test('AI grants are explicit tenant entry and exact company.a business authority
     const grants=aiRuntimeGrants()
     assert.deepEqual(grants.find(g=>g.resource==='AI').actions,['READ','EXECUTE'])
     assert(!grants.some(g=>g.resource==='SYSTEM'||g.resource==='BUSINESS_INSTANCE'))
-    for(const grant of grants.filter(g=>g.scope==='NAMESPACE')) {assert.equal(grant.namespace,'company.a');assert.equal(grant.descendants,false)}
+    for(const grant of grants.filter(g=>g.scope==='NAMESPACE')) {assert.equal(grant.namespace,'company.a');assert.equal(Object.hasOwn(grant,'descendants'),false)}
     assert(grants.find(g=>g.resource==='EXECUTION').actions.includes('UPDATE'))
 })
 

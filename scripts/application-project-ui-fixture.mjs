@@ -138,8 +138,8 @@ export const uiLocaleText=Object.freeze({
 })
 
 
-const nsGrant=(namespace,resource,actions)=>({scope:'NAMESPACE',tenant:'main',namespace,descendants:false,resource,actions,ids:[],allIds:true})
-const tenantGrant=resource=>({scope:'TENANT',tenant:'main',namespace:null,descendants:false,resource,actions:['READ','LIST'],ids:[],allIds:true})
+const nsGrant=(namespace,resource,actions)=>({scope:'NAMESPACE',tenant:'main',namespace,resource,actions,ids:[],allIds:true})
+const tenantGrant=resource=>({scope:'TENANT',tenant:'main',namespace:null,resource,actions:['READ','LIST'],ids:[],allIds:true})
 const scopeDefinition=(description,grants)=>({description,enabled:true,grants,managementGrants:[]})
 export function planApplicationProjectUi() {
   const ids=Array.from({length:28},(_,i)=>String(i+1).padStart(3,'0'))

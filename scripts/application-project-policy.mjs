@@ -2,10 +2,10 @@ import assert from 'node:assert/strict'
 import {createHash} from 'node:crypto'
 import {scopeNames, namespaceDomains, applicationProject, projectScopeCases} from './application-project-cases.mjs'
 
-const complete = (namespace, resource, actions, descendants = true, ids = []) => ({scope: 'NAMESPACE', tenant: 'main', namespace, descendants,
+const complete = (namespace, resource, actions, descendants = true, ids = []) => ({scope: 'NAMESPACE', tenant: 'main', namespace: descendants ? `${namespace}.*` : namespace,
   resource, actions: [...actions], ids: [...ids], allIds: ids.length === 0})
-const metadata = () => ({scope: 'TENANT', tenant: 'main', namespace: null, descendants: false, resource: 'METADATA', actions: ['READ', 'LIST'], ids: [], allIds: true})
-const serverRead = () => ({scope: 'TENANT', tenant: 'main', namespace: null, descendants: false, resource: 'MCP_SERVER', actions: ['READ', 'LIST'], ids: [], allIds: true})
+const metadata = () => ({scope: 'TENANT', tenant: 'main', namespace: null, resource: 'METADATA', actions: ['READ', 'LIST'], ids: [], allIds: true})
+const serverRead = () => ({scope: 'TENANT', tenant: 'main', namespace: null, resource: 'MCP_SERVER', actions: ['READ', 'LIST'], ids: [], allIds: true})
 const reader = (namespace, descendants = true) => [
   ...['FLOW', 'EXECUTION', 'NAMESPACE', 'LOG', 'METRIC', 'TRIGGER', 'KVSTORE', 'NAMESPACE_FILE'].map(resource => complete(namespace, resource, ['READ', 'LIST'], descendants)),
   metadata(), serverRead(),

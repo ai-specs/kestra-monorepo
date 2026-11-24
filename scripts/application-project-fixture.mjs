@@ -15,13 +15,13 @@ export function planFixture(base) {
   const observerScope='acceptance-observer-complete'
   policy.applicationGroups[applicationProject].scopes[observerScope]={description:'Isolated test data observer',enabled:true,
     grants:[namespaceDomains.a,namespaceDomains.b,namespaceDomains.outside,namespaceDomains.a+'2'].flatMap(namespace=>[
-      {scope:'NAMESPACE',tenant:'main',namespace,descendants:true,resource:'FLOW',actions:['READ','LIST','CREATE','UPDATE','DELETE','EXECUTE'],ids:[],allIds:true},
-      {scope:'NAMESPACE',tenant:'main',namespace,descendants:true,resource:'EXECUTION',actions:['READ','LIST','CREATE','DELETE','ACCESS_OUTPUTS'],ids:[],allIds:true},
-      {scope:'NAMESPACE',tenant:'main',namespace,descendants:true,resource:'TRIGGER',actions:['READ','LIST'],ids:[],allIds:true},
-      {scope:'NAMESPACE',tenant:'main',namespace,descendants:true,resource:'KVSTORE',actions:['READ','LIST'],ids:[],allIds:true},
-      {scope:'NAMESPACE',tenant:'main',namespace,descendants:true,resource:'NAMESPACE',actions:['READ','LIST'],ids:[],allIds:true},
-    ]).concat([{scope:'TENANT',tenant:'main',namespace:null,descendants:false,resource:'METADATA',actions:['READ','LIST'],ids:[],allIds:true},
-      {scope:'TENANT',tenant:'main',namespace:null,descendants:false,resource:'MCP_SERVER',actions:['READ','LIST'],ids:['default'],allIds:false}]),managementGrants:[]}
+      {scope:'NAMESPACE',tenant:'main',namespace:namespace+'.*',resource:'FLOW',actions:['READ','LIST','CREATE','UPDATE','DELETE','EXECUTE'],ids:[],allIds:true},
+      {scope:'NAMESPACE',tenant:'main',namespace:namespace+'.*',resource:'EXECUTION',actions:['READ','LIST','CREATE','DELETE','ACCESS_OUTPUTS'],ids:[],allIds:true},
+      {scope:'NAMESPACE',tenant:'main',namespace:namespace+'.*',resource:'TRIGGER',actions:['READ','LIST'],ids:[],allIds:true},
+      {scope:'NAMESPACE',tenant:'main',namespace:namespace+'.*',resource:'KVSTORE',actions:['READ','LIST'],ids:[],allIds:true},
+      {scope:'NAMESPACE',tenant:'main',namespace:namespace+'.*',resource:'NAMESPACE',actions:['READ','LIST'],ids:[],allIds:true},
+    ]).concat([{scope:'TENANT',tenant:'main',namespace:null,resource:'METADATA',actions:['READ','LIST'],ids:[],allIds:true},
+      {scope:'TENANT',tenant:'main',namespace:null,resource:'MCP_SERVER',actions:['READ','LIST'],ids:['default'],allIds:false}]),managementGrants:[]}
   const mcp=planMcpScenarios()
   for(const [name,scope]of Object.entries(mcp.revocationScopes)) {
     const flowId=mcp.scenarios[name].call.flowId
@@ -208,7 +208,7 @@ export function planRestResources(fixture) {
   for(const test of projectScopeCases)for(const [index,probe]of test.probes.entries()) {
     const data=probes[test.id+':'+index]
     if(probe.action==='LIST'&&probe.allowed) {
-      const granted=item=>test.scopes.some(scope=>(definitions[scope]?.grants??[]).some(grant=>grant.resource==='FLOW'&&grant.actions.includes('READ')&&grant.actions.includes('LIST')&&(grant.namespace===item.namespace||grant.descendants&&item.namespace.startsWith(grant.namespace+'.'))&&(grant.allIds||grant.ids.includes(item.id))))
+      const granted=item=>test.scopes.some(scope=>(definitions[scope]?.grants??[]).some(grant=>grant.resource==='FLOW'&&grant.actions.includes('READ')&&grant.actions.includes('LIST')&&(grant.namespace===item.namespace||grant.namespace.endsWith('.*')&&(item.namespace===grant.namespace.slice(0,-2)||item.namespace.startsWith(grant.namespace.slice(0,-1))))&&(grant.allIds||grant.ids.includes(item.id))))
       const domain=item=>item.namespace===probe.namespace||item.namespace.startsWith(probe.namespace+'.')
       data.expectedList=[...current.values()].filter(item=>domain(item)&&granted(item)).map(({namespace,id})=>({namespace,id}))
       data.outsideList=[...current.values()].filter(item=>!domain(item)||!granted(item)).map(({namespace,id})=>({namespace,id}))

@@ -164,7 +164,7 @@ export async function main(argv=process.argv.slice(2),runtime={}) {
       const planned=planFixture('http://localhost:18128')
       const observerTriggers=planned.policy.applicationGroups[applicationProject].scopes[planned.observerScope].grants.filter(grant=>grant.resource==='TRIGGER')
       assert.deepEqual(observerTriggers,[namespaceDomains.a,namespaceDomains.b,namespaceDomains.outside,namespaceDomains.a+'2'].map(namespace=>({
-        scope:'NAMESPACE',tenant:'main',namespace,descendants:true,resource:'TRIGGER',actions:['READ','LIST'],ids:[],allIds:true,
+        scope:'NAMESPACE',tenant:'main',namespace:namespace+'.*',resource:'TRIGGER',actions:['READ','LIST'],ids:[],allIds:true,
       })),'bootstrap observer requires bounded read-only native dashboard trigger queries')
       const resources=planRestResources(planned)
       assert.equal(Object.keys(resources.probes).length,56)
