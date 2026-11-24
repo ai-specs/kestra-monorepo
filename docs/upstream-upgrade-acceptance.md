@@ -163,8 +163,8 @@ node --test scripts/upstream-upgrade-rehearsal.test.mjs
 
 ## 持续集成与下次升级
 
-根仓 CI 在生产组合验收清理后串行执行模式 A、B。它单独创建带 owner label 的 PostgreSQL，
-前一阶段 PostgreSQL 必须已清理；本地执行仍复用现有 PostgreSQL。CI 不上传数据库、storage
+根仓 CI 使用独立的 compose 和 upgrade job，两者均必须通过。upgrade job 内串行执行模式 A、B，
+在独立 hosted runner 创建唯一带 owner label 的 PostgreSQL；不与生产组合 job 共享服务或验证树。本地执行仍复用现有 PostgreSQL。CI 不上传数据库、storage
 备份、配置或凭据，只将逐阶段 report.json 复制到正式报告目录，清理自有临时服务和卷。
 
 `deployment/upstream-upgrade-baseline.json` 是真实升级门的旧版本正式输入，由
@@ -232,3 +232,16 @@ CI实时日志通过 `scripts/ci-acceptance-progress.mjs` 只显示严格白名�
 v2.0.11 的 `list_flows` 还新增 `total`。生产受控模型门要求精确授权Flow身份集合和
 总数同时匹配，模式A三条测试Flow总数3、受限模式B一条总数1；缺失、非整数或范围外
 总数失败。该断言读取真实工具原始function response，不由页面可见行数推导总数。
+
+## 本次正式验收记录
+
+2026-11-25 下载审计：根仓 `681ab00` 的 CI `45477269982` 两个 job 成功；生产组合22阶段、
+REST56、集成检查147、生产UI88，失败/跳过/未运行均0。独立升级job用时4分31秒，
+模式A/B各19阶段全部通过、零保留资源。该记录绑定指定提交；后续文档更正不改变运行产物，
+后续代码或配置变化仍须对应检查，不从本记录推断通过。
+
+宿主 `1d50c01` / CI `45407070627`、插件 `feb8230` / CI `45420684400` 已正式发布并
+实际下载审计。正式镜像由 `.env.example` 固定，jar SHA和下载命令见根README。
+宿主双架构provenance的 completeness=false 限制保留。默认new-install明确排除14项
+legacy-migration，不把它们计为通过；schema2 declaration-upgrade9项在正式插件PG门通过。
+本次未修复Playground，模式B未登记的五类REST执行控制保持403，详见前述范围说明。
