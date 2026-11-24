@@ -1,11 +1,11 @@
 {
-  "overlayCommit": "434955d1482eda7fa462195b362198c41216451e",
-  "provenance": "Controller reviewed fixed BASE plus 63 committed patches; 444 touched files equal tested production inputs. All native source hashes remain unchanged and match downloaded successful CI45104521508 reports. This is an expected input lock; acceptance additionally requires successful formal CI artifacts and published image.",
+  "overlayCommit": "1d50c01a29b11186c29c07105c3d9c24b3762a96",
+  "provenance": "Controller reviewed upstream v2.0.11/dde805a2 changes and 63 replayed patches. Expected hashes are independently calculated from reviewed final production source and equal actual downloaded CI45407070627 list21/detail37 report inputs; packaged detail sources are additionally byte-compared. Changes cover native labels/navigation, execution search ordering, trigger indicators, chart ordering, translations and npm lock. Matrices and diagnostic assertions remain unchanged.",
   "hashes": {
-    "../../src/components/flows/Flows.vue": "e4e31a86f6d9bcad602fdafb480f7ad279f6b64514f448625aecf7c20188094e",
+    "../../src/components/flows/Flows.vue": "7743748b9953506a169e48543297f1a1bdaa127a23ed1add38ad1bc3a62cfe64",
     "../../src/components/flows/useFlowListIdentity.ts": "750a9938cc9762a7f9c00fdf924e8670dd8c4b81e1a9e6ccca64fe0def542e4b",
     "../../src/components/flows/useFlowExecutionCapabilities.ts": "e51a58ac67b0756a018ef81ad92cbfa956331c6bad912a482031ca15c78544fe",
-    "../../src/stores/executions.ts": "c3920978139629c16e327e3501e90e6dadf5052ff8c493e94835e289ceeb1a11",
+    "../../src/stores/executions.ts": "03051e6cd6c942b3ac84230f323c5e766bdd2722ad16c476186e51116fdacb4f",
     "./cases.mjs": "2e98dff44ac7f42848affc471f4a2fd5d8ddd10dfb15f01f3e138dcf9ff379bb",
     "./lifecycle-cases.mjs": "bd19738097e58bc603b28a8661aba77b5f8acaa6eaee1209e3e74d70f734841f",
     "./main.ts": "c7a7b088d3061c17f9522a61bd75c3c47de9cf01983e87c636538226644d57ea",
@@ -18,7 +18,7 @@
     "./wait-for-condition.mjs": "4c318c1d1c2fa422acebc90c2ef00056ddec7e9287c6c29d4a2ef490c03e1d68",
     "./wait-for-condition.test.mjs": "b339f4aec2cba9afcb3e62253576815830a6c7760bd3b5344a49a44ddcbc36d5",
     "./check-report.mjs": "9004e0381575563fe6ab42371049b9217250697ef216e550e93520293097b260",
-    "../../package-lock.json": "89f2e4ff96a05f6ebcaa7197c73bd2fcf3eb5ee802485b2d03f1c71463db0d60",
+    "../../package-lock.json": "ed2a7f24ab7466ea8e3990e0ac3f903313b7b97ea3822e6f2971a96846cdf486",
     "overlay:sdk-browser-diagnostics.cjs": "8a4db485508c9ea5c8859cf7e07b4c6f0022117d528861999571c1293221ed8b"
   }
 }

@@ -200,3 +200,16 @@ SUCCESS、终止 KILLED；重启必须增加历史，重放必须生成新执行
 
 这些操作只发生在本次独立安装，新执行随一致恢复消失。此门检查 v2.0.11 的异步 tenant
 传递变化及既有授权边界，不表示所有批量执行接口或每个异常分支已穷举。它不改变生产 UI。
+
+## 推送根仓前的正式输入复核
+
+上游改变原生组件时，还必须审查根仓 `scripts/native-flow-published-inputs.json` 与
+`scripts/native-flow-detail-published-inputs.json`。从最终补丁重放源码独立计算预期输入，
+再核对所属仓正式CI下载报告及可用源码包；不得只替换提交号或抄报告hash。列表21项与
+详情37项的具名矩阵和诊断要求保持完整；若契约确实变化，先裁决再实施。
+
+根仓提供只读发布门 `scripts/blackbox-application-projects.mjs --publication-check`：
+使用与正式 `--run` 相同的 image/jar/sha256/root/overlay/plugin/release-evidence 参数，
+核对真实GitHub发布、独立报告、源码锁与产物后，在创建应用或PostgreSQL前停止。
+输出 `mode:publication-check`、`publicationOnly:true`，不表示组合验收通过。修改中的根仓
+可显式加 `--allow-dirty-root`，仍不放宽独立仓与正式产物要求。该模式不替代完整根仓CI。

@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-/** Entry point: --static | --config-check | --run.
+/** Entry point: --static | --config-check | --publication-check | --run.
  * --image ghcr.io/ai-specs/kestra-overlay@sha256:... --jar PATH --sha256 HASH
  * --root PATH --overlay PATH --plugin PATH --release-evidence FILE
  * Optional --port N --browser ci --migration-releases APPROVED_RELEASE_BUNDLES_JSON.
@@ -9,6 +9,7 @@
  * Downloads the selected successful plugin run artifact, checks its jar hash
  * and host-provenance.image against image and the plugin host-contract pin.
  * --static succeeds only as a static entry-point check; acceptance remains false.
+ * --publication-check verifies actual formal inputs and reports without starting containers; acceptance remains false.
  * --config-check does not start containers or prove image publication.
  * --run starts only after immutable image promotion and artifact download gates.
  */
@@ -66,7 +67,7 @@ export async function main(argv=process.argv.slice(2),runtime={}) {
   for(let i=0;i<argv.length;i++) {
     const arg=argv[i]
     if(arg==='--allow-dirty-root'){assert(!options[arg],'duplicate '+arg);options[arg]=true}
-    else if(['--static','--config-check','--run'].includes(arg)){assert(!mode,'choose exactly one mode');mode=arg.slice(2)}
+    else if(['--static','--config-check','--publication-check','--run'].includes(arg)){assert(!mode,'choose exactly one mode');mode=arg.slice(2)}
     else {assert(['--image','--jar','--sha256','--root','--overlay','--plugin','--release-evidence','--port','--browser','--migration-releases'].includes(arg),'unknown option '+arg);assert(argv[i+1]&&!argv[i+1].startsWith('--'),'missing value '+arg);assert(options[arg]===undefined,'duplicate '+arg);options[arg]=argv[++i]}
   }
   assert(mode,'choose --static, --config-check or --run')
@@ -542,6 +543,7 @@ export async function main(argv=process.argv.slice(2),runtime={}) {
       const mount=composeConfig.services.kestra.volumes.find(item=>item.target==='/app/libs/kestra-rbac-authorizer.jar');mount.source=jar;saveCompose()
       return {overlayRunId:evidence.overlayRunId,pluginRunId:evidence.pluginRunId,artifactId:artifact.id,downloadedJar:jar,jarSha256:report.inputs.jarSha256,hostExecutableSha256:provenance.sha256,promoted:true}
     })
+    if(mode==='publication-check'){report.publicationOnly=true;await persist();return {exitCode:0,reportPath,publicationOnly:true}}
     const onboardingSession={}
     await stage('automatic-rbac-new-user-installation',async()=>{
       composeStarted=true;report.resources.startAttempted=true
