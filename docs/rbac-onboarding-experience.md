@@ -85,7 +85,8 @@ docker compose up -d（不报错，正常启动）
 
 模式 A/B 的允许业务对照统一在 `company` 及其子空间创建、执行和查看 Flow。
 模式 B 的普通资源授权由可复核的权限明细表达：`company` 及后代允许明确声明的操作，
-`!company` 且 `descendants:true` 表达该子树补集，仅授 READ/LIST。
+`!company.*` 表达该子树补集，仅授 READ/LIST。统一表达式规则归插件 README；
+旧 `namespace + descendants` 只在读取边界兼容，不作为新安装或新保存格式。
 `company2` 属于补集，不能因字符串前缀相同而获得写权限；未来新命名空间按同一域计算。
 `BUSINESS_INSTANCE` 不覆盖普通命名空间数据资源。身份目录和策略管理仍分别检查
 `IDENTITY`、`LOCAL_POLICY`。撤销 grants 后不保留首账号特权。
