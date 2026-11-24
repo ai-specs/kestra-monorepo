@@ -1118,9 +1118,10 @@ export async function runAccessControlV3Ui(page,base,fixture,record) {
     await run('ui-user-delete-execution-retained',async()=>{
       const observerScope=fixture.targetRuntime.planned.observerScope;assert(observerScope)
       const executionGrant=(await privateList(permissionApi)).filter(permission=>permission.enabled&&permission.scopeKeys.includes(observerScope)).flatMap(permission=>permission.grants).find(grant=>grant.scope==='NAMESPACE'&&grant.resource==='FLOW'&&grant.allIds&&grant.actions.includes('EXECUTE'))
-      assert(executionGrant&&/^scope\.acceptance\.[a-z0-9_.-]+$/.test(executionGrant.namespace),'actual observer policy must authorize an owned history-test namespace')
+      const namespace=executionGrant?.namespace?.replace(/\.\*$/, '')
+      assert(namespace&&/^scope\.acceptance\.[a-z0-9_.-]+$/.test(namespace),'actual observer policy must authorize an owned history-test namespace')
       const account=await preparedUser('ui-history-delete'),management=fixture.targetRuntime.management
-      const namespace=executionGrant.namespace,flowId='ui-user-history-'+randomBytes(5).toString('hex');let executionId
+      const flowId='ui-user-history-'+randomBytes(5).toString('hex');let executionId
       let executionCleaned=false,flowCleaned=false
       const cleanup=async()=>{await management.login();if(executionId&&!executionCleaned){await rawRequest(management.client,'/api/v1/main/executions/'+executionId,{method:'DELETE'},[200,204,404]);executionCleaned=true}if(!flowCleaned){await rawRequest(management.client,'/api/v1/main/flows/'+namespace+'/'+flowId,{method:'DELETE'},[200,204,404]);flowCleaned=true}await account.cleanup()}
       restores.push({id:'cleanup-'+flowId,run:cleanup})

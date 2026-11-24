@@ -544,6 +544,17 @@ export async function runApplicationProjectSecurity(base,fixture={},record) {
       await step('old-cookie-revocation',{subject:account.subject,revokedAt:at,mutationReturnedMs,boundMs:bound,samples})
       assert(denied&&samples.at(-1).elapsedMs<=bound,'revocation deadline exceeded')
       await management.reauthenticateGroup(applicationProject)
+      const settledAdmin=await management.login()
+      const settledDeadline=performance.now()+90_000
+      let settledExecution
+      do {
+        const response=await settledAdmin.request('/api/v1/main/executions/'+encodeURIComponent(streamExecution.id));assert.equal(response.status,200)
+        settledExecution=await response.json()
+        if(settledExecution.state?.current==='SUCCESS')break
+        await delay(500)
+      }while(performance.now()<settledDeadline)
+      assert.equal(settledExecution?.state?.current,'SUCCESS','authorized stream execution must settle before denied-effect observations')
+      await step('authorized-stream-execution-settled',{executionId:streamExecution.id,state:settledExecution.state.current})
       await deny(oldClient,businessPath,'GET',undefined,undefined,{statuses:[401,403]})
       const fresh=await login(account,'subject-after-revoke')
       const identity=await fresh.verifiedUiIdentity({applicationGroupId:applicationProject,subject:account.subject,audience:planned.expectedAudience})

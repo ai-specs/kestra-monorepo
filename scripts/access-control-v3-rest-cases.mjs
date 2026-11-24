@@ -72,7 +72,7 @@ export async function runAccessControlV3RestCases(base,context) {
       assert.equal(typeof value.title,'string');assert.equal(typeof value.detail,'string')
     }
   }
-  const grant=(namespace,actions=['READ','LIST','UPDATE'])=>({scope:'NAMESPACE',tenant:'main',namespace,descendants:false,resource:'FLOW',actions,ids:[],allIds:true})
+  const grant=(namespace,actions=['READ','LIST','UPDATE'])=>({scope:'NAMESPACE',tenant:'main',namespace,resource:'FLOW',actions,ids:[],allIds:true})
   const managementGrant=(domain,actions)=>({domain,actions,applicationGroupIds:domain==='IDENTITY'?[]:[applicationProject]})
   const specs={
     identityRead:[managementGrant('IDENTITY',['READ'])],identityManage:[managementGrant('IDENTITY',['MANAGE'])],
