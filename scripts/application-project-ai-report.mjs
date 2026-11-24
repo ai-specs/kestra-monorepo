@@ -24,6 +24,7 @@ export function assertAiActivatedReport(report,inputs) {
   for(const value of Object.values(report.sourceSha256))assert.match(value,/^[a-f0-9]{64}$/)
   assert.equal(report.failure,null);assert.deepEqual(report.modes.map(row=>row.mode),['A','B'])
   for(const row of report.modes){
+    assert.deepEqual(row.listTotal,{expected:row.mode==='A'?3:1,verified:true,source:'raw-function-response',functionResponses:1},'AI list total must be verified against actual authorized sentinels')
     assert.equal(row.status,'passed');assert.equal(row.image,inputs.image)
     assert.equal(row.jarAbsent,row.mode==='A');assert.equal(row.jarSha256,row.mode==='A'?null:inputs.jarSha256)
     assert.match(row.configurationSha256,/^[a-f0-9]{64}$/);assert.equal(row.runtime.verified,true)

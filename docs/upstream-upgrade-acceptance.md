@@ -228,3 +228,7 @@ CI实时日志通过 `scripts/ci-acceptance-progress.mjs` 只显示严格白名�
 写入 artifact 文件并沿用最终脱敏。shell保持pipefail，过滤器成功不能覆盖驱动失败。
 计数是运行进度，不是最终验收；必须继续下载和复核完整报告。CLI的shebang必须在首行，
 本地推送前执行CI同一语法检查，不能只靠不加载CLI入口的单元测试。
+
+v2.0.11 的 `list_flows` 还新增 `total`。生产受控模型门要求精确授权Flow身份集合和
+总数同时匹配，模式A三条测试Flow总数3、受限模式B一条总数1；缺失、非整数或范围外
+总数失败。该断言读取真实工具原始function response，不由页面可见行数推导总数。

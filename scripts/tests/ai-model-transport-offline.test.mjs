@@ -241,3 +241,15 @@ test('actual published tool metadata rejects stale names, missing and duplicated
     for(const change of [{listFlows:annotation('list-flows')},{restartExecution:annotation('restart-execution')},{listFlows:''},{listFlows:current.listFlows+'\n'+current.listFlows}]) assert.throws(()=>assertAiToolAnnotations({...current,...change}));
     assert.throws(()=>assertAiToolAnnotations({listFlows:current.listFlows}));
 });
+
+test('list_flows total must match the authorized identity set, not a global count',async t=>{
+    const f=await fixture(t),id='authorized-total',flowIds=[{namespace:'company.a',id:'sentinel'}],name='list_flows';
+    await f.create({id,mode:'tool',text:'verified',tool:{name,args:{},expect:{flowIds,total:1}}});
+    await (await f.request(endpoint,model(id,[],name))).text();
+    for(const result of [{flows:flowIds},{flows:flowIds,total:3},{flows:flowIds,total:'1'},{flows:flowIds,total:-1}]) {
+        const response=await f.request(endpoint,model(id,[{id:'call-'+id,name,response:{response:JSON.stringify(result)}}],name));
+        assert.equal(response.status,422);assert.match(await response.text(),/result_total_mismatch/);
+    }
+    const accepted=await f.request(endpoint,model(id,[{id:'call-'+id,name,response:{response:JSON.stringify({flows:flowIds,total:1})}}],name));
+    assert.equal(accepted.status,200);await accepted.text();assert.equal((await f.state(id)).functionResponses,1);
+});

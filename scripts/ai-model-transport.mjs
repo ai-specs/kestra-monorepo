@@ -29,13 +29,14 @@ function parseScenario(body) {
     if (body.tool) {
         keys(body.tool, ['name', 'args', 'expect']);
         if (typeof body.tool.name !== 'string' || !TOOL.test(body.tool.name) || !object(body.tool.args)) reject(400, 'invalid_tool');
-        keys(body.tool.expect, ['exact', 'rejectedText','authorizationDenied', 'namespaces', 'forbiddenNamespaces', 'minItems', 'flowIds']);
+        keys(body.tool.expect, ['exact', 'rejectedText','authorizationDenied', 'namespaces', 'forbiddenNamespaces', 'minItems', 'flowIds', 'total']);
         const expectation = body.tool.expect;
         if (expectation.flowIds !== undefined && (!Array.isArray(expectation.flowIds) || !expectation.flowIds.length || expectation.flowIds.length > 64
             || expectation.flowIds.some(row => !object(row) || Object.keys(row).some(key => !['namespace','id'].includes(key))
                 || typeof row.namespace !== 'string' || !/^[A-Za-z0-9_-]+(?:\.[A-Za-z0-9_-]+)*$/.test(row.namespace)
                 || typeof row.id !== 'string' || !TOOL.test(row.id))
             || new Set(expectation.flowIds.map(row => JSON.stringify([row.namespace,row.id]))).size !== expectation.flowIds.length)) reject(400, 'invalid_flow_ids');
+        if (expectation.total !== undefined && (!Number.isSafeInteger(expectation.total) || expectation.total < 0)) reject(400,'invalid_total');
         if (!Object.keys(expectation).length) reject(400, 'expectation_required');
         if (expectation.rejectedText !== undefined && expectation.rejectedText !== true) reject(400, 'invalid_rejected_expectation');
         if (expectation.authorizationDenied !== undefined && expectation.authorizationDenied !== true) reject(400, 'invalid_denial_expectation');
@@ -115,6 +116,7 @@ function verifyResponse(response, config, callId) {
         const expected = expect.flowIds.map(row => JSON.stringify([row.namespace,row.id])).sort();
         if (!isDeepStrictEqual(actual, expected)) reject(422, 'result_flow_ids_mismatch');
     }
+    if (expect.total !== undefined && (!Number.isSafeInteger(result?.total) || result.total !== expect.total)) reject(422,'result_total_mismatch');
     if (Object.hasOwn(expect, 'exact') && !isDeepStrictEqual(result, expect.exact)) reject(422, 'function_result_mismatch');
     if (expect.namespaces !== undefined || expect.forbiddenNamespaces !== undefined || expect.minItems !== undefined) {
         const rows = result?.flows ?? result?.executions;

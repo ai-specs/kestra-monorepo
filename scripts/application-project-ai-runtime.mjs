@@ -255,7 +255,7 @@ export async function runApplicationProjectAiRuntime(options) {
                 async prepare(value) {
                     let definition = {id:value.id,mode:'text',text:value.expectedText}
                     if(value.id===scenarios.cancel.id || value.mode==='wait')definition.mode='wait'
-                    if(value.id===scenarios.list.id)definition={...definition,mode:'tool',tool:{name:aiRuntimeToolNames.listFlows,args:{},expect:{flowIds:aiSentinels(suffix,mode),namespaces:aiSentinels(suffix,mode).map(value=>value.namespace),minItems:1}}}
+                    if(value.id===scenarios.list.id)definition={...definition,mode:'tool',tool:{name:aiRuntimeToolNames.listFlows,args:{},expect:{total:aiSentinels(suffix,mode).length,flowIds:aiSentinels(suffix,mode),namespaces:aiSentinels(suffix,mode).map(value=>value.namespace),minItems:1}}}
                     if(seedByScenario.has(value.id)) {
                         const seeded = seedByScenario.get(value.id)
                         definition={...definition,mode:value.mode==='wait'?'wait':'tool',tool:{name:aiRuntimeToolNames.restartExecution,args:{executionId:seeded.executionId},
@@ -380,6 +380,9 @@ export async function runApplicationProjectAiRuntime(options) {
             assert.equal(active.browser?.completed,true)
             assert.deepEqual(active.browser.checks.map(row=>row.id),aiRuntimeCaseIds[mode],'driver did not use explicit applicable matrix')
             assert(active.browser.checks.every(row=>row.status==='passed'&&row.passed),'applicable case not passed')
+            const listState=await scenario.read(scenarios.list.id)
+            assert.equal(listState.phase,'done');assert.equal(listState.functionResponses,1)
+            active.listTotal={expected:aiSentinels(suffix,mode).length,verified:true,source:'raw-function-response',functionResponses:listState.functionResponses}
             if(mode==='B') {
                 const revoke = async () => {
                     await management.login()
