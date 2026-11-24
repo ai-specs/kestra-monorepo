@@ -499,7 +499,7 @@ jobs:
           network_created=true
           export POSTGRES_PASSWORD
           POSTGRES_PASSWORD=$(openssl rand -hex 32)
-          docker run -d --name "$UPGRADE_PG_CONTAINER" --network "$UPGRADE_PG_NETWORK" \
+          docker run -d --name "$UPGRADE_PG_CONTAINER" --network "$UPGRADE_PG_NETWORK" --network-alias "$UPGRADE_PG_CONTAINER" \
             --label "io.kestra.upgrade.ci=$owner" -e POSTGRES_PASSWORD postgres:18
           for attempt in $(seq 1 60); do
             if docker exec "$UPGRADE_PG_CONTAINER" pg_isready -U postgres; then break; fi
