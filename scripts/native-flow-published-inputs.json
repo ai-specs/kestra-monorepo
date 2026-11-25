@@ -1,6 +1,6 @@
 {
-  "overlayCommit": "1d50c01a29b11186c29c07105c3d9c24b3762a96",
-  "provenance": "Controller reviewed upstream v2.0.11/dde805a2 changes and 63 replayed patches. Expected hashes are independently calculated from reviewed final production source and equal actual downloaded CI45407070627 list21/detail37 report inputs; packaged detail sources are additionally byte-compared. Changes cover native labels/navigation, execution search ordering, trigger indicators, chart ordering, translations and npm lock. Matrices and diagnostic assertions remain unchanged.",
+  "overlayCommit": "6eae01a22175b75fdf200d418ef33468b2e85e2c",
+  "provenance": "Controller verified all 63 patch bodies, BASE and IMAGE_BASE byte-identical to reviewed v2.0.11 production source; only README, upgrade rules and manifest publication metadata changed. Downloaded final CI45534389284 list21/detail37 inputs exactly equal the independently reviewed source locks; packaged detail source hashes and complete patch inventory verified. Matrices and diagnostic assertions remain unchanged.",
   "hashes": {
     "../../src/components/flows/Flows.vue": "7743748b9953506a169e48543297f1a1bdaa127a23ed1add38ad1bc3a62cfe64",
     "../../src/components/flows/useFlowListIdentity.ts": "750a9938cc9762a7f9c00fdf924e8670dd8c4b81e1a9e6ccca64fe0def542e4b",

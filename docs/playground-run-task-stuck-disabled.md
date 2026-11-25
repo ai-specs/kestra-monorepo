@@ -1,11 +1,24 @@
 # Playground「运行 task」按钮卡灰缺陷 — 现象、根因与上游修复跟踪
 
-- 状态：**旧 v2.0.5 已复现；当前正式 v2.0.11 的同序列行为待复测**。
+- 状态：**旧 v2.0.5 已复现；正式 v2.0.11 模式 A、B 均已按真实序列复现**。
 - 历史影响版本：上游 `2.0.5`。本文旧根因与取证不代表当前部署状态。
 - 当前判定规则：实际执行下述交互序列，以保存、执行和按钮恢复结果裁决。
   特定修复提交是否包含、单文件是否相同，只是调查输入，不能证明已修或未修。
 - 已撤销此前仅按源码比较作出的“v2.0.11 未修复”结论；也不预先认定升级已修复。
 - 历史模式 A 取样为同库关闭 RBAC，不等同正式模式 A 不装载插件的完整验收。
+
+本轮模式 A 使用正式镜像
+`sha256:05917c8f72777ab9f9fb01f106d33db344ff9d01435a3cd836b7c7a037c447e1`，
+不挂载插件。通过真实首装、登录、新建未保存流程、悬停 task、点击 Run task、确认、
+自动保存跳转后，再开启 Playground，Run task 与 Run All Tasks 均禁用。同一文档经
+界面另建并保存第二个流程，两个按钮仍禁用；刷新后 Run All Tasks 恢复。
+证据保存在忽略目录 `.work/playground-211/`。此结果来自行为，不依赖修复提交包含关系。
+
+模式 B 使用同一正式镜像及正式插件 `feb8230`，通过生产首装取得 `company.*` 普通
+授权，在 `company.playground` 执行相同序列。创建和保存成功，随后 Run All Tasks
+禁用；同一文档经 UI 另建并保存第二个流程仍禁用，刷新后恢复。该状态与模式 A
+一致；不使用直接放行首装账号的路径。此已知上游缺陷没有因本次升级消失，不能列为
+升级修复成果。按现有边界不在本轮另加 Playground 回移补丁。
 
 ---
 
@@ -75,9 +88,10 @@ async function runUntilTask(taskId?: string, runDownstreamTasks = false, customF
 
 自动化验证是直接打开**已保存**的 flow 编辑页并读取按钮 `disabled`，从未走过"新建 flow → 点运行 → 确认 → 跳转"这条状态迁移路径，因此 `readyToStart` 一直保持初值 `true`，按钮自然可用。**这是取样路径不对，不是缺陷不存在。** 教训：验证交互类缺陷必须复刻用户的状态序列（含确认弹窗与路由跳转），不能只读最终静态页面的属性。
 
-## 4. 上游已修复（对比 `kestra-io/kestra` `develop`）
+## 4. 历史上游修复线索（曾对比 `kestra-io/kestra` `develop`）
 
-上游当前 `ui/src/stores/playground.ts` 已改为：
+历史调查所见的上游 `ui/src/stores/playground.ts` 曾改为以下实现；它是调查线索，
+不表示当前固定版本包含它，也不代替目标版本的真实行为验证：
 
 ```ts
 const executionSettled = ref(readyToStartPure.value)
@@ -125,9 +139,9 @@ async function runUntilTask(...) {
 | 是否本仓定制引入 | **否**。`kestra-overlay/patches` 中检索 `stores/playground` / `playground` 命中 0 条，Playground 相关前端文件全部为上游原样 |
 | 是否与 RBAC 有关 | **否**。模式 B（`KESTRA_RBAC_ENABLED=true`）与模式 A（同库切 `false`）表现一致；`createExecution` 等接口在两种模式下均为 200 |
 | 是否上游缺陷 | **是**，上游 2.0.5 的 `readyToStart` 状态复位缺失 |
-| 修复方式 | **不本仓修复**；跟随升级上游，纳入含 `a5aa7806`、`0e7d0cc9` 的版本即可解决 |
+| 修复方式 | **本轮不回移补丁**；后续升级按完整真实交互序列验收，特定提交包含关系不作为修复充分条件 |
 
-## 6. 临时规避（仅用于当前验收期间）
+## 6. 当前已验证的规避路径
 
 - 触发后**刷新页面**（或新开浏览器标签）即可恢复，因为 Pinia 重建、`readyToStart` 回到初值；
 - 或先保存 flow（离开"新建"状态）再开启 Playground 运行。
