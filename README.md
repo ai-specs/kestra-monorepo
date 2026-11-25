@@ -124,27 +124,16 @@ kestra-monorepo/
 
 ## 接入其他扩展功能集
 
-1. 新增独立 `kestra-plugin-*` 仓并作为本仓 submodule；在该仓 README 定义业务、
-   宿主契约版本、正式产物、配置、启停、数据迁移与卸载边界。不要复制 RBAC 的
-   scope、权限模型或 `KESTRA_RBAC_ENABLED` 作为无关扩展的通用约定。
-2. 根据公开机制选择接入通道：任务/触发器/Runner 插件挂载 `/app/plugins`；
-   需要应用 classpath 与 Micronaut bean 的扩展使用 `/app/libs`；独立服务使用其
-   自有镜像与部署配置。具体边界见 overlay 的
-   [扩展接入指南](kestra-overlay/README.md#通用扩展接入指南)。
-3. classpath 扩展必须已在所选宿主的 `extensions.tsv` 登记文件名，且 executable
-   manifest 已包含对应条目；当前登记的是 `kestra-rbac-authorizer.jar`。挂载其他
-   文件名不会自动注册或装载。需要新条目或公开机制时，先在 overlay 接收、验证
-   并发布，不把业务实现放进宿主。
-4. 扩展只消费已发布宿主产物，独立编译和发布 jar 或镜像。本仓核对其成功 CI、
-   契约、provenance 和 SHA-256，再选择与其他已启用扩展兼容的正式组合。
-   不读取相邻源码、未发布 jar，也不在部署过程中构建宿主。
-5. 按扩展公开说明为 Compose 增加必要挂载、配置或服务，并同步 `.env.example`
-   的非秘密配置说明。当前 Compose 只预置已接入组合，不是任意扩展的自动发现或
-   自动安装器；独立服务不属于宿主 classpath 注册表。
-6. 给新组合增加生产流程集成验收：装载、真实登录、允许/拒绝、保存读回、异常、
-   停用/缺组件及适用的撤权、数据迁移和副作用。宿主验证公共机制，扩展仓验证
-   业务与自身 UI，本仓验证正式产物组合。新增扩展也必须验证与已有扩展同时启用
-   时的行为；单独通过不能证明任意组合兼容。
+1. 将独立 `kestra-plugin-*` 仓作为本仓 submodule，并在
+   [扩展清单](docs/extensions.md)登记状态和文档入口。业务及公开配置由扩展仓定义；
+   接入通道、classpath 登记与 SPI/SDK 要求以宿主
+   [扩展接入指南](https://github.com/ai-specs/kestra-overlay/blob/main/README.md#通用扩展接入指南)为准。
+2. 取得与所选正式宿主兼容、已通过独立 CI 的扩展产物，核对 provenance 和 hash；
+   按扩展说明为 Compose 增加挂载、配置或服务，同步非秘密环境变量说明。
+   当前 Compose 只预置已接入组合，不提供任意 jar 自动发现或自动安装。
+3. 为新组合增加生产流程验收，验证装载、真实登录、保存读回、允许/拒绝与副作用，
+   以及适用的停用、缺组件、撤权和迁移；验证与其他已启用扩展同时运行的行为。
+   本仓负责组合，宿主和扩展各自负责公共机制及业务/UI 的独立验收。
 
 当前没有通用的任意扩展发布选择器。下方 `select-application-project-release.py`
 及应用组验收脚本专用于 RBAC；新扩展必须提供自己的正式产物核验与集成用例，
@@ -197,7 +186,7 @@ sha256sum deployment/libs/kestra-rbac-authorizer.jar
 ```powershell
 # Windows PowerShell；在本仓根目录执行
 New-Item -ItemType Directory -Force .work/rbac-release, deployment/libs | Out-Null
-gh run download 45540384982 -R ai-specs/kestra-plugin-rbac `
+gh run download 45576881132 -R ai-specs/kestra-plugin-rbac `
   --name kestra-rbac-authorizer --dir .work/rbac-release
 Copy-Item .work/rbac-release/build/libs/kestra-rbac-authorizer.jar deployment/libs/kestra-rbac-authorizer.jar
 (Get-FileHash deployment/libs/kestra-rbac-authorizer.jar -Algorithm SHA256).Hash.ToLower()
@@ -216,13 +205,7 @@ Copy-Item .work/rbac-release/build/libs/kestra-rbac-authorizer.jar deployment/li
 4. 在首装页阅读“已启用细粒度访问控制”提示，填写账号并创建。账号、应用组、初始权限及首账号授予在一个事务中完成，不需要 JSON 或 Java CLI。
 5. 使用新账号登录，进入 dashboard；从导航进入访问控制管理，复核初始 `main` 应用组及 `admin` scope。
 
-首账号通过普通资源权限明细获得 `company` 及子空间的写入权限，并通过
-`namespace: "!company", descendants: true` 获得其补集的 READ/LIST 权限。
-因此可以查看所有命名空间的 Flow、KV 等普通资源，但不得在 `company` 范围外创建、
-修改或删除。补集是一条明确的允许范围，不是覆盖其他正向授权的全局拒绝。
-`company2` 不属于 `company` 子空间。账号名不产生管理员权限，后续账号不自动继承授权。
-旧 `BUSINESS_INSTANCE` 记录不再授予普通资源权限；已有部署必须显式复核普通资源 grants，
-不会自动扩大授权。管理授权和精确动作见插件 README。
+RBAC 首装授权、权限表达式、账号生命周期和管理页面行为由插件仓维护；本仓只保留部署步骤与组合验收入口。详见 [插件 README](kestra-plugin-rbac/README.md) 和 [RBAC 首次安装体验](docs/rbac-onboarding-experience.md)。
 
 缺 jar 时，首装页显示明确的下载与放置位置并阻止创建半成品账号。补放 jar 后运行
 `docker compose restart kestra`，原页面会自动等待恢复并重新获取表单；不会存储密码或自动重放创建请求。
@@ -237,21 +220,7 @@ Copy-Item .work/rbac-release/build/libs/kestra-rbac-authorizer.jar deployment/li
 > 根仓 CI 独立验证正式组合的生产流程、授权范围与副作用；不能用独立仓 CI 代替。
 > AI 入口需要显式租户 READ/EXECUTE；普通资源的全域读取不隐含执行、输出或租户级功能授权。
 
-权限明细优先显示表达式，仅补集等容易误解的部分提供悬停或键盘聚焦解释。同一权限key的
-明细在其他条件一致时合并显示；合并资源前缀要求后续动作集合与ID范围相同。原始多条grant
-仍受支持，合并不改变授权关联。命名空间统一使用 `company`、`company.*`、`!company`、
-`!company.*`；`.*` 包含自身及全部子命名空间。API与新保存采用同一表达式，不再输出
-`descendants`，旧双字段仅在读取边界等价转换。完整规则见插件 README“权限表达式规则”。
-
-受限账号应通过已获授权页面的书签进入。登录前访问目标、认证重定向及回调目标必须实际
-核对；不得通过登录后手动改路径掩盖丢失书签的问题。原 URI 保留机制已在宿主
-`d3247f9` / CI `44407072165` 正式发布，列表有限能力已在 `86e4365` /
-CI `44423330738` 正式发布。宿主首屏与详情修复及插件兼容输入均已发布；本仓 CI 仍须独立验证生产组合，
-不能用宿主单仓成功代替。
-
-普通资源 grants 按其命名空间、资源及动作求值。管理员可以在访问控制页面复核和修改
-初始策略，撤销授权后不保留首账号特权。
-详细边界与验收条件见 [RBAC 首次安装体验](docs/rbac-onboarding-experience.md)。
+权限模型和表达式规则不在部署 README 重复维护，统一以插件 README 的“权限表达式规则”为准。
 
 ---
 
