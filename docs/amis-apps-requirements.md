@@ -21,6 +21,10 @@
 - Flow 是应用声明的唯一事实来源。页面和页面所需 API 由同一个 Flow 承载，
   不增加独立应用实体、独立应用事实表或独立路由事实表。
 - HTTP 入口按 Flow 的声明提供 AMIS 页面和触发对应 Flow 的 API。
+- 页面入口和 API 入口都属于第一道 AMIS URL 能力门；参照项目中的 `PageTrigger`、
+  `ApiTrigger` 只是描述这两类行为的参考概念，不限定 Java 类名、继承关系或唯一实现。
+- 第一门必须同时覆盖 PageTrigger 对应的页面 URL 和 ApiTrigger 对应的 API URL；不能
+  只保护页面而让 API 直接进入 Flow 解析或执行链，也不能通过直接请求 API 绕过页面入口门。
 - route 只是把 URL 解析到 Flow 及其声明的机制，不是另一个配置或业务事实来源。
   修改、禁用或删除 Flow 及其声明后，入口行为必须与当前 Flow 状态一致。
 - 页面 schema 只允许当前 namespace 或父级 namespace 的 `nsfile:///` 文件。
@@ -72,7 +76,7 @@ Flow 或声明路由存在，也不授予 Flow 执行权限。
 |---|---|
 | `kestra-overlay` | 提供可被未来扩展复用的通用扩展入口能力门、原生路由优先、可信身份传递和评估调用机制；仅在现有公开机制不足时增加最小通用契约 |
 | `kestra-plugin-rbac` | 统一权限维护、当前身份与 scope 的支持/授予及运行时策略评估、撤权，以及既有 Flow 执行授权 |
-| `kestra-plugin-amis-apps` | 登记入口能力及范围规则，在通用机制下判断是否进入自身解析；放行后解析 URL、查找 Flow 和声明、请求 Flow 执行授权，最后提供页面/API |
+| `kestra-plugin-amis-apps` | 登记入口能力及范围规则，覆盖 PageTrigger 页面 URL 和 ApiTrigger API URL；在通用机制下判断是否进入自身解析；放行后解析 URL、查找 Flow 和声明、请求 Flow 执行授权，最后提供页面/API |
 | `kestra-monorepo` | 选择正式产物、配置 Compose、协调发布顺序并执行真实组合验收，不实现 AMIS 业务 |
 
 AMIS 插件通过公开机制消费 RBAC，不读取其私有表，不复制策略或另建许可名单。
@@ -83,7 +87,7 @@ overlay 不承载 AMIS schema、页面/API 声明或应用业务。
 | 顺序 | 行为 | 负责项目 |
 |---|---|---|
 | 0 | 保留原生路由优先和生产认证；原生冲突请求不进入 AMIS | overlay |
-| 1 | 按当前可信身份及 scope 判断是否具有进入 AMIS URL 解析的入口能力；此时不查询 namespace、Flow、schema 或 Flow 执行权限 | overlay 提供通用门；RBAC 提供统一权限评估；AMIS 提供并判断自身入口能力及范围 |
+| 1 | 对 PageTrigger 页面 URL 和 ApiTrigger API URL 统一判断当前可信身份及 scope 是否具有进入 AMIS URL 解析的入口能力；此时不查询 namespace、Flow、schema 或 Flow 执行权限 | overlay 提供通用门；RBAC 提供统一权限评估；AMIS 提供能力及范围 |
 | 2 | 第一门允许后，按 namespace、Flow ID 解析并查找对应 Flow 和声明路由；不存在时正常返回 404 | AMIS Apps |
 | 3 | 找到目标后，验证该具体 Flow 的执行权限；拒绝时停止 | AMIS 通过公开机制调用 RBAC 的既有 Flow 授权 |
 | 4 | 两道门均允许后，读取声明 schema、提供页面或触发 API 执行 | AMIS Apps；实际执行使用现有宿主执行链 |
@@ -131,7 +135,7 @@ AMIS Apps 的业务声明、页面运行时、API 处理、schema 解析及自�
 |---|---|
 | Flow 承载 | 同一 Flow 声明页面及其 API，变更后无需构建应用专属前端包；无独立应用/路由事实源 |
 | 路由 | namespace/Flow URL 可达；不存在目标正常404；原生 URL 冲突始终由上游处理 |
-| 首门拒绝 | namespace、Flow、schema 查询和 Flow 执行授权调用均为零，无业务副作用 |
+| 首门拒绝 | PageTrigger 和 ApiTrigger 两类 URL 均拒绝；namespace、Flow、schema 查询和 Flow 执行授权调用均为零，无业务副作用 |
 | 仅入口允许 | 不存在目标404；存在但无执行权限时拒绝，不读 schema、不创建执行 |
 | 仅执行允许 | 不得绕过入口能力门 |
 | 两门允许 | 真实登录后页面可用，表单/API 实际触发承载 Flow，核对执行与保存结果 |
