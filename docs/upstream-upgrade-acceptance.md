@@ -244,4 +244,14 @@ REST56、集成检查147、生产UI88，失败/跳过/未运行均0。独立升�
 实际下载审计。正式镜像由 `.env.example` 固定，jar SHA和下载命令见根README。
 宿主双架构provenance的 completeness=false 限制保留。默认new-install明确排除14项
 legacy-migration，不把它们计为通过；schema2 declaration-upgrade9项在正式插件PG门通过。
-本次未修复Playground，模式B未登记的五类REST执行控制保持403，详见前述范围说明。
+本次未新增Playground补丁，其在正式 v2.0.11 的真实交互行为另行复测，不能据此断言
+上游已修或未修。模式B未登记的五类REST执行控制保持403，详见前述范围说明。
+
+## 交付前文档时效性检查
+
+每次升级完成后、最终交付前，主控必须逐项审查三仓 README、部署命令、manifest、
+机制文档及验收结论。核对当前版本、正式提交、成功 CI、digest 与 jar hash；检索旧版本、
+候选、未发布、移植开发中及待验证。旧版本可以作为明确标识的历史输入保留，不得继续
+作为当前部署命令或当前发布状态。行为缺陷以目标版本真实复现判定，不以修复代码形态
+代替测试。此门属于升级任务提示词的停止条件，具体模板见
+`kestra-overlay/docs/upstream-upgrade-agent.md`。
