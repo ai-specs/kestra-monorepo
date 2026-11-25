@@ -131,14 +131,14 @@ Compose 默认关闭上游匿名用量与 UI 事件上报，使用
 `kestra.anonymous-usage-report.enabled: false` 和
 `kestra.ui-anonymous-usage-report.enabled: false`。这两个配置不影响 RBAC 授权或生产登录。
 
-本仓当前选定插件提交 `7e93e7d`，成功 CI run `45540384982`，正式 jar SHA-256：
+本仓当前选定插件提交 `71ec20c`，成功 CI run `45576881132`，正式 jar SHA-256：
 `455e2b91d865add5b110d0fbfc6a74a617675e2a03e8e05a775d7c53290018d7`。
 先安装并登录 GitHub CLI（`gh auth login`），账号须能读取插件仓 Actions artifact：
 
 ```bash
 # macOS / Linux；在本仓根目录执行
 mkdir -p .work/rbac-release deployment/libs
-gh run download 45540384982 -R ai-specs/kestra-plugin-rbac \
+gh run download 45576881132 -R ai-specs/kestra-plugin-rbac \
   --name kestra-rbac-authorizer --dir .work/rbac-release
 cp .work/rbac-release/build/libs/kestra-rbac-authorizer.jar deployment/libs/kestra-rbac-authorizer.jar
 # macOS
@@ -263,10 +263,14 @@ macOS 长时间本地验收时，在验收命令前加 `caffeinate -dimsu`，使
 运行入口、正式产物验证和模式 A/B 输入见
 [上游升级组合验收](docs/upstream-upgrade-acceptance.md)。该入口使用已有 PostgreSQL
 中的独立测试数据库，不修改用户部署，不把只更换旧镜像称为回滚。
-本次组合使用 v2.0.11 正式宿主与对应正式插件。根仓 CI 分别执行生产组合 job 和独立升级 job；升级 job 内串行执行模式 A、B 的真实升级与一致恢复；必须核对对应提交下载报告中的19阶段、发布输入和资源清理，脚本或离线测试存在不能替代真实结果。
+本次组合使用 v2.0.13 正式宿主 `feb817c`（CI `45568995024`）与对应正式插件
+`71ec20c`（CI `45576881132`）。根仓 CI 分别执行生产组合 job 和独立升级 job；
+升级 job 以已发布的 v2.0.11 组合为起点，串行执行模式 A、B 的真实升级与一致恢复。
+必须核对对应最终提交下载报告中的19阶段、发布输入和资源清理；脚本或离线测试
+存在不能替代真实结果。升级前已有的全部适用 CI 门必须通过，新增 bug 回归不能
+代替原有回归。
 
-已知限制：**当前合并的上游 v2.0.11 尚未修复 Playground 运行按钮卡灰**，本次 overlay
-未回移该修复。未保存流程运行确认后及同会话跨流程均可复现，刷新可恢复。
-上游状态复位修复在 v2.0.11 发布后才回移至 2.0 维护分支，并进入 v2.0.12；
-后者尚未通过本项目真实浏览器验证。复现、来源和规避方法见
-[Playground 缺陷说明](docs/playground-run-task-stuck-disabled.md)。升级 CI 成功不表示此缺陷已解决。
+Playground 卡灰的 v2.0.11 复现记录保留为历史。当前 v2.0.13 的结论按正式镜像及
+插件的真实浏览器交互、执行结果和按钮恢复判定，见
+[Playground 缺陷说明](docs/playground-run-task-stuck-disabled.md)。升级 CI 成功不能
+单独证明某一缺陷已修复。

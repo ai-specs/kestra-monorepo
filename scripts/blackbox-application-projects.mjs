@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import {assertAiToolAnnotations} from './application-project-ai-runtime.mjs'
+import {upgradeSecurityCases,assertPublishedUpgradeSecurityReports} from './published-upgrade-security-evidence.mjs'
 /** Entry point: --static | --config-check | --publication-check | --run.
  * --image ghcr.io/ai-specs/kestra-overlay@sha256:... --jar PATH --sha256 HASH
  * --root PATH --overlay PATH --plugin PATH --release-evidence FILE
@@ -426,6 +427,9 @@ export async function main(argv=process.argv.slice(2),runtime={}) {
       const hostDirectory=hostCached??join(output,'downloaded-host-lifecycle')
       if(!hostCached){mkdirSync(hostDirectory,{mode:0o700});command('gh',['run','download',String(evidence.overlayRunId),'-R','ai-specs/kestra-overlay','--name','host-scoped-tests','--dir',hostDirectory],{timeout:180000})}
       const originXml=readFileSync(join(hostDirectory,'webserver/build/test-results/test/TEST-io.kestra.webserver.rbac.AuthorizationHttpOriginBoundaryTest.xml'),'utf8')
+      const upgradeSecurityReports=Object.fromEntries(Object.keys(upgradeSecurityCases).map(path=>[path,readFileSync(join(hostDirectory,'upgrade-security-tests',path),'utf8')]))
+      report.sources.overlay.downloadedUpgradeSecurityGate={commit:report.inputs.overlayCommit,runId:evidence.overlayRunId,artifactId:hostArtifact.id,
+        image:report.inputs.image,rawReports:upgradeSecurityReports,validation:assertPublishedUpgradeSecurityReports(upgradeSecurityReports)}
       const aiProviderReports=Object.fromEntries(Object.keys(aiProviderHostCases).map(name=>[name,readFileSync(join(hostDirectory,'webserver/build/test-results/test/TEST-io.kestra.webserver.rbac.'+name+'.xml'),'utf8')]))
       report.sources.overlay.downloadedAiProviderGate={commit:report.inputs.overlayCommit,runId:evidence.overlayRunId,artifactId:hostArtifact.id,
         image:report.inputs.image,sha256:hash(JSON.stringify(aiProviderReports)),rawReports:aiProviderReports,validation:assertAiProviderHostReports(aiProviderReports)}

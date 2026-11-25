@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import {assertAiToolAnnotations} from './application-project-ai-runtime.mjs'
+import {assertPublishedUpgradeSecurityReports} from './published-upgrade-security-evidence.mjs'
 import {assertPublishedNativeFlowReport,assertPublishedNativeClassifierSource,extractPublishedNativeClassifier} from './published-native-flow-evidence.mjs'
 import {assertPublishedNativeFlowDetailReport} from './published-native-flow-detail-evidence.mjs'
 import {execFileSync} from 'node:child_process'
@@ -129,6 +130,11 @@ assert.equal(restoredSession.issuer,report.resources.base)
 assert.notEqual(restoredSession.subject,normalOnboardingStage.evidence.cases.find(row=>row.id==='first-account-creation-through-ui').evidence.subject,
   'Reset-installation recovery must create a new account rather than reusing the prior identity')
 const initialHostGate=report.sources?.overlay?.downloadedInitialAccountGate
+const upgradeSecurityGate=report.sources?.overlay?.downloadedUpgradeSecurityGate
+assert.equal(upgradeSecurityGate?.commit,overlayCommit);assert.equal(upgradeSecurityGate.image,image)
+assert(Number.isSafeInteger(upgradeSecurityGate.runId)&&upgradeSecurityGate.runId>0)
+assert(Number.isSafeInteger(upgradeSecurityGate.artifactId)&&upgradeSecurityGate.artifactId>0)
+assert.deepEqual(upgradeSecurityGate.validation,assertPublishedUpgradeSecurityReports(upgradeSecurityGate.rawReports))
 assert.equal(initialHostGate?.commit,overlayCommit);assert.equal(initialHostGate.image,image)
 assert(Number.isSafeInteger(initialHostGate.runId)&&initialHostGate.runId>0)
 assert(Number.isSafeInteger(initialHostGate.artifactId)&&initialHostGate.artifactId>0)

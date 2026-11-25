@@ -1,6 +1,6 @@
 {
-  "overlayCommit": "6eae01a22175b75fdf200d418ef33468b2e85e2c",
-  "provenance": "Controller verified all 63 patch bodies, BASE and IMAGE_BASE byte-identical to reviewed v2.0.11 production source; only README, upgrade rules and manifest publication metadata changed. Downloaded final CI45534389284 list21/detail37 inputs exactly equal the independently reviewed source locks; packaged detail source hashes and complete patch inventory verified. Matrices and diagnostic assertions remain unchanged.",
+  "overlayCommit": "feb817c8c579384a20341f3126d8ca9216ef3a9f",
+  "provenance": "Controller independently hashed final v2.0.13 clean-replay source inputs and matched downloaded CI45568995024 exact list21/detail37 reports. No matrix or diagnostic reductions. Final published source snapshot independently checked.",
   "hashes": {
     "../../src/components/flows/Flows.vue": "7743748b9953506a169e48543297f1a1bdaa127a23ed1add38ad1bc3a62cfe64",
     "../../src/components/flows/useFlowListIdentity.ts": "750a9938cc9762a7f9c00fdf924e8670dd8c4b81e1a9e6ccca64fe0def542e4b",
