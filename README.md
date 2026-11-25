@@ -1,11 +1,26 @@
 # Kestra monorepo
 
 本仓组织 [Kestra](https://kestra.io) 部署及独立扩展项目，提供统一的 Docker Compose 配置。
+本仓是可复用的部署与组合验收层，不限定于某一个扩展功能集。扩展的业务模型、
+API、页面、配置和维护流程由对应 `kestra-plugin-*` 独立仓的 README 定义。
 
 | 项目 | 职责 |
 |---|---|
 | [kestra-overlay](https://github.com/ai-specs/kestra-overlay) | Kestra OSS 增强镜像、内置 OIDC 与 MCP、外部扩展承载 |
 | [kestra-plugin-rbac](https://github.com/ai-specs/kestra-plugin-rbac) | 外部细粒度授权 jar、应用组管理、应用声明元数据与 Kestra 实际策略 |
+
+上表是当前已接入项目清单，不是扩展能力的封闭清单。RBAC 是当前第一个已验证的
+扩展功能集，不是开发或部署其他扩展的前置依赖。
+
+| 目标 | 阅读入口 |
+|---|---|
+| 不启用 RBAC，先部署宿主 | 下方快速开始与模式 A |
+| 使用当前 RBAC 组合 | “选择是否启用 RBAC”及插件 README |
+| 接入新的扩展功能集 | “接入其他扩展功能集”及 overlay README 的通用扩展接入指南 |
+| 升级共同使用的宿主 | “已有安装升级与恢复验收” |
+
+当前扩展清单与状态见 [扩展功能集清单](docs/extensions.md)。清单只记录接入状态、
+仓库和正式产物入口；业务规则不复制到本 README。
 
 ---
 
@@ -54,7 +69,8 @@ Copy-Item .env.example .env
 
 `KESTRA_IMAGE` 使用镜像 digest（`@sha256:...`）而非 tag，确保每次部署可复现。
 
-`.env.example` 中固定的 digest 对应 `kestra-overlay` 仓库最近一次 CI 全绿并完成推广的构建。随 overlay 仓迭代，新的验证通过后更新此值：
+`.env.example` 中固定的是本仓选定、已完成组合验收的正式宿主 digest，不自动跟随
+宿主最新发布。更新前必须核对所有已启用扩展的公开契约、正式编译输入及组合结果：
 
 ```bash
 # 查看 overlay 仓最新成功的 CI run
@@ -102,13 +118,44 @@ kestra-monorepo/
 | postgres | `postgres-data` | 数据库文件 |
 | kestra | `kestra-data` | 内部存储（storage/queue） |
 
-插件文件放在 `deployment/plugins/`，classpath 扩展放在 `deployment/libs/`。jar 或配置变更后需 `docker compose restart kestra` 重启 JVM。
+任务插件文件放在 `deployment/plugins/`，已登记的 classpath 扩展放在 `deployment/libs/`。
+仅替换 jar 后需 `docker compose restart kestra` 重启 JVM；配置变更使用
+`docker compose up -d` 更新容器配置。
+
+## 接入其他扩展功能集
+
+1. 新增独立 `kestra-plugin-*` 仓并作为本仓 submodule；在该仓 README 定义业务、
+   宿主契约版本、正式产物、配置、启停、数据迁移与卸载边界。不要复制 RBAC 的
+   scope、权限模型或 `KESTRA_RBAC_ENABLED` 作为无关扩展的通用约定。
+2. 根据公开机制选择接入通道：任务/触发器/Runner 插件挂载 `/app/plugins`；
+   需要应用 classpath 与 Micronaut bean 的扩展使用 `/app/libs`；独立服务使用其
+   自有镜像与部署配置。具体边界见 overlay 的
+   [扩展接入指南](kestra-overlay/README.md#通用扩展接入指南)。
+3. classpath 扩展必须已在所选宿主的 `extensions.tsv` 登记文件名，且 executable
+   manifest 已包含对应条目；当前登记的是 `kestra-rbac-authorizer.jar`。挂载其他
+   文件名不会自动注册或装载。需要新条目或公开机制时，先在 overlay 接收、验证
+   并发布，不把业务实现放进宿主。
+4. 扩展只消费已发布宿主产物，独立编译和发布 jar 或镜像。本仓核对其成功 CI、
+   契约、provenance 和 SHA-256，再选择与其他已启用扩展兼容的正式组合。
+   不读取相邻源码、未发布 jar，也不在部署过程中构建宿主。
+5. 按扩展公开说明为 Compose 增加必要挂载、配置或服务，并同步 `.env.example`
+   的非秘密配置说明。当前 Compose 只预置已接入组合，不是任意扩展的自动发现或
+   自动安装器；独立服务不属于宿主 classpath 注册表。
+6. 给新组合增加生产流程集成验收：装载、真实登录、允许/拒绝、保存读回、异常、
+   停用/缺组件及适用的撤权、数据迁移和副作用。宿主验证公共机制，扩展仓验证
+   业务与自身 UI，本仓验证正式产物组合。新增扩展也必须验证与已有扩展同时启用
+   时的行为；单独通过不能证明任意组合兼容。
+
+当前没有通用的任意扩展发布选择器。下方 `select-application-project-release.py`
+及应用组验收脚本专用于 RBAC；新扩展必须提供自己的正式产物核验与集成用例，
+不能将 RBAC 矩阵通过写成新扩展已验收。
 
 ---
 
 ## 选择是否启用 RBAC
 
 本仓支持两种部署模式，通过 `.env` 中的 `KESTRA_RBAC_ENABLED` 切换。
+模式 A/B 只描述当前组合是否启用 RBAC，不是对所有未来扩展的分类。
 两种模式使用相同的 `kestra-overlay` 镜像和宿主补丁。模式 A 不要求装载
 `kestra-plugin-rbac` 插件 jar；模式 B 装载该 jar 并开启 RBAC。
 模式 A 不是未应用 overlay 补丁的上游镜像。宿主修复必须兼容两种模式。
@@ -183,9 +230,9 @@ Copy-Item .work/rbac-release/build/libs/kestra-rbac-authorizer.jar deployment/li
 
 已经完成安装的数据库不会再次开放首装或自动补授管理员。不得删除安装凭据或清空用户来重复首装；已有部署按插件公开维护流程处理，先保护原数据。
 
-> 当前正式宿主 `6eae01a` 的 CI `45534389284` 五个 job 成功，镜像 digest
-> `4dfc014b6ae64584e52af6ba310a4feda679bc4c3f9c10185d4919c541036193` 已推广并下载审计。
-> 插件 `7e93e7d` 消费该正式宿主输入，CI `45540384982` 成功且实际 artifact 已下载审计；
+> 当前选定宿主 `feb817c` 的 CI `45568995024` 五个 job 成功，镜像 digest
+> `91d6726df4d13535af22b16937e7e6ee21a5f5a4058534d31d3dfd64b6981c7e` 已推广并下载审计。
+> 插件 `71ec20c` 消费该正式宿主输入，CI `45576881132` 成功且实际 artifact 已下载审计；
 > 后端332、PostgreSQL115、生命周期30、声明升级9、页面960均通过，部署前核对 jar 哈希。
 > 根仓 CI 独立验证正式组合的生产流程、授权范围与副作用；不能用独立仓 CI 代替。
 > AI 入口需要显式租户 READ/EXECUTE；普通资源的全域读取不隐含执行、输出或租户级功能授权。
@@ -210,7 +257,8 @@ CI `44423330738` 正式发布。宿主首屏与详情修复及插件兼容输入
 
 ## 验收测试
 
-完整组合验收入口（macOS / Linux；GitHub CLI 须能读取两个独立仓的 Actions）：
+以下是当前 RBAC 组合的完整验收入口，不是任意扩展的通用验收命令。
+macOS / Linux 执行；GitHub CLI 须能读取对应两个独立仓的 Actions：
 
 ```bash
 # 安装与 CI 相同的浏览器驱动；Linux 系统依赖可使用 install --with-deps chromium。
