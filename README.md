@@ -267,6 +267,7 @@ macOS 长时间本地验收时，在验收命令前加 `caffeinate -dimsu`，使
 | [docs/rbac-ui-contract.md](docs/rbac-ui-contract.md) | RBAC UI 授权契约 |
 | [docs/access-control-ui-requirements.md](docs/access-control-ui-requirements.md) | 访问控制管理 UI 需求规格 |
 | [docs/rbac-onboarding-experience.md](docs/rbac-onboarding-experience.md) | RBAC 首次安装使用流程与验收条件 |
+| [docs/amis-apps-requirements.md](docs/amis-apps-requirements.md) | AMIS Apps 扩展功能集需求基线 |
 | [docs/upstream-upgrade-acceptance.md](docs/upstream-upgrade-acceptance.md) | 上游升级、正式输入与模式 A/B 一致恢复验收 |
 | [docs/rbac-acceptance.md](docs/rbac-acceptance.md) | 组合验收记录（历史） |
 | [implementation-gap-report.md](implementation-gap-report.md) | 实施差异报告（历史） |
