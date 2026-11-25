@@ -244,7 +244,8 @@ REST56、集成检查147、生产UI88，失败/跳过/未运行均0。独立升�
 实际下载审计。正式镜像由 `.env.example` 固定，jar SHA和下载命令见根README。
 宿主双架构provenance的 completeness=false 限制保留。默认new-install明确排除14项
 legacy-migration，不把它们计为通过；schema2 declaration-upgrade9项在正式插件PG门通过。
-本次未新增Playground补丁。后续正式 v2.0.11 模式A/B真实浏览器复测均复现未保存流程
+**当前合并的上游 v2.0.11 尚未修复 Playground 卡灰，本次 overlay 未回移修复。**
+正式 v2.0.11 模式A/B真实浏览器复测均复现未保存流程
 运行确认后卡灰、同会话跨流程仍灰及刷新恢复，详见
 `docs/playground-run-task-stuck-disabled.md`；不将此既有缺陷计为升级修复成果。
 模式B未登记的五类REST执行控制保持403，详见前述范围说明。
