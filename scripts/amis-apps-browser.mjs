@@ -11,6 +11,7 @@ export function amisBrowserDocument() {
 
 export function amisLoginOrPageReady({origin, path, access, deniedPath, denialText}) {
   const visible = node => Boolean(node?.getClientRects().length) && getComputedStyle(node).visibility !== 'hidden'
+  if (!document.body) return false
   if (location.origin !== origin) return false
   if (access === 'zero' && location.pathname === deniedPath) return typeof denialText === 'string' && Boolean(denialText.trim()) && document.body.innerText.includes(denialText) && [...document.querySelectorAll('a[href="/oidc/logout"]')].filter(visible).length === 1 && ![...document.querySelectorAll('input[name="name"]')].some(visible)
   if (location.pathname === '/oidc/login') return visible(document.querySelector('input[name="username"]')) && visible(document.querySelector('input[name="password"]')) && visible(document.querySelector('button[type="submit"]'))
@@ -33,6 +34,7 @@ export function amisResultReady({origin, path, resultText}) {
 
 export function amisDeniedPageReady({origin, path, denialText}) {
   const visible = node => Boolean(node?.getClientRects().length) && getComputedStyle(node).visibility !== 'hidden'
+  if (!document.body) return false
   return location.origin === origin && location.pathname === path && document.body.innerText.includes(denialText) && [...document.querySelectorAll('a[href="/oidc/logout"]')].filter(visible).length === 1 && ![...document.querySelectorAll('input[name="name"]')].some(visible)
 }
 

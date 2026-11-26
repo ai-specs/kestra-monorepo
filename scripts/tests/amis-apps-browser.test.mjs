@@ -44,7 +44,7 @@ function fakeAdapter(settings = {}) {
       location: Object.freeze({href: state.href, origin: url.origin, pathname: url.pathname, search: url.search, hash: url.hash}),
       performance: Object.freeze({timeOrigin: settings.equalTimeOrigin ? 1 : state.generation}),
       getComputedStyle: () => Object.freeze({visibility: 'visible'}),
-      document: Object.freeze({title: 'FAKE unit document', body: Object.freeze({innerText: denied ? (state.denialText ?? settings.denialText ?? 'Access denied: no grants') : state.result}), querySelector: selector => lookup(selector)[0] ?? null, querySelectorAll: lookup})
+      document: Object.freeze({title: 'FAKE unit document', body: state.bodyMissing ? null : Object.freeze({innerText: denied ? (state.denialText ?? settings.denialText ?? 'Access denied: no grants') : state.result}), querySelector: selector => lookup(selector)[0] ?? null, querySelectorAll: lookup})
     }
     return vm.runInNewContext(`'use strict'; (${callback.toString()})`, sandbox)(argument)
   }
@@ -268,4 +268,27 @@ test('FAKE state machine: existing admin logout that retains session fails befor
     assert(!fixture.calls.some(row=>row[0]==='fill'&&row[1]==='input[name="password"]'))
     return true
   })
+})
+
+test('denial readiness waits through null body navigation and only accepts final same-origin denial document', () => {
+  const fixture = fakeAdapter()
+  fixture.state.href = base + '/ui/access-denied'
+  const denied = {origin:base,path:'/ui/access-denied',denialText:'Access denied: no grants'}
+  const login = {origin:base,path,access:'zero',deniedPath:'/ui/access-denied',denialText:denied.denialText}
+  fixture.state.bodyMissing = true
+  assert.equal(fixture.evaluate(amisDeniedPageReady,denied),false)
+  assert.equal(fixture.evaluate(amisLoginOrPageReady,login),false)
+  fixture.state.bodyMissing = false
+  assert.equal(fixture.evaluate(amisDeniedPageReady,denied),true)
+  assert.equal(fixture.evaluate(amisLoginOrPageReady,login),true)
+  fixture.state.href = 'https://wrong-origin.invalid/ui/access-denied'
+  assert.equal(fixture.evaluate(amisDeniedPageReady,denied),false)
+  assert.equal(fixture.evaluate(amisLoginOrPageReady,login),false)
+  fixture.state.href = base + '/wrong-denial'
+  assert.equal(fixture.evaluate(amisDeniedPageReady,denied),false)
+  assert.equal(fixture.evaluate(amisLoginOrPageReady,login),false)
+  fixture.state.href = base + '/ui/access-denied'
+  fixture.state.denialText = 'Different failure'
+  assert.equal(fixture.evaluate(amisDeniedPageReady,denied),false)
+  assert.equal(fixture.evaluate(amisLoginOrPageReady,login),false)
 })
