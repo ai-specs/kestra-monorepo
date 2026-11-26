@@ -5,6 +5,9 @@ import {amisFixtureFlow} from '../amis-apps-fixture.mjs'
 
 // Explicit synthetic transport. Nothing in this suite connects to a service.
 const base='https://security-unit.invalid:18129'
+// Explicit synthetic native problem fixture, not a response learned from a test server.
+const nativeValidationProblem = () => ({type:'https://kestra.io/docs/api-reference/problems/validation-failed',
+  title:'Validation failed',detail:'triggers[0].schema: Invalid schema reference'})
 const apiPath='/company.amis.a/Greeting.v1/apis/greet'
 const password='SYNTHETIC-PRIVATE-ACCOUNT-PASSWORD'
 const sources={database:'b'.repeat(64),queue:'c'.repeat(64),storage:'d'.repeat(64)}
@@ -19,8 +22,8 @@ function fixture(mode='B',fault={}) {
       {kind:'output-access',seeded:true,namespace:'company.amis.a',flowId:'Greeting.v1',apiId:'greet',executionId:'output-denied-exec',path:apiPath+'/executions/output-denied-exec',expectedStatus:403,marker:'PRIVATE-DENIED-OUTPUT-MARKER'}],
     schemaCases:[
       {kind:'sibling',id:'sibling-schema',seeded:true,path:'/company.amis.a/Greeting.v1/schemas/sibling',expectedStatus:403},
-      {kind:'authority',id:'authority-schema',seeded:true,phase:'declaration-validation',path:'/api/v1/main/flows',source:amisFixtureFlow({namespace:'company.amis.a',flowId:'invalid-authority'}).replace('nsfile:///amis/home.json','nsfile://company.amis.b/amis/home.json'),expectedStatus:400},
-      {kind:'traversal',id:'traversal-schema',seeded:true,phase:'declaration-validation',path:'/api/v1/main/flows',source:amisFixtureFlow({namespace:'company.amis.a',flowId:'invalid-traversal'}).replace('nsfile:///amis/home.json','nsfile:///amis/../private.json'),expectedStatus:400},
+      {kind:'authority',id:'authority-schema',seeded:true,phase:'declaration-validation',path:'/api/v1/main/flows',source:amisFixtureFlow({namespace:'company.amis.a',flowId:'invalid-authority'}).replace('nsfile:///amis/home.json','nsfile://company.amis.b/amis/home.json'),expectedStatus:422},
+      {kind:'traversal',id:'traversal-schema',seeded:true,phase:'declaration-validation',path:'/api/v1/main/flows',source:amisFixtureFlow({namespace:'company.amis.a',flowId:'invalid-traversal'}).replace('nsfile:///amis/home.json','nsfile:///amis/../private.json'),expectedStatus:422},
       {kind:'invalid-schema',id:'invalid-json-schema',seeded:true,path:'/company.amis.a/Greeting.v1/schemas/invalid',expectedStatus:400}]
   }
   const counter={generation:'SYNTHETIC-process-1',integrity:'ok',readiness:{flowRepositoryListener:true,flowMetaStoreListener:true,storageListener:true,namespaceFactoryListener:true,authorizationListener:true},flowLookup:0,flowMeta:0,schemaStorage:0,namespaceResolve:0,flowAuthorization:0}
@@ -119,7 +122,7 @@ function fixture(mode='B',fault={}) {
     assert.equal(options.headers['Content-Type'],'application/x-yaml')
     assert(target.schemaCases.some(row=>row.phase==='declaration-validation'&&row.source===options.body),'Exact malformed declaration must be submitted')
     requests.push({path,method:'POST',body:options.body,transport:'SYNTHETIC-authenticated-author'});sequence++
-    return response(fault.wrongSchemaStatus??400)
+    return Response.json(nativeValidationProblem(),{status:fault.wrongSchemaStatus??422})
   }}
   return {options:{mode,base,account,clientFactory,publicTransport,effects,probe,target,schemaAdminClient,persist:async report=>recorded.push(report)},requests,recorded,transitions,get sequence(){return sequence}}
 }
@@ -210,7 +213,7 @@ test('SYNTHETIC malformed schema references use authenticated authoring validati
     assert.equal(path,'/api/v1/main/flows');assert.equal(options.method,'POST')
     assert.equal(options.headers['Content-Type'],'application/x-yaml')
     assert(options.body.startsWith('id: invalid-'));authoring.push(options.body)
-    return new Response('',{status:400})
+    return Response.json(nativeValidationProblem(),{status:422})
   }}
   const report=await runAmisSecurityCases(f.options)
   assert.equal(report.completed,true);assert.equal(authoring.length,2)
@@ -221,20 +224,20 @@ test('SYNTHETIC declaration rejection cannot be replaced by an authorization err
   const f=fixture(),row=f.options.target.schemaCases.find(row=>row.kind==='authority')
   Object.assign(row,{phase:'declaration-validation',path:'/api/v1/main/flows',source:'id: invalid\n',expectedStatus:403})
   f.options.schemaAdminClient={request:async()=>new Response('',{status:403})}
-  await assert.rejects(runAmisSecurityCases(f.options),/fail validation, not authorization/)
+  await assert.rejects(runAmisSecurityCases(f.options),/native validation-failed response, not authorization/)
   assert.equal(f.requests.length,0)
 })
 
 // Separate authoring and runtime state. A missing route is always 404; it never
 // borrows the caller's expectedStatus. No service or production parser is used.
-function schemaPhaseFixture(mode='B',{authorStatus=400,authorMutation=false,runtimeFailure}={}) {
+function schemaPhaseFixture(mode='B',{authorStatus=422,authorMutation=false,runtimeFailure,authorProblem}={}) {
   const f=fixture(mode), events=[], submitted=[], stored=new Map()
   const authoritySource=amisFixtureFlow({namespace:'company.amis.a',flowId:'authority-rejected'}).replace('nsfile:///amis/home.json','nsfile://company.amis.b/amis/sibling.json')
   const traversalSource=authoritySource.replace('authority-rejected','traversal-rejected').replace('nsfile://company.amis.b/amis/sibling.json','nsfile:///amis/../private.json')
   const declarations=[
     {id:'authority-declaration',kind:'authority',source:authoritySource},
     {id:'traversal-declaration',kind:'traversal',source:traversalSource},
-  ].map(row=>({...row,phase:'declaration-validation',seeded:true,path:'/api/v1/main/flows',expectedStatus:400}))
+  ].map(row=>({...row,phase:'declaration-validation',seeded:true,path:'/api/v1/main/flows',expectedStatus:422}))
   // These two explicit stored resources are distinct from malformed declarations.
   const runtime=new Map([
     ['/company.amis.a/sibling-reference/schemas/home',{kind:'sibling',status:403,bytes:'SYNTHETIC sibling resource exists'}],
@@ -267,7 +270,7 @@ function schemaPhaseFixture(mode='B',{authorStatus=400,authorMutation=false,runt
     assert.match(options.body,/schema: nsfile:/)
     submitted.push(options.body);events.push({phase:'declaration-validation',id:declaration.id,path,method:'POST'})
     if(authorMutation||authorStatus===200)stored.set(declaration.id,options.body)
-    return new Response('',{status:authorStatus})
+    return Response.json(authorProblem??nativeValidationProblem(),{status:authorStatus})
   }}
   const observe=f.options.effects.observeDenied
   f.options.effects.observeDenied=async(action,verify,options)=>{
@@ -278,14 +281,14 @@ function schemaPhaseFixture(mode='B',{authorStatus=400,authorMutation=false,runt
   return {...f,events,submitted,stored,runtime,declarations,authorSession}
 }
 
-for(const mode of ['A','B'])test(`SYNTHETIC ${mode}: malformed declarations POST400 and separate existing runtime sibling/invalid evidence`,async()=>{
+for(const mode of ['A','B'])test(`SYNTHETIC ${mode}: native malformed declarations POST422 and separate existing runtime sibling/invalid evidence`,async()=>{
   const f=schemaPhaseFixture(mode),report=await runAmisSecurityCases(f.options)
   assert.equal(report.completed,true);assert.equal(f.submitted.length,2);assert.equal(f.stored.size,0)
   assert.deepEqual(f.submitted,f.declarations.map(row=>row.source))
   assert.deepEqual(f.events.map(row=>row.phase),['declaration-validation','declaration-validation','runtime','runtime'])
   const checks=report.cases[5].observations
   assert.deepEqual(checks.map(row=>[row.label,row.method,row.status,row.phase]),[
-    ['authority-declaration','POST',400,'declaration-validation'],['traversal-declaration','POST',400,'declaration-validation'],
+    ['authority-declaration','POST',422,'declaration-validation'],['traversal-declaration','POST',422,'declaration-validation'],
     ['runtime-sibling','GET',403,'runtime'],['runtime-invalid-json','GET',400,'runtime'],
   ])
   for(const row of checks){assert.equal(row.completed,true);assert.equal(row.sideEffects.windowMs,5000);assert.equal(row.sideEffects.samples.at(-1).elapsedMs,5000);assert(row.before.generation===row.after.generation)}
@@ -293,7 +296,7 @@ for(const mode of ['A','B'])test(`SYNTHETIC ${mode}: malformed declarations POST
   const text=JSON.stringify(f.recorded);assert(!text.includes('SYNTHETIC-ADMIN-CSRF'));assert(!text.includes(f.declarations[0].source))
 })
 
-for(const status of [200,302,403,404,422,503])test(`SYNTHETIC authoring ${status} cannot stand in for actual declaration POST400`,async()=>{
+for(const status of [200,302,400,403,404,500,503])test(`SYNTHETIC authoring ${status} cannot stand in for native declaration POST422`,async()=>{
   const f=schemaPhaseFixture('B',{authorStatus:status})
   await assert.rejects(runAmisSecurityCases(f.options),error=>{
     assert.equal(error.report.counts.passed,5);assert.equal(error.report.cases[5].status,'failed')
@@ -309,7 +312,7 @@ for(const kind of ['sibling','invalid-schema'])test(`SYNTHETIC missing ${kind} r
   const f=schemaPhaseFixture('B',{runtimeFailure:kind})
   await assert.rejects(runAmisSecurityCases(f.options),error=>{
     const rows=error.report.cases[5].observations
-    assert(rows.slice(0,2).every(row=>row.status===400&&row.method==='POST'&&row.phase==='declaration-validation'&&row.completed))
+    assert(rows.slice(0,2).every(row=>row.status===422&&row.method==='POST'&&row.phase==='declaration-validation'&&row.completed))
     assert.equal(rows.at(-1).status,404);assert.equal(rows.at(-1).completed,false)
     assert.equal(rows.at(-1).method,'GET');assert.equal(error.report.counts.passed,5)
     return true
@@ -320,7 +323,7 @@ test('SYNTHETIC declaration rejection with persisted mutation fails three-source
   const f=schemaPhaseFixture('B',{authorMutation:true})
   await assert.rejects(runAmisSecurityCases(f.options),error=>{
     assert.match(error.message,/Denied database missing or changed/)
-    assert.equal(error.report.cases[5].observations[0].status,400);assert.equal(error.report.counts.passed,5)
+    assert.equal(error.report.cases[5].observations[0].status,422);assert.equal(error.report.counts.passed,5)
     return true
   })
   assert.equal(f.stored.size,1)
@@ -329,6 +332,25 @@ test('SYNTHETIC declaration phase requires supplied authenticated author client 
   const f=schemaPhaseFixture();delete f.options.schemaAdminClient
   await assert.rejects(runAmisSecurityCases(f.options),/authenticated schema author/)
   assert.equal(f.requests.length,0);assert.equal(f.events.length,0)
+})
+
+for(const [name,change] of [
+  ['wrong problem type',{type:'https://kestra.io/docs/api-reference/problems/unauthorized'}],
+  ['wrong problem title',{title:'Forbidden'}],
+  ['wrong rejected field',{detail:'namespace: unrelated validation failure'}],
+  ['missing detail',{detail:undefined}],
+])test('SYNTHETIC native422 '+name+' cannot stand in for schema declaration validation',async()=>{
+  const f=schemaPhaseFixture('B',{authorProblem:{...nativeValidationProblem(),...change}})
+  await assert.rejects(runAmisSecurityCases(f.options),error=>{
+    assert.equal(error.report.counts.passed,5)
+    const row=error.report.cases[5].observations.at(-1)
+    assert.equal(row.status,422);assert.equal(row.method,'POST');assert.equal(row.completed,false)
+    assert.equal(error.report.cases[5].status,'failed')
+    return true
+  })
+  assert.equal(f.submitted.length,1);assert.equal(f.stored.size,0)
+  assert.equal(f.events.filter(row=>row.phase==='runtime').length,0)
+  assert.equal(f.recorded.at(-1).completed,false)
 })
 
 test('SYNTHETIC regression: missing runtime404 must not count as malformed declaration validation',async()=>{

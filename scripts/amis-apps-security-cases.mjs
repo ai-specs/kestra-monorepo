@@ -92,7 +92,7 @@ export async function runAmisSecurityCases({mode,base,account,clientFactory=()=>
       assert.equal(row.path, '/api/v1/main/flows')
       assert.equal(typeof schemaAdminClient?.request, 'function', 'Explicit authenticated schema author required')
       assert(typeof row.source === 'string' && row.source.length > 0 && row.source.length <= 1048576)
-      assert.equal(row.expectedStatus, 400, 'Malformed declarations must fail validation, not authorization')
+      assert.equal(row.expectedStatus, 422, 'Malformed declarations must use the native validation-failed response, not authorization')
     } else assert(row.phase === undefined || row.phase === 'runtime', 'Unknown schema rejection phase')
   }
   assert.equal(new Set(target.schemaCases.map(row=>row.id)).size,target.schemaCases.length)
@@ -133,7 +133,7 @@ export async function runAmisSecurityCases({mode,base,account,clientFactory=()=>
     return {client,identity:{subject:actor.username,credentialsSubmitted:true,rbacClaim:'Not required for Mode A'}}
   }
   let row
-  const deny=async({label,path=apiPath,method='POST',status,send,forbiddenMarker,marker})=>{
+  const deny=async({label,path=apiPath,method='POST',status,send,forbiddenMarker,marker,nativeDeclarationValidation=false})=>{
     const observation={label,path:requestPath(path),method,expectedStatus:status,completed:false}
     if(method==='POST')observation.marker=marker
     row.observations.push(observation)
@@ -142,6 +142,13 @@ export async function runAmisSecurityCases({mode,base,account,clientFactory=()=>
       const result=await effects.observeDenied(send,async response=>{
         observation.status=response.status
         assert.equal(response.status,status,`Unexpected denial status for ${label}`)
+        if (nativeDeclarationValidation) {
+          const problem=await response.json()
+          assert.equal(problem.type,'https://kestra.io/docs/api-reference/problems/validation-failed')
+          assert.equal(problem.title,'Validation failed')
+          assert(typeof problem.detail==='string' && problem.detail.includes('triggers[0].schema:'), 'Schema declaration must be the rejected field')
+          observation.validation={type:problem.type,field:'triggers[0].schema'}
+        } else
         if(forbiddenMarker) {
           const text=await response.text();assert(text.length<=1048576,'Denial response too large')
           let decoded='';try{decoded=JSON.stringify(JSON.parse(text))}catch{}
@@ -181,7 +188,7 @@ export async function runAmisSecurityCases({mode,base,account,clientFactory=()=>
         }
         if(name===names[5])for(const targetCase of target.schemaCases) {
           const declaration = targetCase.phase === 'declaration-validation'
-          await deny({label:targetCase.id,path:targetCase.path,method:declaration?'POST':'GET',status:targetCase.expectedStatus,
+          await deny({label:targetCase.id,path:targetCase.path,method:declaration?'POST':'GET',status:targetCase.expectedStatus,nativeDeclarationValidation:declaration,
             send:()=> declaration
               ? schemaAdminClient.request(targetCase.path,{method:'POST',headers:{'Content-Type':'application/x-yaml'},body:targetCase.source})
               : client.request(targetCase.path,{method:'GET',headers:{Accept:'application/json'}})})

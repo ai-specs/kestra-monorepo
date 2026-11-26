@@ -338,7 +338,7 @@ export async function runAmisP0(options, dependencies={}) {
     const schemaCases=[
       {id:'sibling',kind:'sibling',path:`/${target.namespace}/missing-schema/schemas/home`,expectedStatus:404,seeded:true},
       {id:'invalid-schema',kind:'invalid-schema',path:`/${target.namespace}/invalid-schema/schemas/home`,expectedStatus:400,seeded:true},
-      ...[['authority','nsfile://evil/home.json'],['traversal','nsfile:///../home.json']].map(([kind,uri])=>({id:kind,kind,phase:'declaration-validation',path:'/api/v1/main/flows',expectedStatus:400,seeded:true,
+      ...[['authority','nsfile://evil/home.json'],['traversal','nsfile:///../home.json']].map(([kind,uri])=>({id:kind,kind,phase:'declaration-validation',path:'/api/v1/main/flows',expectedStatus:422,seeded:true,
         source:amisFixtureFlow({namespace:target.namespace,flowId:'invalid-'+kind}).replace('nsfile:///amis/home.json',uri)}))]
     const result={...target,conflictingApiId:'forged-api',markers:Object.fromEntries(['anonymous','missingCsrf','invalidCsrf','crossOrigin','routeIdentity'].map(key=>[key,`p0-${value.toLowerCase()}-${key}`])),
       foreignCases:[{kind:'foreign-execution',...foreign,executionId:other.executionId,path:amisApiPath(target)+'/executions/'+other.executionId,marker,expectedStatus:404,seeded:true},outputCase],schemaCases}

@@ -3,6 +3,7 @@ const check = (condition, message) => { if (!condition) throw new Error(message)
 const counters = ['flowLookup','flowMeta','schemaStorage','storageCalls','namespaceResolve','flowAuthorization']
 const listeners = ['flowRepositoryListener','flowMetaStoreListener','namespaceFactoryListener','storageListener','authorizationListener']
 const digest = bytes => createHash('sha256').update(bytes).digest('hex')
+const noStore = value => typeof value === 'string' && value.split(',').length > 0 && value.split(',').every(part => part.trim().toLowerCase() === 'no-store')
 const safePath = path => typeof path === 'string' && path.startsWith('/') && !/[?%#\\\s]/.test(path) && !path.includes('//') && !path.split('/').some(part => part === '.' || part === '..')
 const nativePaths = ['/ui/main/page/x','/ui-extensions/app/pages/x','/api/v1/api/x','/oidc/app/pages/x','/oauth/app/pages/x','/.well-known/app/pages/x','/static/app/pages/x','/swagger/app/pages/x','/ping']
 export function classifyAmisNativePath(path) {
@@ -21,8 +22,15 @@ async function run(options, name, action, zero) {
   const persist = async () => options.persist(structuredClone(report))
   const step = async (id, fn) => {
     const row = {id,status:'running'};report.checks.push(row)
-    try { row.evidence = await fn();row.status='passed';await persist() }
-    catch { row.status='failed';throw new Error(id+' failed') }
+    try { row.evidence = await fn(row);row.status='passed';await persist() }
+    catch(error) {
+      row.status='failed'
+      const known=new Set(['Asset status/MIME/cache mismatch','Asset hash mismatch','GET content length mismatch','HEAD mismatch',
+        'Anonymous asset not rejected','Login HTML/JSON substituted','Unsupported HTML attributes','Invalid asset tag reference',
+        'Foreign or non-asset reference','Undeclared HTML asset','Script/CSS tags missing','Unexpected HTML base','Page is not HTML'])
+      if(known.has(error.message))row.failure=error.message
+      throw new Error(id+' failed')
+    }
   }
   try {
     check(['A','B'].includes(options.mode) && typeof options.persist === 'function', 'Explicit mode/persist required')
@@ -39,7 +47,7 @@ async function run(options, name, action, zero) {
   return report
 }
 async function get(client,path,method='GET') {
-  return client.request(path,{method,redirect:'manual',signal:AbortSignal.timeout(30_000)})
+  return client.request(path,{method,redirect:'manual',headers:{'Accept-Encoding':'identity'},signal:AbortSignal.timeout(30_000)})
 }
 export async function runAmisNativeCases(options) {
   return run(options,'native-controller-static-oauth-and-alias-precedence',async step=>{
@@ -87,8 +95,10 @@ export async function runAmisAssetCases(options) {
         const attrs=attributes(match[0]),script=match[1].toLowerCase()==='script'
         if(script && !Object.hasOwn(attrs,'src'))continue
         if(!script && !['stylesheet','modulepreload','preload'].includes(attrs.rel))continue
-        const raw=attrs[script?'src':'href'];check(typeof raw==='string' && !/[?%#\\&\s]/.test(raw)
-          && !raw.split('/').some(part=>part==='.'||part==='..') && !raw.replace(/^https?:\/\//,'').includes('//'),'Invalid asset tag reference')
+        const raw=attrs[script?'src':'href']
+        const relative=typeof raw==='string' && raw.startsWith('./assets/') ? raw.slice(2) : raw
+        check(typeof relative==='string' && !/[?%#\\&\s]/.test(relative)
+          && !relative.split('/').some(part=>part==='.'||part==='..') && !relative.replace(/^https?:\/\//,'').includes('//'),'Invalid asset tag reference')
         const url=new URL(raw,options.base+prefix)
         check(url.origin===options.base && safePath(url.pathname) && url.pathname.startsWith(assetPrefix),'Foreign or non-asset reference')
         const key=url.pathname.slice(prefix.length);check(Object.hasOwn(manifest.assets,key),'Undeclared HTML asset');references.push(key)
@@ -96,19 +106,22 @@ export async function runAmisAssetCases(options) {
       check(references.some(key=>/javascript/.test(manifest.assets[key].contentType)) && references.some(key=>/text\/css/.test(manifest.assets[key].contentType)),'Script/CSS tags missing')
       return {path:prefix+'pages/'+pageId,status:response.status,references}
     })
-    for(const [key,descriptor]of entries) await step(key,async()=>{
+    for(const [key,descriptor]of entries) await step(key,async row=>{
       const path=prefix+key,response=await get(options.authClient,path),bytes=Buffer.from(await response.arrayBuffer())
-      check(response.status===200 && response.headers.get('content-type')===descriptor.contentType && response.headers.get('cache-control')==='no-store','Asset status/MIME/cache mismatch')
+      row.observed={path,status:response.status,contentType:response.headers.get('content-type'),
+        cacheControl:response.headers.get('cache-control'),contentLength:response.headers.get('content-length'),bytes:bytes.length,sha256:digest(bytes)}
+      check(response.status===200 && response.headers.get('content-type')===descriptor.contentType && noStore(response.headers.get('cache-control')),'Asset status/MIME/cache mismatch')
       check(digest(bytes)===descriptor.sha256,'Asset hash mismatch')
       if(/javascript|text\/css/.test(descriptor.contentType))check(!/^\s*(?:<!doctype|<html|<form|[{[])/i.test(bytes.toString('utf8')),'Login HTML/JSON substituted')
       const length=response.headers.get('content-length');check(length===String(bytes.length),'GET content length mismatch')
-      const head=await get(options.authClient,path,'HEAD');check(head.status===200 && head.headers.get('content-length')===length && head.headers.get('content-type')===descriptor.contentType && head.headers.get('cache-control')==='no-store' && (await head.arrayBuffer()).byteLength===0,'HEAD mismatch')
+      const head=await get(options.authClient,path,'HEAD');check(head.status===200 && head.headers.get('content-length')===length && head.headers.get('content-type')===descriptor.contentType && noStore(head.headers.get('cache-control')) && (await head.arrayBuffer()).byteLength===0,'HEAD mismatch')
       const anonymous=await options.anonymousTransport(options.base+path,{method:'GET',redirect:'manual',credentials:'omit',headers:{},signal:AbortSignal.timeout(30_000)})
       check(anonymous.status===401 && !anonymous.headers.get('location'),'Anonymous asset not rejected')
       return {path,status:200,sha256:descriptor.sha256,contentType:descriptor.contentType,bytes:bytes.length,headStatus:head.status,anonymousStatus:anonymous.status}
     })
     for(const suffix of ['assets/','assets/index.html','assets/runtime-manifest.json']) await step('not-public-'+suffix,async()=>{
-      const response=await get(options.authClient,prefix+suffix);check(response.status===404,'Internal asset entry exposed');return {path:prefix+suffix,status:response.status}
+      const expectedStatus = suffix === 'assets/' && options.mode === 'B' ? 403 : 404
+      const response=await get(options.authClient,prefix+suffix);check(response.status===expectedStatus,'Internal asset entry exposed');return {path:prefix+suffix,status:response.status,expectedStatus}
     })
   },false)
 }
