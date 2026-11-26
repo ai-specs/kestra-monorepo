@@ -150,3 +150,20 @@ for(const kind of ['outside','symlink','tag','count','extra','env-image'])test(`
   if(kind==='env-image')f.options.selection.hostImage='ghcr.io/ai-specs/kestra-overlay@sha256:'+'0'.repeat(64)
   await assert.rejects(prepareAmisAppsAcceptance(f.options,f.dependencies));assert.equal(f.downloads.length,0)
 })
+
+test('SYNTHETIC rejects unknown stages and incomplete P1 counts without commands or downloads',async t=>{
+  for(const change of [{stage:undefined},{stage:'P2'},{stage:'p1'},{stage:'P1',expectedJavaTests:374}]){
+    const f=fixture(t);Object.assign(f.options.selection,change)
+    await assert.rejects(prepareAmisAppsAcceptance(f.options,f.dependencies),/Explicit P0 or P1|P1 requires an exact Java/)
+    assert.equal(f.calls.length,0);assert.equal(f.downloads.length,0)
+  }
+})
+
+test('SYNTHETIC P1 selection reaches OCI with P1 and rejects a P0 audit',async t=>{
+  const f=fixture(t);Object.assign(f.options.selection,{stage:'P1',expectedJavaTests:375})
+  let actual
+  const fixtureDownload=f.dependencies.downloadAmis
+  f.dependencies.downloadAmis=async(...args)=>{actual=structuredClone(args[2]);args[2]={...args[2],stage:'P0',expectedTests:355};return fixtureDownload(...args)}
+  await assert.rejects(prepareAmisAppsAcceptance(f.options,f.dependencies),error=>{assert.equal(error.cause?.actual,'P0');assert.equal(error.cause?.expected,'P1');return true})
+  assert.equal(actual.stage,'P1');assert.equal(actual.expectedTests,375)
+})

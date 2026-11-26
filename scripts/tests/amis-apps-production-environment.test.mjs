@@ -112,7 +112,7 @@ function setup(t, config = {}) {
       assert(path.startsWith('/api/v1/main/flows/'));return Response.json(flows.get(path.slice('/api/v1/main/flows/'.length)))
     }
   })
-  const env=createAmisProductionEnvironment({directory:join(parent,'run'),rootDirectory:resolve('.'),selected,
+  const env=createAmisProductionEnvironment({directory:join(parent,'run'),rootDirectory:resolve('.'),selected,...(config.pollTimeoutMs!==undefined?{pollTimeoutMs:config.pollTimeoutMs}:{}),
     transport:{execFileSync,managerRunner,effectsRunner,clientFactory,fetch:async()=>Response.json({issuer:base}),
       provisionActors:async()=>({private:{actors:[]},public:{transport:'explicit-test-double'}})}})
   return {env,queries,files,flows,identities,containers,foreign:()=>{foreign=true},wrongDb:()=>{wrongDb=true}}
@@ -249,4 +249,18 @@ test('seed waits for existing dispatch queue inventory to drain before stability
   assert.equal(stableCalls,1)
   assert(f.queries.filter(query=>query.sql.includes('idle_queue_inventory')).length>=2,
     'Idle must query inventory again after dispatch drains')
+})
+
+// The public maintenance setting must reach the actual runtime container;
+// test-only DOM/bootstrap changes cannot establish a production timeout.
+test('bounded plugin poll timeout is passed through Compose to the owned host',async t=>{
+  const f=setup(t,{pollTimeoutMs:5000})
+  try {
+    await f.env.startPostgres();await f.env.useMode('A')
+    const host=[...f.containers.values()].find(c=>c.Config.Labels['com.docker.compose.service']==='kestra')
+    assert(host.Config.Env.includes('KESTRA_AMIS_APPS_POLL_TIMEOUT=PT5S'))
+  } finally {await f.env.manager.cleanup()}
+})
+for(const invalid of [0,-1,300001,0.5,NaN,'5000'])test('reject invalid published poll timeout '+invalid,t=>{
+  assert.throws(()=>setup(t,{pollTimeoutMs:invalid}),/poll timeout/)
 })

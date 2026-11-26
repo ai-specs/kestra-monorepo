@@ -453,7 +453,7 @@ export async function runAmisP0(options, dependencies={}) {
     }
     for(const [path,key]of [[selected.amisJar,'amisJarSha256'],[selected.rbacJar,'rbacJarSha256']])assert.equal(digest(readFileSync(path)),selected[key])
     assert.equal(digest(readFileSync(join(selected.amisReleaseDirectory,'kestra-amis-apps.jar'))),selected.amisJarSha256)
-    const audit=await (dependencies.releaseReader??validateAmisPublishedRelease)(selected.amisReleaseDirectory,{...selected,stage:'P0'})
+    const audit=await (dependencies.releaseReader??validateAmisPublishedRelease)(selected.amisReleaseDirectory,{...selected,stage:selected.stage??'P0'})
     const provenance=JSON.parse(readFileSync(join(selected.amisReleaseDirectory,'release-provenance.json')))
     assert.equal(provenance.commit,selected.amisCommit);assert.equal(provenance.host.image,selected.hostImage);assert.equal(provenance.jarSha256,selected.amisJarSha256)
     const packagedManifest=JSON.parse(execute('python3',['-c',

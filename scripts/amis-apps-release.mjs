@@ -1,3 +1,4 @@
+import {java375Baseline, ui189Baseline, validateP1Reports} from './amis-apps-p1-report-validator.mjs'
 import assert from 'node:assert/strict'
 import {createHash} from 'node:crypto'
 import {existsSync, lstatSync, readFileSync, readdirSync} from 'node:fs'
@@ -55,10 +56,11 @@ print(json.dumps({'members':len(members),'paxCommentMatched':True,'uiSources':le
   return JSON.parse(execFileSync('python3', ['-c', script, path, expectedCommit, JSON.stringify(expectedSources)], {encoding: 'utf8'}))
 }
 
-function xmlCounts(root) {
+function xmlCounts(root, retainJava375 = false) {
   const xml = filesUnder(root).filter(path => /(?:java-results|java-reports)\/.*\.xml$/.test(path))
   const script = `import json,sys,xml.etree.ElementTree as ET
-root=sys.argv[1]; suites_seen=set(); total=fail=error=skip=0
+root=sys.argv[1]; suites_seen=set(); total=fail=error=skip=0; identities={}
+baseline=json.loads(sys.argv[2])
 for rel in json.loads(sys.stdin.read()):
  p=root+'/'+rel; tree=ET.parse(p); suites=[tree.getroot()] if tree.getroot().tag == 'testsuite' else list(tree.getroot())
  for suite in suites:
@@ -70,23 +72,40 @@ for rel in json.loads(sys.stdin.read()):
   assert all(int(suite.attrib.get(field,'0')) == 0 for field in ('failures','errors','skipped')), rel+': nonzero JUnit result header'
   for case in cases:
    fail += len(case.findall('failure')); error += len(case.findall('error')); skip += len(case.findall('skipped'))
+  for case in cases:
+   key=json.dumps([suite.attrib.get('name'),case.attrib.get('classname'),case.attrib.get('name')],ensure_ascii=False)
+   identities[key]=identities.get(key,0)+1
   total += len(cases)
+for suite,classname,name,count in baseline:
+ assert identities.get(json.dumps([suite,classname,name],ensure_ascii=False),0)>=count, 'original Java baseline case missing: '+str([suite,classname,name])
 print(json.dumps({'xmlFiles':len(json.loads(sys.stdin.read())) if False else len(${JSON.stringify(xml)}),'tests':total,'failures':fail,'errors':error,'skipped':skip}))`
-  return JSON.parse(execFileSync('python3', ['-c', script, root,], {input: JSON.stringify(xml), encoding: 'utf8'}))
+  return JSON.parse(execFileSync('python3', ['-c', script, root, JSON.stringify(retainJava375 ? java375Baseline : [])], {input: JSON.stringify(xml), encoding: 'utf8'}))
 }
 
-function unitCounts(root, expected) {
+export function unitCounts(root, expected, retainP0Baseline = false) {
   const path = join(root, 'ui-reports/unit.xml')
   assert(existsSync(path), 'ui-reports/unit.xml is missing')
-  const script = `import sys,xml.etree.ElementTree as ET
+  const script = `import sys,json,xml.etree.ElementTree as ET
 root=ET.parse(sys.argv[1]).getroot(); assert root.tag == 'testsuites', 'unit.xml root must be testsuites'
-seen=set(); cases=list(root.findall('testcase')); assert len(cases)==int(sys.argv[2]), 'unit testcase count differs'
+def canonical(name):
+ return name.replace('&quot;',chr(34)).replace('&apos;',chr(39))
+seen=set(); normalized=set(); changes=[]; cases=list(root.findall('testcase')); assert len(cases)==int(sys.argv[2]), 'unit testcase count differs'
 for case in cases:
- ident=case.attrib.get('classname','')+'#'+case.attrib.get('name',''); assert ident not in seen, 'duplicate unit testcase: '+ident; seen.add(ident)
+ raw=(case.attrib.get('classname',''),case.attrib.get('name','')); ident=(raw[0],canonical(raw[1]))
+ assert raw not in seen, 'duplicate raw unit testcase: '+str(raw); seen.add(raw)
+ assert ident not in normalized, 'canonical unit testcase collision: '+str(ident); normalized.add(ident)
+ if raw!=ident:changes.append({'classname':raw[0],'raw':raw[1],'canonical':ident[1]})
  assert not case.findall('failure') and not case.findall('error') and not case.findall('skipped'), 'unit testcase has failure/error/skipped'
-print(len(cases))`
-  const count = Number(execFileSync('python3', ['-c', script, path, String(expected)], {encoding: 'utf8'}).trim())
-  return {testcases: count, failures: 0, errors: 0, skipped: 0}
+baseline_raw=set();baseline_canonical=set()
+for classname,name in json.loads(sys.argv[3]):
+ raw=(classname,name);ident=(classname,canonical(name))
+ assert raw not in baseline_raw and ident not in baseline_canonical, 'baseline identity collision'
+ baseline_raw.add(raw);baseline_canonical.add(ident)
+ assert ident in normalized, 'original UI baseline case missing: '+str([classname,name])
+print(json.dumps({'testcases':len(cases),'normalization':{'rule':'one-layer quot/apos in testcase name only','changed':len(changes),'changes':changes,'baselineSource':'formal AMIS 68005440/sourceCI45807945363 unit.xml SHA256 1403da2d7a47b2f91f82b16c5c2eccdd2fc78d0605b8be9d7f347b6376b81366'}}))`
+  const result = JSON.parse(execFileSync('python3', ['-c', script, path, String(expected), JSON.stringify(retainP0Baseline ? ui189Baseline : [])], {encoding: 'utf8'}))
+  return {...result, failures: 0, errors: 0, skipped: 0}
+
 }
 
 function assertJar(root, uiInputs) {
@@ -114,10 +133,19 @@ const runtimeNamesTail = ['TEST TRANSPORT schema loading then real renderer', ..
 const UI_RUNTIME_CASES = [...runtimeNames, ...runtimeNamesTail]
 const UI_PREFERENCE_CASES = ['FORMAL preference regression: selected locale survives refresh', 'FORMAL preference regression: selected theme survives refresh']
 
+// P1 is an explicit input stage, but cannot pass until its published report
+// schema and retained named baseline have been reviewed against real artifacts.
+export function validateAmisReleaseExpected(expected) {
+  assert(expected && ['P0', 'P1'].includes(expected.stage), 'Explicit P0 or P1 stage required')
+  if (expected.stage === 'P1') assert(Number.isSafeInteger(expected.expectedTests) && expected.expectedTests >= 375,
+    'P1 requires an exact Java test count retaining at least the original 375 cases')
+  return expected.stage
+}
+
 export function validateAmisPublishedRelease(directory, expected) {
   const root = resolve(directory)
   assert(existsSync(root) && lstatSync(root).isDirectory(), 'release directory is missing')
-  assert.equal(expected.stage, 'P0')
+  validateAmisReleaseExpected(expected)
   assert(COMMIT40.test(expected.amisCommit), 'expected.amisCommit must be a 40-hex commit')
   assert(HOST_IMAGE.test(expected.hostImage), 'expected.hostImage must be immutable formal digest')
   const provenance = loadJson(join(root, 'release-provenance.json'), 'release-provenance.json')
@@ -148,12 +176,14 @@ export function validateAmisPublishedRelease(directory, expected) {
   assert(HEX64.test(uiInputs.sourceSha256), 'UI source hash missing')
   const sourceTar = assertSourceTar(join(root, 'source.tar'), expected.amisCommit, uiInputs.source)
   const jarAudit = assertJar(root, uiInputs)
-  const java = xmlCounts(root)
+  const java = xmlCounts(root, expected.stage === 'P1')
   assert.equal(java.failures, 0); assert.equal(java.errors, 0); assert.equal(java.skipped, 0)
   if (expected.expectedTests !== undefined) assert.equal(java.tests, expected.expectedTests)
   const translations = loadJson(join(root, 'ui-reports/translations.json'), 'translations report')
   assert.equal(translations.passed, true); assert.equal(translations.reports.length, 13); for (const row of translations.reports) assert.deepEqual(row.errors, [])
-  const unit = unitCounts(root, expected.uiUnitTests ?? 189)
+  const unitExpected=expected.stage==='P1'?211:189
+  if(expected.uiUnitTests!==undefined)assert.equal(expected.uiUnitTests,unitExpected,'Stage UI unit count differs')
+  const unit = unitCounts(root, unitExpected, expected.stage==='P1')
   const ui = loadJson(join(root, 'ui-reports/summary.json'), 'ui summary')
   assert.equal(ui.acceptancePassed, true); assert.deepEqual(ui.failures, [])
   assert.deepEqual(ui.cases.map(row => row.name), UI_RUNTIME_CASES)
@@ -168,7 +198,8 @@ export function validateAmisPublishedRelease(directory, expected) {
   assert.equal(ui.chromiumReportSha256, fileHash(join(root, 'ui-reports/chromium.json')))
   assert.equal(uiInputs.sourceSha256, ui.sourceSha256)
   assert.equal(ui.preferences.reportSha256, fileHash(join(root, 'ui-reports/preferences-red.json')))
-  return {stage: 'P0', commit: provenance.commit, java, ui: {runtime: 35, preferences: 2, unit: unit.testcases, skipped: 0, flaky: 0}, sourceTar, jarAudit, files: actualFiles.length}
+  const p1 = expected.stage === 'P1' ? validateP1Reports(root, expected, uiInputs.sourceSha256, provenance) : undefined
+  return {stage: expected.stage, ...(p1 ? {p1} : {}), commit: provenance.commit, java, ui: {runtime: 35, preferences: 2, unit: unit.testcases, skipped: 0, flaky: 0}, sourceTar, jarAudit, files: actualFiles.length}
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {

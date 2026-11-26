@@ -157,3 +157,23 @@ test('nonfixed image, unsafe destination, old directory and malformed expected h
   await assert.rejects(download(image, fixture.destination, expected, fixture), /EEXIST/)
   assert.equal(fixture.calls.length, 0)
 })
+
+test('unknown stages and incomplete P1 expectations reject before OCI side effects',async t=>{
+  for(const change of [{stage:undefined},{stage:'P2'},{stage:'p1'},{stage:'P1'},{stage:'P1',expectedTests:374}]){
+    const f=setup(t)
+    await assert.rejects(download(image,f.destination,{...expected,...change},{runner:f.runner,releaseReader:f.releaseReader}),/Explicit P0 or P1|P1 requires an exact Java/)
+    assert.equal(f.calls.length,0)
+    assert.equal(f.readerCalls(),0)
+  }
+})
+
+test('P1 OCI forwards explicit expectations and retains cleanup when real report gate refuses',async t=>{
+  const f=setup(t),p1={...expected,stage:'P1',expectedTests:375}
+  let seen=false
+  await assert.rejects(download(image,f.destination,p1,{runner:f.runner,releaseReader:(directory,actual)=>{
+    seen=true;assert.equal(directory,join(f.destination,'release'));assert.deepEqual(actual,p1)
+    throw new Error('P1 published report schema not yet accepted')
+  }}),/P1 published report schema not yet accepted/)
+  assert.equal(seen,true)
+  assert.deepEqual(f.calls.at(-1),['rm',id])
+})

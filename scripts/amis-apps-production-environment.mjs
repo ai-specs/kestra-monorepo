@@ -18,7 +18,7 @@ const password = () => randomBytes(24).toString('hex') + 'aA1!'
  * pauses any pre-existing PostgreSQL itself. This module never stops user resources.
  */
 export function createAmisProductionEnvironment({directory, rootDirectory, selected, port = 18129, probeJar,
-  transport = {}}) {
+  transport = {}, pollTimeoutMs}) {
   // Explicit test transport only; production defaults retain real services and ownership checks.
   const execute = transport.execFileSync ?? execFileSync
   const fetchRequest = transport.fetch ?? fetch
@@ -43,6 +43,10 @@ export function createAmisProductionEnvironment({directory, rootDirectory, selec
     '-f', join(root, 'docker-compose.yml'), 'config', '--format', 'json'], {env: environment, encoding: 'utf8'}))
   sourceCompose.services.kestra.environment.KESTRA_CONFIGURATION = sourceCompose.services.kestra.environment.KESTRA_CONFIGURATION
     .replaceAll('$${KESTRA_OIDC_UI_CLIENT_SECRET}', '${KESTRA_OIDC_UI_CLIENT_SECRET}')
+  if(pollTimeoutMs!==undefined) {
+    assert(Number.isSafeInteger(pollTimeoutMs)&&pollTimeoutMs>0&&pollTimeoutMs<=300000,'Bounded published plugin poll timeout required')
+    sourceCompose.services.kestra.environment.KESTRA_AMIS_APPS_POLL_TIMEOUT='PT'+(pollTimeoutMs/1000)+'S'
+  }
   const timestamp = Date.now()
   const inputs = {...selected, project, base, postgresPassword, clientSecret, admin,
     modes: Object.fromEntries(['A', 'B'].map((mode, index) => [mode, {

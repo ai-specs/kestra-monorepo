@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import {validateAmisReleaseExpected} from './amis-apps-release.mjs'
 import assert from 'node:assert/strict'
 import {execFile} from 'node:child_process'
 import {promisify} from 'node:util'
@@ -23,7 +24,7 @@ function json(path){return JSON.parse(regular(path).toString('utf8'))}
 function selectionValue(value) {
   assert(value&&typeof value==='object'&&!Array.isArray(value),'Selection object required')
   assert.deepEqual(Object.keys(value).sort(),[...fields].sort(),'Exact selection fields required')
-  assert.equal(value.stage,'P0')
+  validateAmisReleaseExpected({stage:value.stage,expectedTests:value.expectedJavaTests})
   for(const key of Object.keys(repositories))assert(commit.test(value[key]),'Invalid selection commit: '+key)
   for(const key of ['hostExecutableSha256','amisJarSha256','rbacJarSha256'])assert(hex.test(value[key]),'Invalid selection hash: '+key)
   assert.match(value.hostImage,/^ghcr\.io\/ai-specs\/kestra-overlay@sha256:[a-f0-9]{64}$/)
@@ -80,13 +81,13 @@ export async function prepareAmisAppsAcceptance(options,{runner=defaultRunner,do
     })
     const amis=await step('formal-amis-oci',async()=>{
       const result=await downloadAmis(selection.amisArtifactImage,join(area,'amis-oci'),{
-        stage:'P0',amisCommit:selection.amisCommit,hostImage:selection.hostImage,hostExecutableSha256:selection.hostExecutableSha256,
+        stage:selection.stage,amisCommit:selection.amisCommit,hostImage:selection.hostImage,hostExecutableSha256:selection.hostExecutableSha256,
         jarSha256:selection.amisJarSha256,expectedTests:selection.expectedJavaTests,
       },{runner})
       assert.equal(result.image,selection.amisArtifactImage)
       assert.equal(result.releaseDirectory,join(area,'amis-oci/release'))
       assert.equal(digest(regular(join(result.releaseDirectory,'kestra-amis-apps.jar'))),selection.amisJarSha256)
-      assert.equal(result.audit?.stage,'P0');assert.equal(result.audit.commit,selection.amisCommit)
+      assert.equal(result.audit?.stage,selection.stage);assert.equal(result.audit.commit,selection.amisCommit)
       assert.equal(result.audit.java.tests,selection.expectedJavaTests)
       assert.equal(result.audit.java.failures,0);assert.equal(result.audit.java.errors,0);assert.equal(result.audit.java.skipped,0)
       // UI/source/report correctness is enforced by the existing release reader.

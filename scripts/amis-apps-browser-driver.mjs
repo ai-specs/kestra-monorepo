@@ -34,7 +34,7 @@ async function outputDirectory(path) {
   await mkdir(path, {recursive: true})
   assert(inside(work, await realpath(path)), 'Output symlink escapes .work')
 }
-async function verifyRuntime(options, execute) {
+export async function verifyAmisBrowserRuntime(options, execute) {
   const {base, deployment: d} = options
   assert(d && ['A', 'B'].includes(d.mode) && d.project && Array.isArray(d.containerIds) && d.containerIds.includes(d.hostContainerId), 'Explicit owned deployment required')
   assert(d.containerIds.every(id => /^[a-f0-9]{64}$/.test(id)) && new Set(d.containerIds).size === d.containerIds.length)
@@ -83,7 +83,7 @@ export async function runAmisBrowserDriver(options, dependencies = {}) {
   assert(['ego', 'playwright'].includes(options.driver) && options.namespace && options.flowId && options.pageId && options.marker && options.title, 'Explicit browser inputs required')
   await outputDirectory(options.outputDirectory)
   const execute = dependencies.childTransport ?? child
-  await verifyRuntime(options, execute)
+  await verifyAmisBrowserRuntime(options, execute)
   if (options.driver === 'ego') {
     assert(Number.isSafeInteger(options.spaceId) && options.spaceId > 0 && /^p[1-9][0-9]*$/.test(options.pageLabel), 'Explicit existing Ego space/page required')
     const parameterFile = join(options.outputDirectory, 'driver-parameters.json')

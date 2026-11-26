@@ -603,6 +603,47 @@ jobs:
         run: |
           set -euo pipefail
           node scripts/run-amis-apps-p0.mjs "$GITHUB_WORKSPACE/.work/amis-p0-run-options.json"
+      - name: Build P1 production options from the same formal selection
+        id: amis-p1-options
+        run: |
+          set -euo pipefail
+          node --input-type=module <<'AMIS_P1_OPTIONS_JS'
+          import assert from 'node:assert/strict';
+          import {readFileSync, writeFileSync, realpathSync, appendFileSync} from 'node:fs';
+          import {resolve, join} from 'node:path';
+          const prepared = JSON.parse(readFileSync('.work/amis-p0-inputs/runner-options.json'));
+          assert.equal(prepared.prepared, true);
+          assert(['P0', 'P1'].includes(prepared.selected.stage));
+          if (prepared.selected.stage === 'P1') {
+            const options = {
+              directory: join(process.cwd(), '.work/amis-p1-run'), port: 18129,
+              selected: prepared.selected, probeJar: prepared.probeJar,
+              browser: {driver: 'playwright', playwrightModule: realpathSync(resolve('.work/amis-ci-browser/node_modules/playwright/index.mjs'))}
+            };
+            writeFileSync('.work/amis-p1-run-options.json', JSON.stringify(options), {mode: 0o600, flag: 'wx'});
+            appendFileSync(process.env.GITHUB_OUTPUT, 'required=true\n');
+          }
+          AMIS_P1_OPTIONS_JS
+      - name: Execute real AMIS P1 production A B matrix after P0 regression
+        if: steps.amis-p1-options.outputs.required == 'true'
+        run: |
+          set -euo pipefail
+          node scripts/run-amis-apps-p1.mjs "$GITHUB_WORKSPACE/.work/amis-p1-run-options.json"
+      - name: Stage bounded P1 production evidence
+        id: amis-p1-evidence
+        if: always() && steps.amis-p1-options.outputs.required == 'true'
+        run: |
+          set -euo pipefail
+          node scripts/stage-amis-p1-evidence.mjs "$GITHUB_WORKSPACE/.work/amis-p1-run" "$GITHUB_WORKSPACE/.work/amis-p1-public"
+          echo "safe_ready=true" >> "$GITHUB_OUTPUT"
+      - name: Upload isolated P1 production evidence
+        uses: actions/upload-artifact@v4
+        if: always() && steps.amis-p1-options.outputs.required == 'true'
+        with:
+          name: amis-p1-${{ github.run_id }}-${{ github.run_attempt }}
+          include-hidden-files: true
+          if-no-files-found: error
+          path: .work/amis-p1-public/
       - name: Stage only sanitized AMIS evidence
         id: amis-evidence
         if: always()

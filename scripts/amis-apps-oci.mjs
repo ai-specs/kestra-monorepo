@@ -5,7 +5,7 @@ import {mkdirSync, readFileSync, realpathSync, lstatSync, writeFileSync} from 'n
 import {dirname, resolve, sep} from 'node:path'
 import {fileURLToPath} from 'node:url'
 import {promisify} from 'node:util'
-import {validateAmisPublishedRelease} from './amis-apps-release.mjs'
+import {validateAmisPublishedRelease, validateAmisReleaseExpected} from './amis-apps-release.mjs'
 
 const execute = promisify(execFile)
 const repository = resolve(dirname(fileURLToPath(import.meta.url)), '..')
@@ -34,7 +34,7 @@ export async function download(exactImage, destination, expected, {
   assert.match(expected.hostImage, /^ghcr\.io\/ai-specs\/kestra-overlay@sha256:[a-f0-9]{64}$/)
   assert.match(expected.jarSha256, /^[a-f0-9]{64}$/)
   assert.match(expected.hostExecutableSha256, /^[a-f0-9]{64}$/)
-  assert.equal(expected.stage, 'P0')
+  validateAmisReleaseExpected(expected)
   const area = resolve(destination)
   assert(area.startsWith(resolve(repository, '.work') + sep), 'New root .work directory required')
   assert.equal(realpathSync(dirname(area)), dirname(area), 'Symlink destination parent forbidden')
