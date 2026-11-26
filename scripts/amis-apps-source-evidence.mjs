@@ -30,6 +30,7 @@ export const amisAcceptanceSourcePaths = Object.freeze([
   'scripts/amis-apps-probe/OwnedUnavailableAuthorizationListener.java', 'scripts/amis-apps-probe/ProbeAgent.java',
   'scripts/amis-apps-probe/ProbeDelegationSelfTest.java', 'scripts/amis-apps-probe/ProbeProxies.java',
   'scripts/amis-apps-probe/ProbeState.java', 'scripts/amis-apps-probe/RbacGateListener.java',
+  'scripts/amis-apps-probe/ProbeWarmup.java',
   'scripts/amis-apps-probe/StorageListener.java', 'scripts/prepare-amis-apps-acceptance.mjs',
   'scripts/amis-apps-expected-http.json', 'scripts/run-amis-apps-p0.mjs',
   'deployment/amis-apps-release.json', '.github/workflows/compose-acceptance.yml',

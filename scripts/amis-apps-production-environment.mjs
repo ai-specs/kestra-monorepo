@@ -188,7 +188,8 @@ export function createAmisProductionEnvironment({directory, rootDirectory, selec
     assert(active && probeJar, 'Live probe and active deployment required')
     const report = JSON.parse(docker(['exec', active.deployment.kestraContainer, 'cat', '/tmp/amis-acceptance-probe/counts.json']))
     assert.equal(report.integrity, 'ok')
-    assert(Object.values(report.readiness).every(value => value === true))
+    assert(Object.values(report.readiness).every(value => value === true),
+      'Probe listener not initialized: ' + Object.entries(report.readiness).filter(([, ready]) => ready !== true).map(([name]) => name).join(', '))
     return report
   }}
   async function retainLogs() {
