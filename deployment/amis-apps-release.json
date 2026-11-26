@@ -1,11 +1,11 @@
 {
   "stage": "P1",
   "hostCommit": "1765441f3b6ff24a4b2250ade82877e2d5d28f3b",
-  "amisCommit": "d0c50a78344783f1cfe275dbe59ea7a3a45f1385",
+  "amisCommit": "5b99d74216bc495a8b7510a21be31bbe4cc83d57",
   "rbacCommit": "3dc9999868cad3bb72e0c1f60d0a3b4b1cdf2237",
   "hostImage": "ghcr.io/ai-specs/kestra-overlay@sha256:182e03ce88803dc6718bc0d32729e1002af0321fe1dc18d41925342aad17b988",
   "hostExecutableSha256": "18b390e1a2ba1452ce9729b1f149e0d6457735f762395c393b13b1ee9f628fb7",
-  "amisArtifactImage": "ghcr.io/ai-specs/kestra-plugin-amis-apps-artifact@sha256:faaa28386be4bdcbfaf6817589eda8bb80e16e923e34494583d964c82326bc41",
+  "amisArtifactImage": "ghcr.io/ai-specs/kestra-plugin-amis-apps-artifact@sha256:11cdd2646041efb7a2a42d8d77ad27d1e5498e93b4a3b3520a486f61f04873fc",
   "amisJarSha256": "d715a4726dd4380ca22b2b1142f08b2dfccedf1813b2336abff303ffe0fe6180",
   "rbacJarSha256": "f549f3d66bd94169e2c828d4022e941f43fbfa73b312d2e7c05b240deb23849e",
   "expectedJavaTests": 378

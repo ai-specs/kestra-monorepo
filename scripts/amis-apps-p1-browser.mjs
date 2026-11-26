@@ -57,7 +57,10 @@ export function p1ControlSelector({kind, name, text}) {
     ...document.querySelectorAll('.cxd-DatePicker input, .dark-DatePicker input'),
     ...[...document.querySelectorAll('input')].filter(n => n.name === 'date' || n.getAttribute('placeholder') === 'Select Date' || n.getAttribute('aria-label') === 'Select Date'),
   ])].filter(visible)
-  else if (kind === 'switch') nodes = [...document.querySelectorAll('input[type="checkbox"]')].filter(n => visible(n) || visible(n.parentElement)).map(n => visible(n) ? n : n.closest('label') ?? n.parentElement)
+  else if (kind === 'switch') nodes = [...new Set([...document.querySelectorAll('input[type="checkbox"]')].map(input => {
+    const label=input.closest('label[data-role="switch"]') ?? input.closest('label')
+    return visible(label) ? label : visible(input) ? input : null
+  }).filter(Boolean))]
   else nodes = [...document.querySelectorAll('button,a')].filter(n => visible(n) && n.textContent.trim() === text)
   if (nodes.length !== 1) throw new Error('Expected one live control: ' + JSON.stringify({kind,name,text,count:nodes.length}))
   const parts = []; let node = nodes[0]

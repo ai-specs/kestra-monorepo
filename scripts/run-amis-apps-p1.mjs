@@ -4,6 +4,7 @@ import {resolve,join,isAbsolute} from 'node:path'
 import {createHash} from 'node:crypto'
 import {execFileSync} from 'node:child_process'
 import {pathToFileURL,fileURLToPath} from 'node:url'
+import {assertEquivalentExecutionState} from './amis-apps-execution-state.mjs'
 import {amisP1Cases} from './amis-apps-p1-cases.mjs'
 import {validateAmisPublishedRelease} from './amis-apps-release.mjs'
 import {createAmisProductionEnvironment} from './amis-apps-production-environment.mjs'
@@ -194,7 +195,8 @@ export async function runAmisP1(options) {
        const path='/api/v1/main/executions/'+encodeURIComponent(execution.id)
        const response=await admin.request(path);assert.equal(response.status,200,'Native persisted execution read failed')
        const stored=await response.json();value.persistedReads.push({method:'GET',path,status:response.status,execution:stored})
-       for(const key of ['id','namespace','flowId','state','inputs','trigger'])assert.deepEqual(stored[key],execution[key],'Native/DB field differs: '+key)
+       for(const key of ['id','namespace','flowId','inputs','trigger'])assert.deepEqual(stored[key],execution[key],'Native/DB field differs: '+key)
+       assertEquivalentExecutionState(stored.state,execution.state,'Native/DB execution state differs')
        const outputPath='/api/v1/main/outputs/executions/'+encodeURIComponent(execution.id)
        const outputResponse=await admin.request(outputPath)
        const outputRead={method:'GET',path:outputPath,status:outputResponse.status,outputs:await outputResponse.json()}

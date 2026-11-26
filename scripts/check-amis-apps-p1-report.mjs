@@ -4,6 +4,8 @@ import {readFileSync,realpathSync,lstatSync} from 'node:fs'
 import {resolve,sep} from 'node:path'
 import {pathToFileURL} from 'node:url'
 import {classifyAccessControlDiagnostics} from './access-control-browser-diagnostics.mjs'
+import {assertEquivalentExecutionState} from './amis-apps-execution-state.mjs'
+import {validateP1DiagnosticBinding} from './amis-apps-p1-diagnostic-binding.mjs'
 import {amisP1Cases} from './amis-apps-p1-cases.mjs'
 
 const suffixOf=id=>id.replace(/^[AB]-/,'')
@@ -92,7 +94,8 @@ export function validateP1StoredReads(value) {
   assert.equal(native.length,1);assert.equal(native[0].method,'GET');assert.equal(native[0].status,200)
   for(const key of ['id','namespace','flowId','inputs','state','trigger']) {
    assert.deepEqual(db[key],execution[key],'Database execution tuple differs: '+key)
-   assert.deepEqual(native[0].execution[key],execution[key],'Native execution tuple differs: '+key)
+   if(key==='state')assertEquivalentExecutionState(native[0].execution[key],execution[key],'Native execution state differs')
+   else assert.deepEqual(native[0].execution[key],execution[key],'Native execution tuple differs: '+key)
   }
   const output=value.outputReads.filter(x=>x.path==='/api/v1/main/outputs/executions/'+execution.id)
   assert.equal(output.length,1);assert.equal(output[0].method,'GET');assert.equal(output[0].status,200)
@@ -170,6 +173,7 @@ export function validateAmisP1Report(report,expected,{directory}={}) {
         const classified=classifyAccessControlDiagnostics({events:diagnostics.events,base,requests})
         assert.deepEqual(classified.errors,[],'Retained collector has unexpected errors')
         assert.deepEqual(classified.classifications,evidence.browser.diagnostics.classifications,'Diagnostic classification differs')
+        validateP1DiagnosticBinding(row,evidence,diagnostics)
       }
     }
     assert(row.productionLogin?.subject&&row.productionLogin.credentialsSubmitted===true)

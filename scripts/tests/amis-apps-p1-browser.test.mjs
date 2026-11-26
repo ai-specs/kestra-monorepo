@@ -392,3 +392,31 @@ test('pause case installs observer before native submit and reads retained succe
  assert.equal(report.trace.filter(row=>row.method==='POST').length,1)
  assert.equal(report.pausedObservation.samples.at(-1).busy,false)
 })
+
+function withSyntheticSwitchDom(run) {
+ const saved={document:globalThis.document,getComputedStyle:globalThis.getComputedStyle}
+ const html={tagName:'HTML'},body={tagName:'BODY',parentElement:html},label={tagName:'LABEL',parentElement:body,getClientRects:()=>[{}]}
+ const input={tagName:'INPUT',parentElement:label,getClientRects:()=>[{}],closest:selector=>selector==='label[data-role="switch"]'||selector==='label'?label:null}
+ html.children=[body];body.children=[label];label.children=[input]
+ let inputs=[input]
+ globalThis.document={documentElement:html,querySelectorAll:()=>inputs}
+ globalThis.getComputedStyle=node=>({visibility:node.hidden?'hidden':'visible'})
+ try {return run({input,label,body,setInputs:value=>{inputs=value}})}
+ finally {for(const [key,value]of Object.entries(saved))if(value===undefined)delete globalThis[key];else globalThis[key]=value}
+}
+test('switch prefers native label even when underlying checkbox has client rects',()=>withSyntheticSwitchDom(()=>{
+ assert.equal(p1ControlSelector({kind:'switch'}),'html > body:nth-of-type(1) > label:nth-of-type(1)')
+}))
+test('switch uses closest visible label without data-role rather than underlying input',()=>withSyntheticSwitchDom(({input,label})=>{
+ input.closest=selector=>selector==='label'?label:null
+ assert.equal(p1ControlSelector({kind:'switch'}),'html > body:nth-of-type(1) > label:nth-of-type(1)')
+}))
+test('switch deduplicates label targets and rejects multiple visible switches',()=>withSyntheticSwitchDom(({input,label,body,setInputs})=>{
+ setInputs([input,input]);assert.match(p1ControlSelector({kind:'switch'}),/label:nth-of-type\(1\)$/)
+ const otherLabel={...label},otherInput={...input,closest:()=>otherLabel};body.children.push(otherLabel);setInputs([input,otherInput])
+ assert.throws(()=>p1ControlSelector({kind:'switch'}),/Expected one live control.*count.*2/)
+}))
+test('switch refuses fully hidden input and label',()=>withSyntheticSwitchDom(({input,label})=>{
+ input.hidden=true;label.hidden=true
+ assert.throws(()=>p1ControlSelector({kind:'switch'}),/Expected one live control.*count.*0/)
+}))

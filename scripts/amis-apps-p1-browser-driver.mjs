@@ -86,7 +86,6 @@ export async function runAmisP1OnPage(page,options,kind) {
  const value=privateOptions(options.privateFile)
  assert(isAbsolute(options.outputDirectory)&&resolve(options.outputDirectory).startsWith(join(root,'.work')+'/'))
  assert(value.account?.username&&value.account.password)
- await verifyAmisBrowserRuntime(options,async(command,args)=>{try{return {code:0,stdout:execFileSync(command,args,{encoding:'utf8',timeout:30000,maxBuffer:8_000_000})}}catch{return {code:1,stdout:''}}})
  mkdirSync(options.outputDirectory,{recursive:true,mode:0o700})
  assert(realpathSync(options.outputDirectory).startsWith(realpathSync(join(root,'.work'))+'/'))
  const adapter=await(kind==='ego'?createEgoApplicationProjectAdapter:createPlaywrightApplicationProjectAdapter)(page,{artifactDirectory:join(options.outputDirectory,'screenshots'),diagnosticDirectory:join(options.outputDirectory,'diagnostics'),timeoutMs:60000,secrets:[value.account.password]})
@@ -106,9 +105,12 @@ export async function runAmisP1OnPage(page,options,kind) {
    expected.push({requestId:event.requestId,source:{documentId:event.documentId},path:url.pathname,method:'GET',status:403,expectedStatuses:[403]})
   }
   const classified=classifyAccessControlDiagnostics({events:diagnostics.events,base:options.base,requests:expected})
-  report.diagnostics={integrity:diagnostics.integrity,classifications:classified.classifications,errors:classified.errors,finalEvidence:await adapter.diagnosticEvidenceReference()}
+  const finalEvidence=await adapter.diagnosticEvidenceReference()
+  const fullDiagnostics=JSON.parse(readFileSync(finalEvidence.path))
+  assert.equal(fullDiagnostics.events.length,finalEvidence.events)
+  report.diagnostics={integrity:fullDiagnostics.integrity,classifications:classified.classifications,errors:classified.errors,finalEvidence}
   save(report)
-  assert.deepEqual(diagnostics.integrity,[],'Collector integrity failed')
+  assert.deepEqual(fullDiagnostics.integrity,[],'Collector integrity failed')
   assert.deepEqual(classified.errors,[],'Unexpected browser errors; inspect retained report')
   const retained=retainP1BrowserEvidence(report,options.outputDirectory)
   writeFileSync(join(options.outputDirectory,'report.json'),JSON.stringify(retained,null,2),{mode:0o600});return retained
@@ -119,6 +121,7 @@ export async function runAmisP1BrowserDriver(options) {
  assert(!options.account&&!options.password&&!options.token,'Credentials must come from the private account file')
  privateOptions(options.privateFile)
  assert(['ego','playwright'].includes(options.driver))
+ await verifyAmisBrowserRuntime(options,async(command,args)=>{try{return {code:0,stdout:execFileSync(command,args,{encoding:'utf8',timeout:30000,maxBuffer:8_000_000})}}catch{return {code:1,stdout:''}}})
  assert(isAbsolute(options.outputDirectory)&&resolve(options.outputDirectory).startsWith(join(root,'.work')+'/'))
  mkdirSync(options.outputDirectory,{recursive:true,mode:0o700})
  assert(realpathSync(options.outputDirectory).startsWith(realpathSync(join(root,'.work'))+'/'))

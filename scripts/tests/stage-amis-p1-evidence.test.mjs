@@ -60,3 +60,21 @@ test('evidence symlink failure projects only the already validated report bytes'
  assert.equal(summary.status,'failed');assert.equal(pathReads,0);assert.equal(fdReads,1)
  assert.equal(output(f).cases[0].id,f.report.cases[0].id);assert.equal(output(f).cases[0].status,'passed')
 })
+
+test('partial 24-row business failure preserves omitted unrun evidence and referenced screenshot bytes',t=>{
+ const f=fixture(t)
+ f.report.completed=false;f.report.cases[0].status='failed'
+ f.report.summary={passed:0,failed:1,skipped:0,notRun:23}
+ for(let i=1;i<24;i++)f.report.cases.push({id:'synthetic-unrun-'+i,status:'not_run'})
+ const image=Buffer.from([137,80,78,71,13,10,26,10]);writeFileSync(join(f.source,'browser-0/failure.png'),image)
+ const path=join(f.source,'evidence/case-0.json'),value=JSON.parse(readFileSync(path));value.browser.attachments.push({path:'browser-0/failure.png',sha256:hash(image)})
+ const bytes=JSON.stringify(value);writeFileSync(path,bytes);f.report.cases[0].evidence[0].sha256=hash(bytes);f.save()
+ const original=readFileSync(join(f.source,'report.json')),s=stageAmisP1Evidence(f)
+ assert.equal(s.status,'passed');assert.equal(s.businessAcceptance,'not-evaluated')
+ assert.deepEqual(readFileSync(join(f.target,'report.json')),original)
+ assert.deepEqual(readFileSync(join(f.target,'browser-0/failure.png')),image)
+ assert.deepEqual(output(f).summary,{passed:0,failed:1,skipped:0,notRun:23})
+ assert.equal(output(f).cases.filter(x=>x.status==='not_run').length,23)
+})
+for(const status of ['passed','failed'])test(`executed ${status} row cannot omit its evidence field`,t=>{const f=fixture(t);f.report.cases[0].status=status;delete f.report.cases[0].evidence;f.save();assert.equal(stageAmisP1Evidence(f).status,'failed')})
+for(const status of ['not_run','not-run','skipped'])test(`${status} row permits absent evidence but rejects malformed supplied reference`,t=>{const f=fixture(t);f.report.cases[0]={...f.report.cases[0],status};delete f.report.cases[0].evidence;f.save();assert.equal(stageAmisP1Evidence(f).status,'passed');const other=fixture(t);other.report.cases[0].status=status;delete other.report.cases[0].evidence[0].sha256;other.save();assert.equal(stageAmisP1Evidence(other).status,'failed')})

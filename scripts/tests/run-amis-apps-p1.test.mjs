@@ -5,6 +5,7 @@ import {join} from 'node:path'
 import {tmpdir} from 'node:os'
 import {fileURLToPath} from 'node:url'
 import assert from 'node:assert/strict'
+import {assertEquivalentExecutionState} from '../amis-apps-execution-state.mjs'
 import {amisP1Cases} from '../amis-apps-p1-cases.mjs'
 import {runAmisP1,verifyAmisP1OutputRead,amisP1Expected,amisP1Deployment,verifyAmisP1DeniedEffects,verifyAmisP1Persisted} from '../run-amis-apps-p1.mjs'
 import {verifyAmisBrowserRuntime} from '../amis-apps-browser-driver.mjs'
@@ -208,3 +209,12 @@ for(const [name,change]of [
  ['result read wrong execution',v=>v.resultReads[0].body.executionId='other'],['result read data differs',v=>v.resultReads[0].body.data.quantity=999],
  ['orphan read',v=>v.resultReads.push(clone(v.resultReads[0]))],
 ])test('stored read interface rejects '+name,()=>{const value=observed();change(value);assert.throws(()=>validateP1StoredReads(value))})
+
+test('runner evidence preserves numeric DB and ISO native state duration without relaxing histories',()=>{
+ const value=observed(),db=value.databaseExecutions[0].state,native=value.persistedReads[0].execution.state
+ db.duration=0.212911;native.duration='PT0.212911S'
+ db.histories=[{state:'SUCCESS',date:'2026-11-27T00:00:00Z'}];native.histories=clone(db.histories)
+ assert(assertEquivalentExecutionState(native,db))
+ assert.equal(db.duration,0.212911);assert.equal(native.duration,'PT0.212911S')
+ native.histories[0].state='FAILED';assert.throws(()=>assertEquivalentExecutionState(native,db))
+})
