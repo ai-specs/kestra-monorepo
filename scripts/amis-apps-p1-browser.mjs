@@ -399,7 +399,8 @@ export async function runAmisP1BrowserCase(adapter, options) {
         const before=await adapter.evaluate(p1PageObservation)
         assert(before.recovery.some(r=>r.value.phase==='pending'),'Cancellation requires confirmed pending execution')
         await click(labels.cancel);await wait({alert:true,busy:false,text:'Request cancelled'})
-        return {before,explicitSecondSubmission:true}
+        const after=await adapter.evaluate(p1PageObservation)
+        return {before,after,explicitSecondSubmission:true}
       });await resume();await success()
     } else if(suffix==='paused-execution-remains-pending') {
       await step('paused',async()=>{

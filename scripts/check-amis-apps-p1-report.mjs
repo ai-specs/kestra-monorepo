@@ -3,6 +3,7 @@ import {createHash} from 'node:crypto'
 import {readFileSync,realpathSync,lstatSync} from 'node:fs'
 import {resolve,sep} from 'node:path'
 import {pathToFileURL} from 'node:url'
+import {classifyP1PollDiagnostics} from './amis-apps-p1-poll-diagnostics.mjs'
 import {classifyAccessControlDiagnostics} from './access-control-browser-diagnostics.mjs'
 import {assertEquivalentExecutionState} from './amis-apps-execution-state.mjs'
 import {validateP1DiagnosticBinding} from './amis-apps-p1-diagnostic-binding.mjs'
@@ -171,6 +172,9 @@ export function validateAmisP1Report(report,expected,{directory}={}) {
           if(event.kind==='http-error'&&event.method==='GET'&&event.status===403&&event.url===base+'/company.amis.a/p1-async/pages/home')requests.push({requestId:event.requestId,source:{documentId:event.documentId},path:'/company.amis.a/p1-async/pages/home',method:'GET',status:403,expectedStatuses:[403]})
         }
         const classified=classifyAccessControlDiagnostics({events:diagnostics.events,base,requests})
+        const polls=classifyP1PollDiagnostics({events:diagnostics.events,base,browser:evidence.browser})
+        const pollIds=new Set(polls.classifications.map(x=>x.id))
+        classified.errors=classified.errors.filter(x=>!pollIds.has(x.id));classified.classifications.push(...polls.classifications)
         assert.deepEqual(classified.errors,[],'Retained collector has unexpected errors')
         assert.deepEqual(classified.classifications,evidence.browser.diagnostics.classifications,'Diagnostic classification differs')
         validateP1DiagnosticBinding(row,evidence,diagnostics)

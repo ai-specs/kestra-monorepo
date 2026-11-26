@@ -99,8 +99,8 @@ test('mode B refusal remains authenticated and leaves forbidden POST to parent e
   assert.deepEqual(report.executionIds,[])
 })
 test('timeout and cancel use two explicit submissions and two observed execution identities',async()=>{
-  const adapter=fake();const events=[];let submits=0;const originalEvaluate=adapter.evaluate
-  adapter.evaluate=async(fn,arg)=>fn.name==='p1PageObservation'?{login:false,text:'Saved: unique-marker',busy:'true',recovery:[{value:{phase:'pending',executionId:'exec-'+submits}}]}:originalEvaluate(fn,arg)
+  const adapter=fake();const events=[];let submits=0,cancelled=false;const originalEvaluate=adapter.evaluate
+  adapter.evaluate=async(fn,arg)=>fn.name==='p1PageObservation'?{url:base+'/company.p1/p1-async/pages/home',timeOrigin:1,login:false,text:'Saved: unique-marker',alert:cancelled?['Request cancelled']:[],busy:cancelled?'false':'true',recovery:[{value:{phase:'pending',executionId:'exec-'+submits}}]}:originalEvaluate(fn,arg)
   adapter.click=async selector=>{
     if(selector!=='submit-button')return
     const index=++submits,documentId='doc',url=api+'/executions/exec-'+index
@@ -111,11 +111,16 @@ test('timeout and cancel use two explicit submissions and two observed execution
       {id:'poll-response-'+index,kind:'http-response',requestId:'poll-'+index,documentId,method:'GET',url,status:200})
   }
   adapter.diagnostics=async()=>({events,documents:[{id:'doc',url:base}]})
-  const waits=[];adapter.waitForFunction=async(fn,arg)=>{waits.push(arg)}
+  const waits=[];adapter.waitForFunction=async(fn,arg)=>{waits.push(arg);if(arg?.text==='Request cancelled')cancelled=true}
   const report=await runAmisP1BrowserCase(adapter,{...options,id:'A-client-timeout-and-cancel-preserve-recoverable-execution'})
   assert(report.completed);assert.equal(submits,2);assert.deepEqual(report.executionIds,['exec-1','exec-2'])
   assert(waits.some(arg=>arg?.recoveryPending===true && arg.busy===true))
-  assert(report.checks.find(row=>row.id==='cancel-distinct-pending-execution').observation.explicitSecondSubmission)
+  const cancellation=report.checks.find(row=>row.id==='cancel-distinct-pending-execution').observation
+  assert(cancellation.explicitSecondSubmission)
+  assert.equal(cancellation.before.busy,'true');assert.equal(cancellation.after.busy,'false')
+  assert.deepEqual(cancellation.after.alert,['Request cancelled'])
+  assert.equal(cancellation.after.url,cancellation.before.url);assert.equal(cancellation.after.timeOrigin,cancellation.before.timeOrigin)
+  assert.equal(cancellation.after.recovery[0].value.executionId,cancellation.before.recovery[0].value.executionId)
 })
 test('ordinary slow result explicitly recovers actual timeout without another POST',async()=>{
  const adapter=fake({text:'Saved: unique-marker'});const originalEvaluate=adapter.evaluate,originalClick=adapter.click
