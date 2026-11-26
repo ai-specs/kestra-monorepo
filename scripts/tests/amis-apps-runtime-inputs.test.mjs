@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
+import {readFileSync} from 'node:fs'
 import {configureAmisRuntime, validateAmisRuntimeInspection} from '../amis-apps-runtime-inputs.mjs'
 
 const original = {
@@ -30,6 +31,27 @@ const inputs = mode => ({mode, database: 'application_group_acceptance_123_456',
   amisJar: '/formal/amis.jar', rbacJar: '/formal/rbac.jar', admin: {username: 'test-manager', password: 'test-only-not-real'}})
 
 for (const mode of ['A', 'B']) {
+  test(`${mode} retains isolated queue evidence under kestra without changing cleaner scheduling`, () => {
+    const source = structuredClone(original)
+    source.environment.KESTRA_JDBC_QUEUE_CLEANER_INITIAL_DELAY = 'PT1M'
+    source.environment.KESTRA_JDBC_QUEUE_CLEANER_FIXED_DELAY = 'PT1H'
+    const before = structuredClone(source)
+    const host = configureAmisRuntime(source, inputs(mode))
+    const configuration = host.environment.KESTRA_CONFIGURATION
+    const kestra = /^kestra:\n((?:[ \t].*\n|\n)*)/m.exec(configuration)?.[1]
+    const micronaut = /^micronaut:\n((?:[ \t].*\n|\n)*)/m.exec(configuration)?.[1]
+    assert(kestra)
+    assert.match(kestra, /^  jdbc:\n    queue:\n      cleaner:\n        retention: 24h$/m)
+    assert.equal((configuration.match(/retention: 24h/g) ?? []).length, 1)
+    assert.doesNotMatch(micronaut, /retention|cleaner/)
+    assert.doesNotMatch(configuration, /initial-delay|fixed-delay|cleaner:\n\s+enabled: false/)
+    assert.equal(host.environment.KESTRA_JDBC_QUEUE_CLEANER_INITIAL_DELAY, 'PT1M')
+    assert.equal(host.environment.KESTRA_JDBC_QUEUE_CLEANER_FIXED_DELAY, 'PT1H')
+    assert.deepEqual(source, before)
+    const defaultHost = configureAmisRuntime(original, inputs(mode))
+    assert(!Object.keys(defaultHost.environment).some(key => /^KESTRA_JDBC_QUEUE_CLEANER_(INITIAL_DELAY|FIXED_DELAY|ENABLED)$/.test(key)))
+  })
+
   test(`${mode} configures an isolated AMIS runtime without changing its caller`, () => {
     const before = structuredClone(original)
     const host = configureAmisRuntime(original, inputs(mode))
@@ -46,6 +68,11 @@ for (const mode of ['A', 'B']) {
     assert(host.volumes.some(volume => volume.target === '/app/storage' && volume.source === inputs(mode).storage))
   })
 }
+
+test('production Compose does not acquire isolated acceptance queue retention or schedule overrides', () => {
+  const compose = readFileSync(new URL('../../docker-compose.yml', import.meta.url), 'utf8')
+  assert.doesNotMatch(compose, /retention:|KESTRA_JDBC_QUEUE_CLEANER_|cleaner:/)
+})
 
 test('existing controlled AMIS switch changes without dropping other limits', () => {
   const source = structuredClone(original)

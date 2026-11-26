@@ -68,6 +68,7 @@ export function createManagedAmisCompose({directory, sourceCompose, inputs, runn
     for (const key of Object.keys(selected)) assert(['database', 'storage', 'admin'].includes(key), 'Unexpected mode override')
     const plan = planAmisCompose(sourceCompose, {...privateInputs, ...selected, mode})
     if (privateInputs.clientSecret !== undefined) plan.raw.services.kestra.environment.KESTRA_OIDC_UI_CLIENT_SECRET = privateInputs.clientSecret
+    plan.raw.services.kestra.environment.KESTRA_JDBC_QUEUE_CLEANER_RETENTION = '24h'
     const testOptions = privateInputs.testOptions?.[mode]
     if (testOptions) {
       for (const key of Object.keys(testOptions)) assert(['jvmProperties', 'kestraConfiguration'].includes(key))

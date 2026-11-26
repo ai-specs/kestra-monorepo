@@ -89,10 +89,18 @@ export class AmisSideEffects {
       assert(columns.some(row => row.column === 'value' && row.type === (table === 'execution_outputs' ? 'bytea' : 'jsonb')), `Unsupported ${table}.value schema`)
     }
     assert(inventory.some(row => row.table === 'queues' && row.column === 'type' && ['varchar', 'text'].includes(row.type)), 'Unsupported queue type schema')
+    for (const [column, types] of [['offset', ['int8', 'int4']], ['created', ['timestamp', 'timestamptz']]]) {
+      assert(inventory.some(row => row.table === 'queues' && row.column === column && types.includes(row.type)), `Unsupported queue ${column} schema`)
+    }
   }
   #aggregate(table, predicate = '') {
     assert(required.includes(table))
     return `(SELECT json_build_object('count',count(*),'digest',encode(sha256(convert_to(coalesce(string_agg(length(row_text)::text || ':' || row_text,'' ORDER BY row_text COLLATE "C"),''),'UTF8')),'hex')) FROM (SELECT row_to_json(t)::text AS row_text FROM public.${table} t${predicate ? ' WHERE ' + predicate : ''}) observed_rows)`
+  }
+  #queueDiagnostics(predicate) {
+    // Only metadata is returned or hashed here. The independent strict queue
+    // digest above still hashes complete rows, including unknown message types.
+    return `(SELECT coalesce(json_agg(diagnostic ORDER BY diagnostic->>'type' COLLATE "C" NULLS FIRST),'[]'::json) FROM (SELECT json_build_object('type',type,'count',count(*),'minOffset',min("offset")::text,'maxOffset',max("offset")::text,'minCreated',min(created)::text,'maxCreated',max(created)::text,'digest',encode(sha256(convert_to(coalesce(string_agg(length(metadata)::text || ':' || metadata,'' ORDER BY metadata COLLATE "C"),''),'UTF8')),'hex')) AS diagnostic FROM (SELECT type,"offset",created,json_build_array(type,"offset"::text,created::text)::text AS metadata FROM public.queues t WHERE ${predicate}) metadata_rows GROUP BY type) grouped_metadata)`
   }
   #executions() {
     this.#owners(); this.#schema()
@@ -123,15 +131,27 @@ export class AmisSideEffects {
     this.#owners(); this.#schema()
     const markerSql = this.#markers.map(marker => `strpos(row_to_json(t)::text,'${marker}')>0`)
     const predicate = markerSql.length ? `(${amisQueuePredicate}) OR (${markerSql.join(' OR ')})` : amisQueuePredicate
-    const values = this.#query(`SELECT json_build_object(${tables.map(table => `'${table}',${this.#aggregate(table)}`).join(',')},'queues',${this.#aggregate('queues', predicate)})`)
+    const values = this.#query(`SELECT json_build_object(${tables.map(table => `'${table}',${this.#aggregate(table)}`).join(',')},'queues',${this.#aggregate('queues', predicate)},'queueDiagnostics',${this.#queueDiagnostics(predicate)})`)
     for (const table of required) {
       assert(Number.isSafeInteger(values?.[table]?.count) && values[table].count >= 0, 'Invalid table count')
       assert.match(values[table].digest, sha256)
     }
+    const queueDiagnostics = values.queueDiagnostics
+    assert(Array.isArray(queueDiagnostics), 'Invalid queue diagnostics')
+    const types = new Set()
+    for (const row of queueDiagnostics) {
+      assert(row && (row.type === null || typeof row.type === 'string') && !types.has(row.type), 'Invalid queue diagnostic type')
+      types.add(row.type)
+      assert(Number.isSafeInteger(row.count) && row.count > 0, 'Invalid queue diagnostic count')
+      for (const field of ['minOffset', 'maxOffset']) assert(row[field] === null || (typeof row[field] === 'string' && /^-?[0-9]+$/.test(row[field])), 'Invalid queue diagnostic offset')
+      for (const field of ['minCreated', 'maxCreated']) assert(row[field] === null || (typeof row[field] === 'string' && row[field].length <= 64 && Number.isFinite(Date.parse(row[field]))), 'Invalid queue diagnostic timestamp')
+      assert.match(row.digest, sha256)
+    }
+    assert.equal(queueDiagnostics.reduce((sum, row) => sum + row.count, 0), values.queues.count, 'Queue diagnostic count differs')
     const databaseValues = Object.fromEntries(tables.map(table => [table, values[table]]))
     const storageOutput = this.#run(['exec', this.#app, 'sh', '-c', storageScript])
     const sources = {database: hash(JSON.stringify(databaseValues)), queue: hash(JSON.stringify(values.queues)), storage: hash(storageOutput.split('\n').sort().join('\n'))}
-    return {hash: hash(JSON.stringify(sources)), sources, counts: Object.fromEntries(required.map(table => [table, values[table].count])),
+    return {hash: hash(JSON.stringify(sources)), sources, queueDiagnostics, counts: Object.fromEntries(required.map(table => [table, values[table].count])),
       coverage: {database: 'whole-public-business-tables', queue: 'all-except-exact-identity-free-vnode-coordination', storage: 'all-paths-and-file-hashes-except-root-installation-receipt'}}
   }
   async waitForIdle({timeoutMs = 90000, intervalMs = 250} = {}) {
@@ -171,19 +191,19 @@ export class AmisSideEffects {
   async observeDenied(action, verifyResponse, {windowMs = 5000, intervalMs = 250} = {}) {
     assert(windowMs >= 5000 && windowMs <= 60000 && intervalMs > 0 && intervalMs <= 1000)
     const before = this.snapshot()
-    const observation = {before: before.hash, beforeSources: before.sources, sources: ['database', 'queue', 'storage'], windowMs, samples: []}
+    const observation = {before: before.hash, beforeSources: before.sources, beforeQueueDiagnostics: before.queueDiagnostics, sources: ['database', 'queue', 'storage'], windowMs, samples: []}
     let response, failure
     const recordFailure = error => { if (!failure) failure = error }
     try { response = await action() } catch (error) { recordFailure(error) }
     try { if (!failure) await verifyResponse(response) } catch (error) { recordFailure(error) }
     try {
-      const immediate = this.snapshot(); observation.immediate = immediate.hash; observation.after = immediate.sources
+      const immediate = this.snapshot(); observation.immediate = immediate.hash; observation.after = immediate.sources; observation.immediateQueueDiagnostics = immediate.queueDiagnostics; observation.afterQueueDiagnostics = immediate.queueDiagnostics
       const start = performance.now()
       do {
         await wait(intervalMs)
         const current = this.snapshot()
-        observation.samples.push({elapsedMs: Math.ceil(performance.now() - start), hash: current.hash, sources: current.sources})
-        observation.after = current.sources
+        observation.samples.push({elapsedMs: Math.ceil(performance.now() - start), hash: current.hash, sources: current.sources, queueDiagnostics: current.queueDiagnostics})
+        observation.after = current.sources; observation.afterQueueDiagnostics = current.queueDiagnostics
       } while (observation.samples.at(-1).elapsedMs < windowMs)
       if (immediate.hash !== before.hash || observation.samples.some(sample => sample.hash !== before.hash)) recordFailure(new Error('Denied operation changed database, queue or storage'))
     } catch (error) { observation.observerFailed = true; recordFailure(error) }

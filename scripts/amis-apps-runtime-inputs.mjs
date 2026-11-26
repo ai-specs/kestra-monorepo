@@ -15,6 +15,8 @@ export function configureAmisRuntime(originalHost, {mode, database, storage, ami
   assert(admin?.username && admin?.password, 'Generated test account required')
   const host = structuredClone(originalHost)
   let configuration = applicationProjectFeature(host.environment.KESTRA_CONFIGURATION, mode === 'B')
+  assert(/^  oidc:/m.test(configuration), 'Known Kestra OIDC configuration boundary required')
+  configuration = configuration.replace(/^  oidc:/m, '  jdbc:\n    queue:\n      cleaner:\n        retention: 24h\n  oidc:')
   const heading = /^kestra:[ \t]*\n/m.exec(configuration)
   assert(heading, 'Kestra configuration root missing')
   const contentStart = heading.index + heading[0].length

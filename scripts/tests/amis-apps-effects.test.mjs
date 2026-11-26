@@ -33,7 +33,7 @@ function fixture(options = {}) {
     let result
     if (sql.includes('information_schema.columns')) result = names.filter(name => name !== state.missing).flatMap(name => [
       {table:name,column:'value',type:name === 'execution_outputs'?'bytea':'jsonb'},
-      ...(name === 'queues'?[{table:name,column:'type',type:'varchar'}]:[])])
+      ...(name === 'queues'?[{table:name,column:'type',type:'varchar'},{table:name,column:'offset',type:'int8'},{table:name,column:'created',type:'timestamp'}]:[])])
     else if (sql.includes("'digest'")) {
       assert(sql.includes('row_to_json(t)::text'))
       assert(sql.includes('ORDER BY row_text COLLATE "C"'))
@@ -42,6 +42,19 @@ function fixture(options = {}) {
       assert(!sql.includes("LIKE 'company.amis"))
       for(const name of names) assert(sql.includes('public.'+name))
       result = Object.fromEntries(names.map(name=>[name,{count:state.rows[name].length,digest:digest(JSON.stringify([...state.rows[name]].sort()))}]))
+      const metadata = state.rows.queues.map((row,index)=>typeof row==='string'?{type:'flow_event',offset:String(index+1),created:'2026-11-26 00:00:00'}:row)
+      result.queueDiagnostics = [...new Set(metadata.map(row=>row.type))].sort().map(type=>{
+        const rows=metadata.filter(row=>row.type===type), offsets=rows.map(row=>BigInt(row.offset)).sort((a,b)=>a<b?-1:a>b?1:0)
+        const created=rows.map(row=>row.created).sort()
+        return {type,count:rows.length,minOffset:String(offsets[0]),maxOffset:String(offsets.at(-1)),minCreated:created[0],maxCreated:created.at(-1),
+          digest:digest(JSON.stringify(rows.map(({type,offset,created})=>[type,offset,created]).sort()))}
+      })
+      if(state.diagnosticsOverride!==undefined) result.queueDiagnostics=state.diagnosticsOverride
+      // Both queue queries must use the same full predicate, without a type allowlist.
+      const predicates=[...sql.matchAll(/WHERE (.*?)\) (?:observed_rows|metadata_rows)/g)].map(match=>match[1])
+      assert.equal(predicates.length,2);assert.equal(predicates[0],predicates[1])
+      const diagnosticSql=sql.slice(sql.indexOf("'queueDiagnostics'"))
+      assert(!/\bvalue\b|\bkey\b/.test(diagnosticSql.replaceAll(predicates[1],'')))
     } else if (sql.includes("'marker',value->'inputs'->'name'")) {
       assert(sql.includes('FROM public.executions'))
       assert(!sql.includes('strpos') && !sql.includes(' WHERE '))
@@ -186,4 +199,52 @@ test('missing binding fields and nonstring inputs.name fail even when unrelated 
     assert.throws(()=>f.observer.executionDetails('exact'))
   }
   const f=fixture();f.state.executionRows=[execution('unrelated',{nested:'exact'})];assert.throws(()=>f.observer.executionInventory())
+})
+
+const queueRow = (offset,type='unknown_business') => ({type,offset:String(offset),created:`2026-11-26 00:00:${String(offset).padStart(2,'0')}`,value:'private-identity-payload',key:'private-key'})
+test('queue diagnostics distinguish removal, insertion and unknown types without exposing payload or changing source hash contract',()=>{
+  const f=fixture();f.state.rows.queues=[queueRow(1),queueRow(2)]
+  const before=f.observer.snapshot()
+  assert.equal(before.hash,digest(JSON.stringify(before.sources)))
+  assert.deepEqual(Object.keys(before.sources),['database','queue','storage'])
+  assert.deepEqual(before.queueDiagnostics.map(({type,count,minOffset,maxOffset,minCreated,maxCreated})=>({type,count,minOffset,maxOffset,minCreated,maxCreated})),[
+    {type:'unknown_business',count:2,minOffset:'1',maxOffset:'2',minCreated:'2026-11-26 00:00:01',maxCreated:'2026-11-26 00:00:02'}])
+  f.state.rows.queues.shift();const deleted=f.observer.snapshot()
+  assert.equal(deleted.queueDiagnostics[0].count,1);assert.equal(deleted.queueDiagnostics[0].minOffset,'2')
+  f.state.rows.queues.push(queueRow(3));const inserted=f.observer.snapshot()
+  assert.equal(inserted.queueDiagnostics[0].count,2);assert.equal(inserted.queueDiagnostics[0].maxOffset,'3')
+  f.state.rows.queues.push(queueRow(4,'new_unknown_type'));const unknown=f.observer.snapshot()
+  assert(unknown.queueDiagnostics.some(row=>row.type==='new_unknown_type'&&row.count===1))
+  for(const snapshot of [deleted,inserted,unknown])assert.notEqual(snapshot.sources.queue,before.sources.queue)
+  assert(!JSON.stringify(unknown).includes('private-'))
+  f.state.rows.queues[0].value='changed-private-value';const changed=f.observer.snapshot()
+  assert.deepEqual(changed.queueDiagnostics,unknown.queueDiagnostics)
+  assert.notEqual(changed.hash,unknown.hash,'metadata diagnostics never replace strict full-row digest')
+})
+test('queue diagnostic corruption fails closed',()=>{
+  for(const diagnostics of [null,{},[{type:'unknown',count:1,digest:'bad'}],[]]){
+    const f=fixture();f.state.rows.queues=[queueRow(1)];f.state.diagnosticsOverride=diagnostics
+    assert.throws(()=>f.observer.snapshot())
+  }
+})
+test('denied observation preserves queue diagnostics at baseline, immediate result and all samples while strict hash rejects mutations',async()=>{
+  await Promise.all(['delete','insert','unknown','payload'].map(async kind=>{
+    const f=fixture();f.state.rows.queues=[queueRow(1),queueRow(2)]
+    await assert.rejects(f.observer.observeDenied(()=>{
+      if(kind==='delete')f.state.rows.queues.shift()
+      if(kind==='insert')f.state.rows.queues.push(queueRow(3))
+      if(kind==='unknown')f.state.rows.queues.push(queueRow(3,'future_business_type'))
+      if(kind==='payload')f.state.rows.queues[0].value='new-private-payload'
+      return {status:403}
+    },response=>assert.equal(response.status,403),{windowMs:5000,intervalMs:1000}),error=>{
+      const o=error.observation
+      assert.equal(o.beforeQueueDiagnostics[0].count,2)
+      assert(Array.isArray(o.immediateQueueDiagnostics));assert(Array.isArray(o.afterQueueDiagnostics))
+      assert(o.samples.length>=5);assert(o.samples.every(sample=>Array.isArray(sample.queueDiagnostics)))
+      assert.notEqual(o.before,o.immediate)
+      if(kind==='payload')assert.deepEqual(o.beforeQueueDiagnostics,o.immediateQueueDiagnostics)
+      else assert.notDeepEqual(o.beforeQueueDiagnostics,o.immediateQueueDiagnostics)
+      assert(!JSON.stringify(o).includes('private-'));return true
+    })
+  }))
 })

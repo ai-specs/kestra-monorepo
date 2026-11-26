@@ -80,8 +80,18 @@ function setup(t, config = {}) {
     const db=args[args.indexOf('-d')+1],sql=args.at(-1);assert(dbs.has(db));queries.push({db,sql})
     let result
     const names=['flows','executions','execution_queued','namespace_file_metadata','kv_metadata','execution_outputs','queues']
-    if(sql.includes('information_schema'))result=names.flatMap(table=>[{table,column:'value',type:table==='execution_outputs'?'bytea':'jsonb'},...(table==='queues'?[{table,column:'type',type:'varchar'}]:[])])
-    else if(sql.includes("'digest'"))result=Object.fromEntries(names.map(n=>[n,{count:0,digest:'e'.repeat(64)}]))
+    if(sql.includes('information_schema'))result=names.flatMap(table=>[{table,column:'value',type:table==='execution_outputs'?'bytea':'jsonb'},...(table==='queues'?[{table,column:'type',type:'varchar'},{table,column:'offset',type:'int8'},{table,column:'created',type:'timestamp'}]:[])])
+    else if(sql.includes("'digest'")) {
+      assert(sql.includes('min("offset")::text'))
+      assert(sql.includes('min(created)::text'))
+      const predicates=[...sql.matchAll(/WHERE (.*?)\) (?:observed_rows|metadata_rows)/g)].map(match=>match[1])
+      assert.equal(predicates.length,2)
+      assert.equal(predicates[0],predicates[1],'Queue digest and diagnostics must observe the same rows')
+      result={...Object.fromEntries(names.map(n=>[n,{count:0,digest:'e'.repeat(64)}])),
+        queues:{count:1,digest:'f'.repeat(64)},
+        queueDiagnostics:[{type:'flow_event',count:1,minOffset:'1',maxOffset:'1',
+          minCreated:'2026-11-26T00:00:00Z',maxCreated:'2026-11-26T00:00:00Z',digest:'a'.repeat(64)}]}
+    }
     else result=0
     return {stdout:JSON.stringify({database:wrongDb?'kestra':db,result})}
   }
@@ -113,15 +123,38 @@ test('environment wires whole DB observer from live journal through A/B/A and ap
   t.mock.method(AmisSideEffects.prototype,'waitForStable',async function(){return {snapshot:this.snapshot()}})
   await f.env.startPostgres()
   const a=await f.env.useMode('A');assert(a.effects instanceof AmisSideEffects)
+  const assertQueueRetention=deployment=>{
+    const entries=f.containers.get(deployment.kestraContainer).Config.Env
+    const configurations=entries.filter(entry=>entry.startsWith('KESTRA_CONFIGURATION='))
+    assert.equal(configurations.length,1)
+    const configuration=configurations[0].slice('KESTRA_CONFIGURATION='.length)
+    const kestra=/^kestra:\n((?:[ \t].*\n|\n)*)/m.exec(configuration)?.[1]
+    const micronaut=/^micronaut:\n((?:[ \t].*\n|\n)*)/m.exec(configuration)?.[1]
+    assert.match(kestra,/^  jdbc:\n    queue:\n      cleaner:\n        retention: 24h$/m)
+    assert.equal((configuration.match(/retention: 24h/g)??[]).length,1)
+    assert.deepEqual(entries.filter(entry=>entry.startsWith('KESTRA_JDBC_QUEUE_CLEANER_RETENTION=')),
+      ['KESTRA_JDBC_QUEUE_CLEANER_RETENTION=24h'])
+    assert.doesNotMatch(micronaut,/retention|cleaner/)
+    assert.doesNotMatch(configuration,/initial-delay|fixed-delay|cleaner:\n\s+enabled: false/)
+    assert(!entries.some(entry=>/^KESTRA_JDBC_QUEUE_CLEANER_(INITIAL_DELAY|FIXED_DELAY|ENABLED)=/.test(entry)))
+  }
+  assertQueueRetention(a.deployment)
+  const initialSnapshot=a.effects.snapshot()
+  assert.equal(initialSnapshot.counts.queues,1)
+  assert.equal(initialSnapshot.queueDiagnostics[0].minOffset,'1')
+  assert.equal(initialSnapshot.queueDiagnostics[0].minCreated,'2026-11-26T00:00:00Z')
   const aDb=f.queries.at(-1).db,aId=a.deployment.kestraContainer
   assert(f.files.size===3&&f.flows.size===9)
   const filesBefore=f.files.size
   await f.env.reconfigure({amisEnabled:false})
+  assertQueueRetention(f.env.current.deployment)
   assert.notEqual(f.env.current.deployment.kestraContainer,aId)
   f.env.current.effects.snapshot()
   const b=await f.env.useMode('B');const bDb=f.queries.at(-1).db
+  assertQueueRetention(b.deployment)
   assert.notEqual(aDb,bDb);assert(f.identities.length>0)
   const returned=await f.env.useMode('A');returned.effects.snapshot()
+  assertQueueRetention(returned.deployment)
   assert.equal(f.queries.at(-1).db,aDb);assert.equal(f.files.size,filesBefore)
   const journal=f.env.manager.resources
   assert(journal.created.some(r=>r.kind==='database'&&r.id===aDb&&r.mode==='A'&&!r.removed))
