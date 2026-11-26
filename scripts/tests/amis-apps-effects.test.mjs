@@ -1,7 +1,32 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import {createHash} from 'node:crypto'
-import {AmisSideEffects, amisQueuePredicate} from '../amis-apps-effects.mjs'
+import {AmisSideEffects, amisQueuePredicate,validateAmisControlEvents} from '../amis-apps-effects.mjs'
+
+const controlSample=()=>({schemaVersion:1,executionIds:['execution_1'],inventory:['execution_1'],events:[{type:'async_operation_processed_event',offset:'1',created:'2026-11-26T12:00:00Z',tenantId:null,executionId:'execution_1',operationId:'operation_1',outcome:'SUCCEEDED'}]})
+test('control event query returns only published binding metadata and inventory',()=>{
+  const {observer,state,calls}=fixture();state.controlEvents=controlSample().events
+  const value=observer.controlEvents(['execution_1'])
+  assert.deepEqual(value.events,controlSample().events);assert.deepEqual(value.inventory,[])
+  const sql=calls.find(args=>args.at(-1)?.includes("'operationId',CASE")).at(-1)
+  assert(sql.includes("value->>'itemId'"));assert(sql.includes("value->>'executionId'"));assert(sql.includes('default_transaction_read_only')===false)
+  assert(!/value->>'(?:message|error|inputs)'|row_to_json/.test(sql))
+})
+for(const [name,change] of [
+  ['extra payload',v=>v.events[0].payload='private'],['extra error',v=>v.events[0].error='private'],
+  ['unknown type',v=>v.events[0].type='unknown'],['foreign execution',v=>v.events[0].executionId='other'],
+  ['foreign tenant',v=>v.events[0].tenantId='other'],['invalid outcome',v=>v.events[0].outcome='UNKNOWN'],
+  ['missing operation',v=>v.events[0].operationId=null],['invalid timestamp',v=>v.events[0].created='private'],
+  ['invalid offset',v=>v.events[0].offset='x'],['duplicate offset',v=>v.events.push({...v.events[0]})],
+  ['extra inventory field',v=>v.payload='private'],['duplicate inventory',v=>v.inventory.push('execution_1')],
+  ['wrong schema',v=>v.schemaVersion=2],['follow with outcome',v=>v.events[0].type='follow_log_event'],
+])test('control event metadata rejects '+name,()=>{const value=controlSample();change(value);assert.throws(()=>validateAmisControlEvents(value,['execution_1']))})
+test('control events allow explicit FAILED outcomes without error text and both follow types',()=>{
+  const value=controlSample();value.events[0].outcome='FAILED'
+  for(const [index,type] of ['follow_execution_event','follow_log_event'].entries())value.events.push({...value.events[0],offset:String(index+2),type,operationId:null,outcome:null})
+  assert.equal(validateAmisControlEvents(value,['execution_1']).events.length,3)
+  assert.throws(()=>validateAmisControlEvents(value,["bad'identity"]))
+})
 
 const owner = 'application-projects-bb-123-456', pg = 'a'.repeat(64), app = 'b'.repeat(64)
 const database = 'application_group_acceptance_123_456'
@@ -55,6 +80,9 @@ function fixture(options = {}) {
       assert.equal(predicates.length,2);assert.equal(predicates[0],predicates[1])
       const diagnosticSql=sql.slice(sql.indexOf("'queueDiagnostics'"))
       assert(!/\bvalue\b|\bkey\b/.test(diagnosticSql.replaceAll(predicates[1],'')))
+    } else if (sql.includes("'operationId',CASE")) {
+      assert(!sql.includes("value->>'message'")&&!sql.includes("value->>'error'"))
+      result=state.controlEvents??[]
     } else if (sql.includes("'marker',value->'inputs'->'name'")) {
       assert(sql.includes('FROM public.executions'))
       assert(!sql.includes('strpos') && !sql.includes(' WHERE '))
@@ -136,6 +164,7 @@ test('real-time delayed no-effect sampling catches all three mutations and retai
       assert.equal(result.observation.before,result.observation.immediate)
     } else await assert.rejects(f.observer.observeDenied(action,verify,{windowMs:5000,intervalMs:1000}),error=>{
       assert(error.observation.samples.at(-1).elapsedMs>=5000)
+      assert(['AMIS_EFFECTS_CHANGED','AMIS_RESPONSE_ASSERTION','AMIS_REQUEST_FAILED'].includes(error.code))
       assert(!JSON.stringify(error).includes('do-not-save'));return true
     })
   }))
@@ -145,6 +174,7 @@ test('post-action observer transport failure retains partial observation without
   const f=fixture()
   await assert.rejects(f.observer.observeDenied(()=>{f.state.observerError=true;return {status:403}},()=>{}),error=>{
     assert(error.observation.before);assert.equal(error.observation.observerFailed,true)
+    assert.equal(error.code,'AMIS_OBSERVER_FAILED')
     assert(!JSON.stringify(error).includes('not-allowed-in-report'));return true
   })
 })

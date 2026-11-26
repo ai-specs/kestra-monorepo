@@ -9,6 +9,60 @@ export function classifyAccessControlDiagnostics({events,base,requests=[],expect
   const indexed=new Map(),classifications=[]
   const add=(event,reason,evidence)=>{indexed.set(event.id,{id:event.id,reason,evidence});classifications.push(indexed.get(event.id))}
   const exactRequests=event=>requests.some(request=>request.requestId===event.requestId&&request.source?.documentId===event.documentId&&base+request.path===event.url&&request.method===event.method&&request.status===event.status&&request.expectedStatuses.includes(event.status))
+  const epochMutations=new Set(['ui-application-register-remove','ui-permission-many-to-many','ui-subject-grant-revoke','ui-subject-delete-keeps-account','ui-user-delete-all-groups','ui-user-delete-execution-retained','ui-user-delete-audit-retained'])
+  const staleEditors=new Set(['ui-403-no-side-effects','ui-secret-revoked-editor-rejected'])
+  const uniqueOriginal=response=>{
+    const matches=(byRequest.get(response.requestId)??[]).filter(request=>request.kind==='request'&&same(request,response)&&request.method===response.method&&order.get(request.id)<order.get(response.id))
+    return matches.length===1?matches[0]:undefined
+  }
+  const epochRecovery=(event,record)=>{
+    const old=identityWindows.find(window=>window.kind==='authenticated-session'&&/^[a-f0-9]{64}$/.test(window.subjectHash??'')&&window.documentIds?.includes(event.documentId)&&at(event)>=Date.parse(window.startedAt)&&at(event)<=Date.parse(window.finishedAt))
+    if(!old)return undefined
+    return identityWindows.find(next=>{
+      if(next.kind!=='production-login'||next.subjectHash!==old.subjectHash||!Number.isFinite(Date.parse(next.authenticatedAt))||Date.parse(next.authenticatedAt)<=at(event)||Date.parse(next.authenticatedAt)-at(event)>60000)return false
+      const logout=events.find(row=>row.id===next.logoutEventId&&row.kind==='http-response'&&row.url===base+'/oidc/logout'&&row.status===307&&at(row)>at(event)&&uniqueOriginal(row))
+      const credentials=events.filter(row=>row.kind==='http-response'&&row.url===base+'/oidc/login'&&row.method==='POST'&&row.status===303&&row.observedAt===next.authenticatedAt&&next.documentIds?.includes(row.documentId)&&uniqueOriginal(row))
+      const verified=requests.find(row=>row.method==='GET'&&new URL(base+row.path).pathname==='/api/v1/main/extensions/rbac/capabilities'&&row.status===200&&row.expectedStatuses.includes(200)&&next.documentIds?.includes(row.source?.documentId)&&events.some(response=>response.kind==='http-response'&&response.status===200&&response.method==='GET'&&response.requestId===row.requestId&&response.documentId===row.source.documentId&&response.url===base+row.path&&at(response)>=Date.parse(next.authenticatedAt)&&uniqueOriginal(response)))
+      return Boolean(logout&&credentials.length===1&&verified&&record)
+    })
+  }
+  const epoch401Proof=event=>{
+    if(event.kind!=='http-error'||event.status!==401||new URL(event.url).origin!==base||!uniqueOriginal(event))return undefined
+    const url=new URL(event.url),capability=url.pathname==='/api/v1/main/extensions/rbac/capabilities'&&event.method==='GET'&&[...url.searchParams.keys()].every(key=>key==='applicationGroupId')&&url.searchParams.getAll('applicationGroupId').length<=1
+    const record=requests.find(row=>{
+      const sameDocument=row.source?.documentId===event.documentId
+      if(!sameDocument||!row.postWriteView?.businessContentHidden)return false
+      if(capability) {
+        if(!epochMutations.has(row.case)||!['POST','PUT','DELETE'].includes(row.method)||row.status<200||row.status>=300||!row.expectedStatuses.includes(row.status))return false
+        const mutation=events.find(response=>response.kind==='http-response'&&response.requestId===row.requestId&&response.documentId===event.documentId&&response.url===base+row.path&&response.method===row.method&&response.status===row.status&&uniqueOriginal(response)&&at(event)>=at(response)&&at(event)-at(response)<=1000)
+        if(!mutation||!/^\/api\/v1\/main\/extensions\/rbac\/(?:application-groups\/[^/]+\/(?:applications|scope-grants)(?:\/|$)|users\/detail$)/.test(new URL(mutation.url).pathname))return false
+        if(row.postWriteView.reauthenticationRequired===true&&row.postWriteView.source?.documentId===event.documentId&&row.postWriteView.source.timeOrigin===row.source.timeOrigin)return true
+        const proof=row.loadingSource?.replacement
+        if(!proof||row.loadingSource.unloaded!==true||row.loadingSource.source?.documentId!==event.documentId||proof.source?.documentId!==event.documentId||proof.responseEventId!==mutation.id||JSON.stringify(proof.source)!==JSON.stringify(row.source)||JSON.stringify(row.loadingSource.source)!==JSON.stringify(row.source)||!Number.isFinite(proof.source.timeOrigin)||!Number.isFinite(proof.replacement?.timeOrigin)||new URL(proof.source.url).origin!==base)return false
+        const original=uniqueOriginal(mutation),next=events.find(item=>item.id===proof.navigationEventId),routes=events.filter(item=>proof.routeEventIds?.includes(item.id))
+        const route=routes.at(-1)
+        const routeProven=route&&routes.length===proof.routeEventIds.length&&routes.every(item=>item.kind==='document-route'&&item.documentId===proof.replacement?.documentId&&item.frameId===original?.frameId&&new URL(item.url).origin===base&&order.get(item.id)>order.get(next?.id))&&route.url===proof.replacement.url+(proof.replacement.query??'')
+        return next?.kind==='document-navigation'&&original?.frameId&&proof.requestEventId===original.id&&next.frameId===original.frameId&&next.documentId!==event.documentId&&next.documentId===proof.replacement?.documentId&&new URL(next.url).origin===base&&order.get(next.id)>order.get(event.id)&&proof.replacement.timeOrigin>proof.source.timeOrigin&&(new URL(next.url).pathname===new URL(proof.replacement.url).pathname||routeProven)&&JSON.stringify(row.postWriteView.source)===JSON.stringify(proof.replacement)
+      }
+      return staleEditors.has(row.case)&&row.authorizationStage==='stale-epoch'&&row.status===401&&row.expectedStatuses.length===1&&row.expectedStatuses[0]===401&&row.requestId===event.requestId&&base+row.path===event.url&&row.method===event.method
+        &&(row.case==='ui-403-no-side-effects'&&event.method==='PUT'&&/^\/api\/v1\/main\/extensions\/rbac\/application-groups\/[^/]+\/applications\/~[A-Za-z0-9_-]+\/permissions\/[^/]+$/.test(url.pathname)
+          ||row.case==='ui-secret-revoked-editor-rejected'&&event.method==='POST'&&/^\/api\/v1\/main\/extensions\/rbac\/application-groups\/[^/]+\/applications\/~[A-Za-z0-9_-]+\/credentials\/rotate$/.test(url.pathname))
+    })
+    const recovery=record&&epochRecovery(event,record)
+    return recovery?{record,recovery,capability}:undefined
+  }
+  const explicitLogoutProbe=event=>{
+    if(event.kind!=='http-error'||event.status!==401||event.method!=='GET'||event.url!==base+'/api/v1/main/extensions/rbac/capabilities')return undefined
+    const original=uniqueOriginal(event)
+    if(!original?.frameId||!/^root-ui-[a-f0-9]{24}$/.test(original.acceptanceRequestId??'')||original.initiatorStack?.[0]?.functionName!=='eval')return undefined
+    const record=requests.find(row=>row.case==='ui-read-write-separation'&&row.method==='GET'&&row.path==='/api/v1/main/extensions/rbac/capabilities'&&row.status===401&&row.expectedStatuses.length===1&&row.expectedStatuses[0]===401&&row.requestId===event.requestId&&row.source?.documentId===event.documentId&&row.source.path==='/oidc/login'&&row.source.url===base+'/oidc/login')
+    if(!record||new URL(event.documentUrl).origin!==base||new URL(event.documentUrl).pathname!=='/oidc/login')return undefined
+    const committed=navigation.find(row=>row.documentId===event.documentId&&row.frameId===original.frameId&&new URL(row.url).origin===base&&new URL(row.url).pathname==='/oidc/login'&&order.get(row.id)<order.get(original.id))
+    const logout=events.findLast(row=>row.kind==='http-response'&&row.method==='GET'&&row.url===base+'/oidc/logout'&&row.status===307&&uniqueOriginal(row)?.frameId===original.frameId&&order.get(row.id)<order.get(committed?.id)&&at(event)-at(row)>=0&&at(event)-at(row)<=5000)
+    const old=identityWindows.find(window=>window.kind==='authenticated-session'&&/^[a-f0-9]{64}$/.test(window.subjectHash??'')&&window.documentIds?.includes(event.documentId)&&at(event)>=Date.parse(window.startedAt)&&at(event)<=Date.parse(window.finishedAt))
+    const next=identityWindows.find(window=>window.kind==='production-login'&&Date.parse(window.startedAt)>=at(event)&&Date.parse(window.authenticatedAt)>at(event)&&Date.parse(window.authenticatedAt)-at(event)<=60000&&events.some(row=>row.kind==='http-response'&&row.method==='POST'&&row.url===base+'/oidc/login'&&row.status===303&&row.observedAt===window.authenticatedAt&&window.documentIds?.includes(row.documentId)&&uniqueOriginal(row)?.frameId===original.frameId))
+    return committed&&logout&&old&&next?{logoutEventId:logout.id,loginDocumentEventId:committed.id,oldWindow:old.id,nextWindow:next.id}:undefined
+  }
   const newsFailures=events.filter(failed=>failed.kind==='request-failed'&&failed.method==='GET'&&failed.message==='net::ERR_FAILED'&&new URL(failed.url).origin==='https://api.kestra.io'&&new URL(failed.url).pathname==='/v1/feeds'&&(byRequest.get(failed.requestId)??[]).some(request=>request.kind==='request'&&same(request,failed)&&request.method==='GET'))
   for(const event of events) {
     const feedFailures=newsFailures.filter(failed=>failed.documentId===event.documentId&&Math.abs(at(failed)-at(event))<=100)
@@ -41,7 +95,13 @@ export function classifyAccessControlDiagnostics({events,base,requests=[],expect
       const companion=(byRequest.get(event.requestId)??[]).find(response=>['http-error','request-failed'].includes(response.kind)&&response.requestId===event.requestId&&response.documentId===event.documentId&&response.url===event.url&&new URL(response.url).origin==='https://api.kestra.io'&&new URL(response.documentUrl??'').pathname!=='/ui/main/extensions/rbac'&&(response.kind==='request-failed'||response.status===Number(match[1])))
       if(companion){add(event,'host-telemetry-external-console-error',{requestId:event.requestId,documentId:event.documentId,networkEventId:companion.id,status:event.status??null,message:event.message});continue}
     }
-    if(event.kind==='http-error'&&original&&exactRequests(event)){add(event,'explicit-business-denial',{requestId:event.requestId,documentId:event.documentId});continue}
+    if(event.kind==='http-error'&&event.status===401&&new URL(event.url).origin===base&&new URL(event.url).pathname.startsWith('/api/v1/main/extensions/rbac/')) {
+      const logoutProof=explicitLogoutProbe(event)
+      if(logoutProof){add(event,'explicit-read-write-logout-anonymous-probe',{requestId:event.requestId,documentId:event.documentId,...logoutProof});continue}
+      const proof=epoch401Proof(event)
+      if(proof){add(event,proof.capability?'post-mutation-capability401-with-verified-recovery':'stale-editor401-with-verified-recovery',{requestId:event.requestId,documentId:event.documentId,case:proof.record.case,mutationRequestId:proof.record.requestId,recoveryWindow:proof.recovery.id});continue}
+    }
+    if(event.kind==='http-error'&&original&&exactRequests(event)&&!(event.status===401&&new URL(event.url).origin===base&&new URL(event.url).pathname.startsWith('/api/v1/main/extensions/rbac/'))){add(event,'explicit-business-denial',{requestId:event.requestId,documentId:event.documentId});continue}
     if(event.kind==='request-failed'&&expectedTransportFailures.some(item=>item.case==='ui-secret-response-lost-once'&&same(item,event)&&item.message===event.message)){add(event,'explicit-once-only-response-drop',{requestId:event.requestId,documentId:event.documentId});continue}
     if(event.kind==='request-failed'&&original&&event.message==='net::ERR_ABORTED'&&event.cancelled===true) {
       const url=new URL(event.url),path=url.pathname

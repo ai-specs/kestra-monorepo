@@ -156,6 +156,7 @@ export async function main(argv=process.argv.slice(2),runtime={}) {
       for(const name of ['ui-client-ownership-evidence.mjs','browser-diagnostic-evidence.mjs','access-control-browser-diagnostics.mjs','access-control-translation-coverage.mjs','check-access-control-prototype.py','access-control-v3-ui.mjs','access-control-v3-rest-cases.mjs','access-control-v3-maintenance.mjs','access-control-v3-frozen.mjs','access-control-v3-dependency.mjs','access-control-v3-gates.mjs','access-control-v3-transactions.mjs','access-control-v3-ui-controls.mjs','access-control-v3-browser-runtime.mjs','application-project-policy.mjs','application-project-browser-adapters.mjs','production-oauth-client.mjs'])report.executionSources[name]=hash(readFileSync(join(repository,'scripts',name)))
       for(const name of ['application-project-ai-browser.mjs','application-project-ai-controls.mjs','application-project-ai-runtime.mjs','application-project-ai-deployment.mjs','application-project-ai-report.mjs','ai-model-transport.mjs','namespace-permission-browser.mjs','namespace-permission-evidence.mjs','namespace-flow-detail-browser.mjs','published-native-flow-evidence.mjs','published-native-flow-detail-evidence.mjs','first-account-execution-browser.mjs','rbac-onboarding-browser.mjs','rbac-onboarding-deployment.mjs','rbac-onboarding-published-evidence.mjs','owned-browser-session.mjs'])report.executionSources[name]=hash(readFileSync(join(repository,'scripts',name)))
       report.executionSources['owned-service-log.mjs']=hash(readFileSync(join(repository,'scripts/owned-service-log.mjs')))
+      report.executionSources['ui-mutation-observation.mjs']=hash(readFileSync(join(repository,'scripts/ui-mutation-observation.mjs')))
       return {actualPlatform:process.platform,node:process.version,commits:structuredClone(report.inputs)}
     })
     await stage('access-control-prototype',async()=>JSON.parse(command('python3',[join(repository,'scripts/check-access-control-prototype.py')])) )
@@ -169,6 +170,8 @@ export async function main(argv=process.argv.slice(2),runtime={}) {
         report.staticChecks.push({file,sha256:hash(readFileSync(join(repository,'scripts',file))),syntax:true})
       }
       assert.equal(report.matrix.length,56,'shared REST matrix changed; review integration')
+      command('node',['--check',join(repository,'scripts/ui-mutation-observation.mjs')])
+      report.staticChecks.push({file:'ui-mutation-observation.mjs',sha256:report.executionSources['ui-mutation-observation.mjs'],syntax:true})
       assert.equal(report.ui.filter(row=>row.case==='theme-language').length,0,'Visual theme matrix belongs to independent CI, not root integration')
       const planned=planFixture('http://localhost:18128')
       const observerTriggers=planned.policy.applicationGroups[applicationProject].scopes[planned.observerScope].grants.filter(grant=>grant.resource==='TRIGGER')

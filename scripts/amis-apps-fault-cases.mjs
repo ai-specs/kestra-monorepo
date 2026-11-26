@@ -3,6 +3,7 @@ import {createHash} from 'node:crypto'
 import {ProductionOAuthClient} from './production-oauth-client.mjs'
 import {amisApiPath, invokeAmisApi} from './amis-apps-http.mjs'
 import {runAmisNativeCases} from './amis-apps-native-cases.mjs'
+import {validateAmisControlEvents} from './amis-apps-effects.mjs'
 
 const listeners=['flowRepositoryListener','flowMetaStoreListener','storageListener','namespaceFactoryListener','authorizationListener']
 const counters=['flowLookup','flowMeta','schemaStorage','storageCalls','namespaceResolve','flowAuthorization']
@@ -104,7 +105,7 @@ export async function runAmisFaultCases({mode,base,env,originalVariant,account,t
     if(value&&typeof value==='object')return Object.fromEntries(Object.entries(value).filter(([key])=>!/password|token|cookie|secret/i.test(key)).map(([key,item])=>[key,clean(item)]))
     return value
   }
-  const safeFailure=error=>error instanceof assert.AssertionError?clean(error.message.split('\n')[0]):error.message==='Native HTTP regression failed'?error.message:'Operation failed; private runner diagnostics retained by caller'
+  const safeFailure=error=>['AMIS_EFFECTS_CHANGED','AMIS_OBSERVER_FAILED','AMIS_RESPONSE_ASSERTION','AMIS_REQUEST_FAILED'].includes(error.code)?error.code:error instanceof assert.AssertionError?'AssertionError':error.message==='Native HTTP regression failed'?error.message:'Operation failed; private runner diagnostics retained by caller'
   const save=async()=>{
     try{await persist(clean(structuredClone(report)))}catch(cause){
       report.completed=false;report.persistenceFailure=true
@@ -127,6 +128,13 @@ export async function runAmisFaultCases({mode,base,env,originalVariant,account,t
     return {client,identity}
   }
   const effects=()=>env.current.effects
+  const controlIds=[]
+  const provenance=()=>validateAmisControlEvents(effects().controlEvents([...controlIds]),controlIds)
+  const eventChanges=(before,after)=>{
+    const keyed=value=>new Map(value.events.map(row=>[row.offset,JSON.stringify(row)]))
+    const previous=keyed(before),current=keyed(after)
+    return {added:after.events.filter(row=>previous.get(row.offset)!==JSON.stringify(row)),removed:before.events.filter(row=>current.get(row.offset)!==JSON.stringify(row)),inventoryAdded:after.inventory.filter(id=>!before.inventory.includes(id)),inventoryRemoved:before.inventory.filter(id=>!after.inventory.includes(id)),scope:'Known prior positive control IDs only; never an exemption from strict whole-queue comparison'}
+  }
   const stable=async()=>{
     assert.equal(env.current.mode,mode,'Deployment mode changed')
     const idle=await effects().waitForIdle();assert.equal(idle.active,0,'Active executions remain')
@@ -144,10 +152,12 @@ export async function runAmisFaultCases({mode,base,env,originalVariant,account,t
     assert(spec?.inputs&&Object.hasOwn(spec,'expectedData'),'Explicit allowed control inputs/result required')
     const before=snapshot(await probe.snapshot())
     const result=await invokeAmisApi(session.client,{...spec,namespace:target.namespace,flowId:target.flowId,apiId:target.apiId})
+    assert(!controlIds.includes(result.executionId),'Positive control execution ID reused')
+    controlIds.push(result.executionId)
     await stable()
     const after=snapshot(await probe.snapshot());assert.equal(after.generation,before.generation)
     for(const key of ['flowLookup','flowMeta',...(mode==='B'?['flowAuthorization']:[])])assert(after[key]>before[key],`Positive control did not exercise ${key}`)
-    return {executionId:result.executionId,before,after}
+    return {executionId:result.executionId,before,after,eventSources:provenance()}
   }
   // Establish that the original graph can actually allow execution, rather than all-deny.
   report.baseline={};await save()
@@ -171,12 +181,19 @@ export async function runAmisFaultCases({mode,base,env,originalVariant,account,t
         for(const [method,url]of [['GET',page],['POST',path]]) {
           const check={method,path:url,expectedStatus:fault.status};entry.checks.push(check)
           check.before=snapshot(await probe.snapshot())
+          check.eventSourcesBefore=provenance()
           try {
             const denied=await effects().observeDenied(()=>session.client.request(url,{method,redirect:'manual',signal:AbortSignal.timeout(30000),...(method==='POST'?{headers:{'Content-Type':'application/json'},body:JSON.stringify({name:target.marker})}:{})}),async response=>{
               check.status=response.status;assert.equal(response.status,fault.status,'Unexpected fault response status');await response.body?.cancel()
             },{windowMs:5000,intervalMs:250})
             check.sideEffects=observation(denied.observation)
-          }catch(error){if(error.sideEffects)check.sideEffects=error.sideEffects;throw error}
+          }catch(error){
+            if(error.sideEffects)check.sideEffects=error.sideEffects
+            try {check.eventSourcesAfter=provenance();check.controlEventChanges=eventChanges(check.eventSourcesBefore,check.eventSourcesAfter)} catch {check.eventSourceObservationFailed=true}
+            throw error
+          }
+          check.eventSourcesAfter=provenance()
+          check.controlEventChanges=eventChanges(check.eventSourcesBefore,check.eventSourcesAfter)
           check.after=snapshot(await probe.snapshot());assert.equal(check.after.generation,check.before.generation,'Probe generation changed during request')
           for(const key of counters)assert.equal(check.after[key],check.before[key],`Fault reached protected lookup: ${key}`)
           check.passed=true;await save()

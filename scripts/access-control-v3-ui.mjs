@@ -4,6 +4,7 @@ import {ProductionOAuthClient} from './production-oauth-client.mjs'
 import {ApplicationGroupManagement} from './application-project-fixture.mjs'
 import {classifyAccessControlDiagnostics} from './access-control-browser-diagnostics.mjs'
 import {rootUiPlan,transferredUiPlan} from './access-control-ci-ownership.mjs'
+import {installUiMutationObservation,finishUiMutationObservation,clearUiMutationObservation,assertRevokedEditorStages,sourceUiDocument,uiDocumentSnapshot} from './ui-mutation-observation.mjs'
 
 // All published locales remain required for static translations and host SDK audit.
 export const accessControlSupportedLocales=Object.freeze(['en','de','es','fr','hi','it','ja','ko','pl','pt','pt_BR','ru','zh_CN'])
@@ -428,9 +429,8 @@ export async function runAccessControlV3Ui(page,base,fixture,record) {
   const restores=[]
   let currentCase='preconditions'
   async function source() {
-    const state=await page.evaluate(()=>({path:location.pathname,url:location.origin+location.pathname,query:location.search,timeOrigin:performance.timeOrigin}))
-    const diagnostics=await page.diagnostics(),document=diagnostics.documents?.findLast(item=>item.frameId===diagnostics.topFrame)
-    assert(document?.id,'current browser document identity missing')
+    const state=await page.evaluate(uiDocumentSnapshot)
+    const diagnostics=await page.diagnostics(),document=sourceUiDocument(diagnostics,state)
     return {...state,documentId:document.id}
   }
   async function run(name,operation) {
@@ -658,7 +658,11 @@ export async function runAccessControlV3Ui(page,base,fixture,record) {
   async function clickSave(button,path,method='PUT',expected=[200]) {
     const previous=new Set((await page.diagnostics()).events.map(event=>event.id)),document=await source()
     const observation='ui-save-'+randomBytes(6).toString('hex')
-    await page.evaluate(observation=>{const root=document.querySelector('[data-test="extension-container"]').shadowRoot,state={busy:false,saving:false,closeDisabled:true,saveDisabled:true};const sample=()=>{const main=root.querySelector('main'),drawer=root.querySelector('[data-test^="drawer-"][aria-busy]');if(main?.getAttribute('aria-busy')==='true')state.busy=true;if(drawer?.getAttribute('aria-busy')==='true'){const close=drawer.querySelector('.kel-drawer__close-btn');state.saving=true;state.closeDisabled&&=!close||close.disabled===true;state.saveDisabled&&=root.querySelector('[data-test="drawer-save"]')?.disabled===true}};state.observer=new MutationObserver(records=>{if(records.some(record=>record.attributeName==='aria-busy'&&record.oldValue==='true'))state.busy=true;sample()});state.observer.observe(root,{subtree:true,attributes:true,attributeOldValue:true,childList:true});window[observation]=state},observation)
+    const operation={id:observation,case:currentCase,source:document,url:base+api+path,method}
+    let failure,recorded,installed=false
+    try {
+    await page.evaluate(installUiMutationObservation,{key:observation,operation})
+    installed=true
     if(await page.evaluate(()=>{const root=document.querySelector('[data-test="extension-container"]')?.shadowRoot;const modal=[...root?.querySelectorAll('[aria-modal="true"]')??[]].some(node=>node.getClientRects().length&&getComputedStyle(node).visibility!=='hidden');return !modal&&Boolean(document.querySelector('.pwa-install-prompt')?.getClientRects().length)})) {
       await page.click('.pwa-install-actions button:last-child')
       await page.waitForFunction(()=>!document.querySelector('.pwa-install-prompt'))
@@ -672,15 +676,33 @@ export async function runAccessControlV3Ui(page,base,fixture,record) {
       await new Promise(resolve=>setTimeout(resolve,50))
     }
     assert(event,'native UI action produced no exact HTTP response')
-    report.requests.push({case:currentCase,path:api+path,method,status:event.status,requestId:event.requestId,source:document,expectedStatuses:expected})
-    const observed=await page.evaluate(observation=>{const state=window[observation];state.observer.disconnect();delete window[observation];return {busy:state.busy,saving:state.saving,closeDisabled:state.closeDisabled,saveDisabled:state.saveDisabled}},observation)
-    report.requests.at(-1).loading=observed
+    recorded={case:currentCase,path:api+path,method,status:event.status,requestId:event.requestId,source:document,expectedStatuses:expected}
+    if(expected.length===1&&expected[0]===401&&['ui-403-no-side-effects','ui-secret-revoked-editor-rejected'].includes(currentCase))recorded.authorizationStage='stale-epoch'
+    report.requests.push(recorded);await persist()
+    await page.waitForFunction(()=>document.querySelector('[data-test="extension-container"]')?.shadowRoot?.querySelector('main')?.getAttribute('aria-busy')==='false'||['/ui/access-denied','/ui/main/dashboards','/oidc/login'].includes(location.pathname))
+    const collected=await finishUiMutationObservation({page,key:observation,operation,response:event})
+    const observed=collected.loading
+    Object.assign(recorded,collected)
     await persist();assert(expected.includes(event.status),'native write failed HTTP '+event.status)
     assert(observed.busy,'native write never exposed a loading state')
     if(observed.saving)assert(observed.closeDisabled&&observed.saveDisabled,'saving drawer allowed close or duplicate submit')
-    await page.waitForFunction(()=>document.querySelector('[data-test="extension-container"]')?.shadowRoot?.querySelector('main')?.getAttribute('aria-busy')==='false'||location.pathname==='/ui/access-denied')
-    report.requests.at(-1).postWriteView=await page.evaluate(()=>{const root=document.querySelector('[data-test="extension-container"]')?.shadowRoot;return {path:location.pathname,reauthenticationRequired:Boolean(root?.querySelector('[data-test="sign-in-again"]')),businessContentHidden:!root?.querySelector('[data-test="group-detail"],[data-test="permission-row"],[data-test="user-row"],[data-test="subject-row"]')}})
+    await persist()
+    if(event.status>=200&&event.status<300&&['ui-application-register-remove','ui-permission-many-to-many','ui-subject-grant-revoke','ui-subject-delete-keeps-account','ui-user-delete-all-groups','ui-user-delete-execution-retained','ui-user-delete-audit-retained'].includes(currentCase)
+      &&(collected.postWriteView.reauthenticationRequired||collected.loadingSource.replacement)) {
+      const recovered=await login()
+      recorded.recovery={source:recovered,productionLoginWindowId:report.identityWindows.findLast(window=>window.kind==='production-login')?.id}
+      await persist()
+    }
     return {status:event.status,requestId:event.requestId,documentId:event.documentId,loading:observed}
+    } catch(error) {failure=error;throw error}
+    finally {
+      try {if(installed)await clearUiMutationObservation(page,observation,base)}
+      catch(error) {
+        if(recorded)recorded.observerCleanupFailed=true
+        try {await persist()}catch(persistenceError){if(!failure)throw persistenceError}
+        if(!failure)throw error
+      }
+    }
   }
   async function nativeActionResponse(button,path,method,expectedStatuses) {
     const before=new Set((await page.diagnostics()).events.map(event=>event.id)),document=await source()
@@ -697,7 +719,7 @@ export async function runAccessControlV3Ui(page,base,fixture,record) {
     const deadline=Date.now()+30000;let event
     do{event=(await page.diagnostics()).events.find(item=>!before.has(item.id)&&item.documentId===document.documentId&&['http-response','http-error'].includes(item.kind)&&item.url===base+api+path&&item.method===method);if(event)break;await new Promise(resolve=>setTimeout(resolve,50))}while(Date.now()<deadline)
     assert(event,'native action produced no exact source-bound response')
-    report.requests.push({case:currentCase,path:api+path,method,status:event.status,requestId:event.requestId,source:document,expectedStatuses});await persist();assert(expectedStatuses.includes(event.status),'native action returned '+event.status)
+    report.requests.push({case:currentCase,path:api+path,method,status:event.status,requestId:event.requestId,source:document,expectedStatuses,...(expectedStatuses.length===1&&expectedStatuses[0]===401&&['ui-403-no-side-effects','ui-secret-revoked-editor-rejected'].includes(currentCase)?{authorizationStage:'stale-epoch'}:{})});await persist();assert(expectedStatuses.includes(event.status),'native action returned '+event.status)
     return event
   }
   async function visibleRows(name,attribute) {return page.evaluate(({name,attribute})=>[...document.querySelector('[data-test="extension-container"]').shadowRoot.querySelectorAll('[data-test="'+name+'"]')].filter(node=>node.getClientRects().length).map(node=>node.getAttribute(attribute)),{name,attribute})}
@@ -778,6 +800,58 @@ export async function runAccessControlV3Ui(page,base,fixture,record) {
     report.identityWindows??=[];report.identityWindows.push({id:'login-'+report.identityWindows.length,kind:'production-login',startedAt,finishedAt:new Date().toISOString(),authenticatedAt,logoutEventId:logout?.id,...identity,documentIds:[...new Set(loginEvents.map(event=>event.documentId))]})
     report.identityWindows.push({id:'session-'+report.identityWindows.length,kind:'authenticated-session',startedAt:new Date().toISOString(),initialDocumentId:(await source()).documentId,...identity})
     return source()
+  }
+  async function revokedReadonlyIdentity(account,previousVersion) {
+    const document=await login(account),window=report.identityWindows.findLast(item=>item.kind==='production-login')
+    assert(window?.authenticatedAt&&window.logoutEventId,'Fresh credential login and actual logout required')
+    const capabilities=await read('/capabilities?applicationGroupId='+encodeURIComponent(fixture.applicationGroupId))
+    assert.equal(capabilities.subject,account.subject);assert.equal(capabilities.allowed,true)
+    assert.equal(capabilities.identityRead,true);assert.equal(capabilities.identityManagement,false);assert.equal(capabilities.localPolicyManagement,false)
+    const group=await read(groupApi)
+    assert(Number.isSafeInteger(group.authorizationVersion)&&group.authorizationVersion>0,'Current server-validated authorization version required')
+    assert(group.authorizationVersion>previousVersion,'Fresh readonly login did not advance the revoked authorization epoch')
+    return {subjectHash:createHash('sha256').update(account.subject).digest('hex'),authorizationVersion:group.authorizationVersion,epochValidation:'fresh-production-login-and-public-authorized-group-read',credentialsSubmitted:true,loginWindowId:window.id,logoutEventId:window.logoutEventId,document}
+  }
+  async function prepareRevokedReadonlyGrant(account,originalScopeKeys) {
+    const permissions=await privateList(permissionApi)
+    const readable=permissions.filter(permission=>permission.enabled&&permission.managementGrants?.some(grant=>grant.domain==='LOCAL_POLICY'&&grant.actions.includes('READ')&&!grant.actions.includes('MANAGE')&&grant.applicationGroupIds.includes(fixture.applicationGroupId)))
+    assert(readable.length>0,'Published readonly local policy scope required for fresh403 UI')
+    const keys=[...new Set([...originalScopeKeys,...readable.flatMap(permission=>permission.scopeKeys)])]
+    const active=permissions.filter(permission=>permission.enabled&&permission.scopeKeys.some(key=>keys.includes(key)))
+    assert(!active.some(permission=>permission.managementGrants?.some(grant=>grant.actions.includes('MANAGE'))),'Fresh readonly preparation would retain management rights')
+    await setGrant(groupApi,account,keys)
+  }
+  async function revokedSensitiveView(draft) {
+    await page.waitForFunction(()=>{
+      const root=document.querySelector('[data-test="extension-container"]')?.shadowRoot
+      return ['/ui/access-denied','/oidc/login'].includes(location.pathname)||Boolean(root?.querySelector('[data-test="request-error"]'))&&!root.querySelector('[data-test="drawer-permission"],[data-test="credential-once"],[data-test="credential-rotate"]')
+    })
+    const view=await page.evaluate(()=>{
+      const root=document.querySelector('[data-test="extension-container"]')?.shadowRoot
+      return {path:location.pathname,reauthenticationRequired:Boolean(root?.querySelector('[data-test="sign-in-again"]')||document.querySelector('[data-testid="return-to-login"]')||document.querySelector('input[name="username"]')),businessContentHidden:!root?.querySelector('[data-test="drawer-permission"],[data-test="permission-row"],[data-test="credential-once"],[data-test="credential-rotate"]')}
+    })
+    assert(view.reauthenticationRequired&&view.businessContentHidden,'Revoked editor did not clear sensitive content and expose recovery')
+    if(draft)assert(!(await state()).text.includes(draft),'Revoked editor retained its draft')
+    return view
+  }
+  async function revokedStageEvidence(stage,action,{effects,protectedRead,protectedBefore,expected}) {
+    const before=await effects.snapshot();stage.beforeEffects={hash:before.hash,sources:before.sources};await note({revokedEditorStage:stage})
+    let failure
+    try {
+      await action()
+      assert.equal(stage.request?.status,expected)
+    } catch(error) {failure=error}
+    finally {
+      try {
+        const after=await effects.snapshot();stage.afterEffects={hash:after.hash,sources:after.sources}
+        assert.equal(after.hash,before.hash,'Revoked editor rejection changed business persistence/queues/storage')
+        const stored=await protectedRead();equal(stored,protectedBefore,'Revoked editor rejection changed protected state')
+        stage.protectedStateUnchanged=true
+      } catch(error) {failure??=error}
+      stage.completed=!failure;stage.status=stage.request?.status
+      await note({revokedEditorStage:stage})
+    }
+    if(failure)throw failure
   }
   async function pickScopes(keys,kind='permission') {
     const control=selector('drawer-'+kind)+' [data-test="scope-picker"] .kel-select__wrapper'
@@ -1267,14 +1341,40 @@ export async function runAccessControlV3Ui(page,base,fixture,record) {
       try {
         await setGrant(groupApi,account,[...new Set([...original.scopeKeys,...administrator.scopeKeys])]);await login(account)
         const path=groupApi+'/applications/'+encoded(controls.clientId)+'/credentials',beforeCredentials=await read(path)
+        const oldVersion=(await read(groupApi)).authorizationVersion
+        assert(Number.isSafeInteger(oldVersion)&&oldVersion>0)
         await open(group+'/applications/'+encoded(controls.clientId));await page.waitForFunction(()=>Boolean(document.querySelector('[data-test="extension-container"]')?.shadowRoot?.querySelector('[data-test="credential-rotate"]')))
-        await restore();const before=await effectsBefore()
-        const rotationClick={before:new Set((await page.diagnostics()).events.map(event=>event.id)),document:await source()}
-        await page.click('[data-test="credential-rotate"]');await confirmRotate()
-        const denied=await nativeResponse(path+'/rotate','POST',[403],rotationClick.before,rotationClick.document)
-        await page.waitForFunction(()=>{const root=document.querySelector('[data-test="extension-container"]')?.shadowRoot;return Boolean(root?.querySelector('[data-test="request-error"]'))&&!root.querySelector('[data-test="credential-once"]')&&!root.querySelector('[data-test="credential-rotate"]')})
-        const retained=await privateRequest(path);await note({beforeCredentials,afterCredentials:retained,revokedSubject:account.subject});equal(retained,beforeCredentials)
-        await effectsUnchanged(before);await login();return {clientId:controls.clientId,revokedSubject:account.subject,status:denied.status,noSecretShown:true,credentialStateUnchanged:true}
+        await restore()
+        const substages={staleEpoch401:{identity:{subjectHash:createHash('sha256').update(account.subject).digest('hex'),authorizationVersion:oldVersion}},freshReadOnly403:{}}
+        await note({substages,beforeCredentials,revokedSubject:account.subject})
+        const effects=fixture.targetRuntime.effects,protectedRead=()=>privateRequest(path)
+        await revokedStageEvidence(substages.staleEpoch401,async()=>{
+          const rotationClick={before:new Set((await page.diagnostics()).events.map(event=>event.id)),document:await source()}
+          await page.click('[data-test="credential-rotate"]');await confirmRotate()
+          await nativeResponse(path+'/rotate','POST',[401],rotationClick.before,rotationClick.document)
+          substages.staleEpoch401.request=report.requests.at(-1)
+          const view=await revokedSensitiveView();substages.staleEpoch401.request.postWriteView=view
+          substages.staleEpoch401.sensitiveContentCleared=true
+        },{effects,protectedRead,protectedBefore:beforeCredentials,expected:401})
+        await prepareRevokedReadonlyGrant(account,original.scopeKeys)
+        const identity=await revokedReadonlyIdentity(account,oldVersion)
+        substages.staleEpoch401.productionLogout=true;substages.staleEpoch401.logoutEventId=identity.logoutEventId
+        Object.assign(substages.freshReadOnly403,{identity,credentialsSubmitted:identity.credentialsSubmitted,transport:'browser-session-adversarial-request'})
+        await open(group+'/applications/'+encoded(controls.clientId))
+        substages.freshReadOnly403.noSaveEntry=await page.evaluate(()=>{
+          const root=document.querySelector('[data-test="extension-container"]')?.shadowRoot
+          return Boolean(root?.querySelector('[data-test="application-credentials"]'))&&!root.querySelector('[data-test="credential-rotate"],[data-test="credential-once"]')
+        })
+        assert.equal(substages.freshReadOnly403.noSaveEntry,true,'Fresh readonly identity exposes secret rotation')
+        const credentials=await read(path);equal(credentials,beforeCredentials)
+        await revokedStageEvidence(substages.freshReadOnly403,async()=>{
+          await request(path+'/rotate','POST',undefined,credentials.credentialRevision,[403])
+          substages.freshReadOnly403.request=report.requests.at(-1)
+          assert(!await page.evaluate(()=>Boolean(document.querySelector('[data-test="extension-container"]')?.shadowRoot?.querySelector('[data-test="credential-once"]'))))
+          substages.freshReadOnly403.sensitiveContentCleared=true
+        },{effects,protectedRead,protectedBefore:beforeCredentials,expected:403})
+        assertRevokedEditorStages(substages)
+        await login();return {clientId:controls.clientId,revokedSubject:account.subject,status:403,noSecretShown:true,credentialStateUnchanged:true,substages}
       }finally{await restore()}
     })
     const lostResponseCase=async()=>{
@@ -1963,17 +2063,38 @@ export async function runAccessControlV3Ui(page,base,fixture,record) {
         await login(account);await editPermission(permission.key)
         const draft='Rejected after revocation '+randomBytes(5).toString('hex')
         await page.fill('[name="permission-description"]',draft)
+        const oldVersion=(await read(groupApi)).authorizationVersion
+        assert(Number.isSafeInteger(oldVersion)&&oldVersion>0)
         await restore()
-        const before=await effects.snapshot(),requestOffset=report.requests.length
-        const rejected=await clickSave('[data-test="drawer-save"]',permissionPath,'PUT',[403])
-        await page.waitForFunction(()=>{const root=document.querySelector('[data-test="extension-container"]')?.shadowRoot;return Boolean(root?.querySelector('[data-test="request-error"]'))&&!root.querySelector('[data-test="drawer-permission"]')&&!root.querySelector('[data-test="permission-row"]')})
-        assert(!((await state()).text.includes(draft)),'revoked editor retained sensitive draft')
-        const after=await effects.snapshot();assert.equal(after.hash,before.hash,'403 UI save changed business persistence/queues/storage')
-        await management.login()
-        const stored=(await management.readPermissions(fixture.applicationGroupId)).items.find(item=>item.key===permission.key)
-        equal(permissionInput(stored),beforePermission,'403 UI save changed typed permission')
+        const substages={staleEpoch401:{identity:{subjectHash:createHash('sha256').update(account.subject).digest('hex'),authorizationVersion:oldVersion}},freshReadOnly403:{}},requestOffset=report.requests.length
+        await note({substages})
+        const protectedRead=async()=>{await management.login();return permissionInput((await management.readPermissions(fixture.applicationGroupId)).items.find(item=>item.key===permission.key))}
+        await revokedStageEvidence(substages.staleEpoch401,async()=>{
+          await clickSave('[data-test="drawer-save"]',permissionPath,'PUT',[401])
+          substages.staleEpoch401.request=report.requests.at(-1)
+          const view=await revokedSensitiveView(draft);substages.staleEpoch401.request.postWriteView=view
+          substages.staleEpoch401.sensitiveContentCleared=true
+        },{effects,protectedRead,protectedBefore:beforePermission,expected:401})
+        await prepareRevokedReadonlyGrant(account,original.scopeKeys)
+        const identity=await revokedReadonlyIdentity(account,oldVersion)
+        substages.staleEpoch401.productionLogout=true;substages.staleEpoch401.logoutEventId=identity.logoutEventId
+        Object.assign(substages.freshReadOnly403,{identity,credentialsSubmitted:identity.credentialsSubmitted,transport:'browser-session-adversarial-request'})
+        await open(app+'?permissionKey='+permission.key,'[data-test="application-permissions"]')
+        substages.freshReadOnly403.noSaveEntry=await page.evaluate(()=>{
+          const root=document.querySelector('[data-test="extension-container"]')?.shadowRoot
+          return Boolean(root?.querySelector('[data-test="application-permissions"]'))&&!root.querySelector('[data-test="permission-edit"],[data-test="permission-add"],[data-test="drawer-save"],[data-test="permission-delete"]')
+        })
+        assert.equal(substages.freshReadOnly403.noSaveEntry,true,'Fresh readonly identity exposes a permission write entry')
+        const fresh=await read(permissionPath)
+        await revokedStageEvidence(substages.freshReadOnly403,async()=>{
+          await request(permissionPath,'PUT',{...beforePermission,description:draft},fresh.revision,[403])
+          substages.freshReadOnly403.request=report.requests.at(-1)
+          assert(!(await state()).text.includes(draft),'Fresh readonly rejection rendered the attempted draft')
+          substages.freshReadOnly403.sensitiveContentCleared=true
+        },{effects,protectedRead,protectedBefore:beforePermission,expected:403})
+        assertRevokedEditorStages(substages)
         const replacement=await login();assert.equal(replacement.path,'/ui/main/dashboards')
-        return {source:'production-browser-and-owned-dependency-control',subject:account.subject,replacementSubject:fixture.admin.subject,status:rejected.status,beforeEffects:{hash:before.hash,sources:Object.keys(before.sources??{})},afterEffects:{hash:after.hash,sources:Object.keys(after.sources??{})},requests:report.requests.slice(requestOffset).filter(request=>request.requestId),sensitiveDraftCleared:true,permissionUnchanged:true,realLogoutAndAccountSwitch:true}
+        return {source:'production-browser-and-owned-dependency-control',subject:account.subject,replacementSubject:fixture.admin.subject,status:403,requests:report.requests.slice(requestOffset).filter(request=>request.requestId),sensitiveDraftCleared:true,permissionUnchanged:true,realLogoutAndAccountSwitch:true,substages}
       }finally{await restore()}
     })
     await run('ui-503-retry-no-side-effects',dependencyUnavailableCase)

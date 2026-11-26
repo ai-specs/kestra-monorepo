@@ -233,3 +233,120 @@ test('Flow page chart body abort uses the same exact200 response and navigation 
  assert.equal(run(events).errors.length,0)
  for(const mutate of [e=>e.pop(),e=>e[1].status=403,e=>e[1].documentId='other',e=>e[2].cancelled=false,e=>{for(const i of [0,1,2])e[i].url=base+'/api/v1/main/flows'},e=>e[3].documentUrl=base+'/ui/main/extensions/rbac']){const copy=structuredClone(events);mutate(copy);assert(run(copy).errors.some(x=>x.id==='chart-console'))}
 })
+
+function epoch401({stale=false,inPage=false}={}) {
+  const mutationUrl=base+'/api/v1/main/extensions/rbac/application-groups/kestra/applications/~Y2xpZW50'+(stale?'/credentials/rotate':'')
+  const make=(id,kind,requestId,url,method,offset,extra={})=>event(id,kind,{requestId,url,method,observedAt:time(offset),frameId:'frame',...extra})
+  const mutationRequest=make('epoch-write-request','request','epoch-write',mutationUrl,'POST',0)
+  const mutationResponse=make('epoch-write-response',stale?'http-error':'http-response','epoch-write',mutationUrl,'POST',10,{status:stale?401:200})
+  const capabilityRequest=make('epoch-cap-request','request','epoch-cap',base+'/api/v1/main/extensions/rbac/capabilities?applicationGroupId=kestra','GET',20)
+  const capabilityResponse=make('epoch-cap-response','http-error','epoch-cap',capabilityRequest.url,'GET',30,{status:401})
+  const replacement=make('epoch-nav','document-navigation',undefined,base+'/ui/main/dashboards','GET',40,{documentId:'replacement'})
+  const logoutRequest=make('epoch-logout-request','request','epoch-logout',base+'/oidc/logout','GET',50,{documentId:'logout-doc'})
+  const logoutResponse=make('epoch-logout-response','http-response','epoch-logout',logoutRequest.url,'GET',51,{documentId:'logout-doc',status:307})
+  const credentialRequest=make('epoch-credential-request','request','epoch-credential',base+'/oidc/login','POST',60,{documentId:'login-doc'})
+  const credentialResponse=make('epoch-credential-response','http-response','epoch-credential',credentialRequest.url,'POST',61,{documentId:'login-doc',status:303})
+  const verifiedRequest=make('epoch-verified-request','request','epoch-verified',base+'/api/v1/main/extensions/rbac/capabilities','GET',70,{documentId:'fresh-doc'})
+  const verifiedResponse=make('epoch-verified-response','http-response','epoch-verified',verifiedRequest.url,'GET',71,{documentId:'fresh-doc',status:200})
+  const source={documentId:'old',timeOrigin:1,url:base+'/ui/main/extensions/rbac/application-groups/kestra',query:''}
+  const replacementSource={documentId:'replacement',timeOrigin:2,url:replacement.url}
+  const record={case:stale?'ui-secret-revoked-editor-rejected':'ui-application-register-remove',requestId:'epoch-write',source,path:mutationUrl.slice(base.length),method:'POST',status:stale?401:200,expectedStatuses:[stale?401:200],postWriteView:{reauthenticationRequired:stale||inPage,businessContentHidden:true,source:inPage?source:replacementSource},...(stale?{authorizationStage:'stale-epoch'}:{loadingSource:{source,unloaded:true,replacement:{source,requestEventId:mutationRequest.id,responseEventId:mutationResponse.id,navigationEventId:replacement.id,replacement:replacementSource}}})}
+  const events=[mutationRequest,mutationResponse,...(stale?[]:[capabilityRequest,capabilityResponse]),...(inPage?[]:[replacement]),logoutRequest,logoutResponse,credentialRequest,credentialResponse,verifiedRequest,verifiedResponse]
+  const identityWindows=[{id:'epoch-old',kind:'authenticated-session',subjectHash:'a'.repeat(64),startedAt:time(-10),finishedAt:time(50),documentIds:['old']},{id:'epoch-fresh',kind:'production-login',subjectHash:'a'.repeat(64),startedAt:time(50),finishedAt:time(90),authenticatedAt:time(61),logoutEventId:logoutResponse.id,documentIds:['logout-doc','login-doc','fresh-doc']}]
+  const requests=[record,{requestId:'epoch-verified',source:{documentId:'fresh-doc'},path:verifiedRequest.url.slice(base.length),method:'GET',status:200,expectedStatuses:[200]}]
+  return {events,requests,identityWindows}
+}
+test('capabilities401 after named successful mutation requires exact replacement and credential recovery',()=>{
+  const result=classify({base,...epoch401()});assert.deepEqual(result.errors,[])
+  assert.equal(result.classifications.find(row=>row.id==='epoch-cap-response').reason,'post-mutation-capability401-with-verified-recovery')
+})
+test('same-document visible reauthentication can prove capabilities401 without invented replacement',()=>assert.deepEqual(classify({base,...epoch401({inPage:true})}).errors,[]))
+test('old-epoch rotation401 is separate from a fresh403 and requires actual credential recovery',()=>{
+  const result=classify({base,...epoch401({stale:true})});assert.deepEqual(result.errors,[])
+  assert.equal(result.classifications[0].reason,'stale-editor401-with-verified-recovery')
+})
+for(const [name,change] of [
+  ['unknown operation',value=>{value.requests[0].case='unknown'}],
+  ['wrong source document',value=>{value.requests[0].source.documentId='another'}],
+  ['old mutation response',value=>{value.events.find(row=>row.id==='epoch-write-response').observedAt=time(-5000)}],
+  ['failed original mutation',value=>{value.events.find(row=>row.id==='epoch-write-response').status=403}],
+  ['missing original request',value=>{value.events=value.events.filter(row=>row.id!=='epoch-write-request')}],
+  ['ambiguous original request',value=>{value.events.unshift({...value.events[0],id:'duplicate-original'})}],
+  ['missing capability request',value=>{value.events=value.events.filter(row=>row.id!=='epoch-cap-request')}],
+  ['foreign capability origin',value=>{for(const row of value.events.filter(row=>row.requestId==='epoch-cap'))row.url='https://foreign.invalid/api/v1/main/extensions/rbac/capabilities'}],
+  ['other capability path',value=>{for(const row of value.events.filter(row=>row.requestId==='epoch-cap'))row.url=base+'/api/v1/main/extensions/rbac/capabilities-extra'}],
+  ['unknown capability query',value=>{for(const row of value.events.filter(row=>row.requestId==='epoch-cap'))row.url+='&unknown=1'}],
+  ['no replacement',value=>delete value.requests[0].loadingSource.replacement],
+  ['replacement not unloaded',value=>{value.requests[0].loadingSource.unloaded=false}],
+  ['no real navigation',value=>{value.events=value.events.filter(row=>row.id!=='epoch-nav')}],
+  ['wrong replacement frame',value=>{value.events.find(row=>row.id==='epoch-nav').frameId='other'}],
+  ['wrong replacement document',value=>{value.requests[0].loadingSource.replacement.replacement.documentId='other'}],
+  ['wrong replacement source binding',value=>{value.requests[0].loadingSource.replacement.source.timeOrigin=99}],
+  ['wrong original request proof',value=>{value.requests[0].loadingSource.replacement.requestEventId='other'}],
+  ['wrong postwrite reader',value=>{value.requests[0].postWriteView.source={documentId:'unrelated',timeOrigin:2,url:base+'/ui/main/dashboards'}}],
+  ['same generation',value=>{value.requests[0].loadingSource.replacement.replacement.timeOrigin=1}],
+  ['dashboard alone',value=>{value.identityWindows.pop()}],
+  ['wrong recovered subject',value=>{value.identityWindows[1].subjectHash='b'.repeat(64)}],
+  ['missing credential POST',value=>{value.events=value.events.filter(row=>row.id!=='epoch-credential-request')}],
+  ['missing credential303',value=>{value.events=value.events.filter(row=>row.id!=='epoch-credential-response')}],
+  ['fake credential time',value=>{value.identityWindows[1].authenticatedAt=time(62)}],
+  ['missing actual logout',value=>{value.events=value.events.filter(row=>row.id!=='epoch-logout-response')}],
+  ['logout before denial',value=>{value.events.find(row=>row.id==='epoch-logout-response').observedAt=time(1)}],
+  ['no verified capability200',value=>{value.events=value.events.filter(row=>row.id!=='epoch-verified-response')}],
+  ['recovery request wrong document',value=>{value.requests[1].source.documentId='foreign-doc'}],
+  ['retained sensitive content',value=>{value.requests[0].postWriteView.businessContentHidden=false}],
+])test('capabilities401 rejects '+name,()=>{
+  const value=epoch401();change(value);assert(classify({base,...value}).errors.some(row=>row.id==='epoch-cap-response'))
+})
+for(const [name,change] of [
+  ['unmarked epoch',value=>delete value.requests[0].authorizationStage],['unexpected401',value=>{value.requests[0].expectedStatuses=[403]}],
+  ['wrong operation',value=>{value.requests[0].case='ui-application-register-remove'}],['missing recovery',value=>{value.identityWindows.pop()}],
+  ['missing hidden content',value=>{value.requests[0].postWriteView.businessContentHidden=false}],
+])test('stale rotation401 rejects '+name,()=>{const value=epoch401({stale:true});change(value);assert(classify({base,...value}).errors.some(row=>row.id==='epoch-write-response'))})
+test('network console401 is classified only when its exact source response is proven',()=>{
+  const value=epoch401(),response=value.events.find(row=>row.id==='epoch-cap-response')
+  value.events.push({...response,id:'epoch-console',kind:'console-error',source:'network',message:'Failed to load resource: the server responded with a status of 401 (Unauthorized)'})
+  assert.deepEqual(classify({base,...value}).errors,[])
+  value.events.at(-1).documentId='other';assert(classify({base,...value}).errors.some(row=>row.id==='epoch-console'))
+})
+
+function epochRouted401(){const value=epoch401(),nav=value.events.find(row=>row.id==='epoch-nav');nav.url=base+'/ui/';const route={...nav,id:'epoch-spa-route',kind:'document-route',url:base+'/ui/main/dashboards'};value.events.splice(value.events.indexOf(nav)+1,0,route);value.requests[0].loadingSource.replacement.routeEventIds=[route.id];return value}
+test('named mutation401 binds committed UI entry and exact subsequent SPA route before real recovery',()=>assert.deepEqual(classify({base,...epochRouted401()}).errors,[]))
+for(const [name,change] of [
+ ['no route evidence',v=>delete v.requests[0].loadingSource.replacement.routeEventIds],
+ ['wrong route document',v=>{v.events.find(e=>e.id==='epoch-spa-route').documentId='other'}],
+ ['wrong route frame',v=>{v.events.find(e=>e.id==='epoch-spa-route').frameId='other'}],
+ ['wrong final query',v=>{v.events.find(e=>e.id==='epoch-spa-route').url+='?unexpected=1'}],
+ ['route before commit',v=>{const i=v.events.findIndex(e=>e.id==='epoch-spa-route');const [route]=v.events.splice(i,1);v.events.splice(2,0,route)}],
+ ['missing route event',v=>{v.events=v.events.filter(e=>e.id!=='epoch-spa-route')}],
+ ['missing actual logout',v=>{v.events=v.events.filter(e=>e.id!=='epoch-logout-response')}],
+ ['missing actual credential POST',v=>{v.events=v.events.filter(e=>e.id!=='epoch-credential-request')}],
+ ['wrong recovered subject',v=>{v.identityWindows[1].subjectHash='b'.repeat(64)}],
+ ['missing verified200',v=>{v.events=v.events.filter(e=>e.id!=='epoch-verified-response')}],
+])test('committed SPA recovery rejects '+name,()=>{const value=epochRouted401();change(value);assert(classify({base,...value}).errors.some(e=>e.id==='epoch-cap-response'))})
+
+function explicitLoggedOutProbe(){
+ const value=epoch401();const capRequest=value.events.find(e=>e.id==='epoch-cap-request'),cap=value.events.find(e=>e.id==='epoch-cap-response')
+ const logout=value.events.filter(e=>e.id.startsWith('epoch-logout'));for(const e of logout)e.documentId='logout-doc'
+ capRequest.documentId=cap.documentId='anonymous-login';capRequest.url=cap.url=base+'/api/v1/main/extensions/rbac/capabilities';capRequest.documentUrl=cap.documentUrl=base+'/oidc/login?from=[redacted]';capRequest.acceptanceRequestId='root-ui-'+'a'.repeat(24);capRequest.initiatorStack=[{functionName:'eval',url:'',line:0,column:458}]
+ const commit={...navigation,id:'anonymous-login-navigation',documentId:'anonymous-login',url:base+'/oidc/login?from=[redacted]',observedAt:time(55)}
+ capRequest.observedAt=time(56);cap.observedAt=time(57)
+ value.events=[...logout,commit,capRequest,cap,...value.events.filter(e=>e.id.startsWith('epoch-credential')||e.id.startsWith('epoch-verified'))]
+ value.requests=[{case:'ui-read-write-separation',path:'/api/v1/main/extensions/rbac/capabilities',method:'GET',status:401,requestId:cap.requestId,source:{documentId:'anonymous-login',path:'/oidc/login',url:base+'/oidc/login',query:'?from=[redacted]'},expectedStatuses:[401]}]
+ value.identityWindows[0].documentIds=['anonymous-login'];value.identityWindows[0].finishedAt=time(58);value.identityWindows[1].startedAt=time(58)
+ return value
+}
+test('explicit readonly logout probe401 binds named case actual logout login document and later credential submission',()=>assert.deepEqual(classify({base,...explicitLoggedOutProbe()}).errors,[]))
+for(const [name,change]of[
+ ['wrong case',v=>{v.requests[0].case='other'}],['wrong path',v=>{v.requests[0].path+='/extra'}],
+ ['query endpoint',v=>{for(const e of v.events.filter(e=>e.requestId==='epoch-cap'))e.url+='?applicationGroupId=kestra';v.requests[0].path+='?applicationGroupId=kestra'}],
+ ['wrong document',v=>{v.requests[0].source.documentId='other'}],['no logout',v=>{v.events=v.events.filter(e=>e.id!=='epoch-logout-response')}],
+ ['no commit',v=>{v.events=v.events.filter(e=>e.id!=='anonymous-login-navigation')}],['wrong frame',v=>{v.events.find(e=>e.id==='anonymous-login-navigation').frameId='other'}],
+ ['no marker',v=>delete v.events.find(e=>e.id==='epoch-cap-request').acceptanceRequestId],['not eval',v=>{v.events.find(e=>e.id==='epoch-cap-request').initiatorStack=[]}],
+ ['missing POST303',v=>{v.events=v.events.filter(e=>e.id!=='epoch-credential-response')}],['no real login window',v=>{v.identityWindows.pop()}],
+ ['no old window',v=>{v.identityWindows.shift()}],['expected403',v=>{v.requests[0].expectedStatuses=[403]}],
+])test('explicit logout probe rejects '+name,()=>{const v=explicitLoggedOutProbe();change(v);assert(classify({base,...v}).errors.some(e=>e.id==='epoch-cap-response'))})
+test('explicit logout network console requires exact proven401 document and request',()=>{
+ const v=explicitLoggedOutProbe(),response=v.events.find(e=>e.id==='epoch-cap-response');v.events.push({...response,id:'anonymous-console',kind:'console-error',source:'network',message:'Failed to load resource: the server responded with a status of 401 (Unauthorized)'})
+ assert.deepEqual(classify({base,...v}).errors,[]);v.events.at(-1).documentId='other';assert(classify({base,...v}).errors.some(e=>e.id==='anonymous-console'))
+})

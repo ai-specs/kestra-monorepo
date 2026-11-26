@@ -9,6 +9,33 @@ const tables = ['flows', 'executions', 'execution_queued', 'namespace_file_metad
 const required = [...tables, 'queues']
 const hash = value => createHash('sha256').update(value).digest('hex')
 const sha256 = /^[a-f0-9]{64}$/
+const executionIdPattern = /^[A-Za-z0-9_][A-Za-z0-9_-]{0,99}$/
+export function validateAmisControlEvents(value, executionIds) {
+  assert(value&&typeof value==='object'&&!Array.isArray(value))
+  assert(Array.isArray(executionIds)&&executionIds.length<=256&&executionIds.every(id=>typeof id==='string'&&executionIdPattern.test(id)))
+  assert.deepEqual(Object.keys(value).sort(), ['events','executionIds','inventory','schemaVersion'])
+  assert.equal(value.schemaVersion,1)
+  assert.deepEqual(value.executionIds,[...new Set(executionIds)].sort())
+  for(const list of [value.executionIds,value.inventory]) {
+    assert(Array.isArray(list)&&list.every(id=>typeof id==='string'&&executionIdPattern.test(id)))
+    assert.deepEqual(list,[...new Set(list)].sort())
+  }
+  assert(Array.isArray(value.events))
+  const offsets=new Set()
+  for(const row of value.events) {
+    assert.deepEqual(Object.keys(row).sort(),['created','executionId','offset','operationId','outcome','tenantId','type'])
+    assert(['async_operation_processed_event','follow_execution_event','follow_log_event'].includes(row.type))
+    assert(typeof row.offset==='string'&&/^[0-9]+$/.test(row.offset)&&!offsets.has(row.offset));offsets.add(row.offset)
+    assert(typeof row.created==='string'&&row.created.length<=64&&Number.isFinite(Date.parse(row.created)))
+    assert(value.executionIds.includes(row.executionId))
+    assert(row.tenantId===null||row.tenantId==='main')
+    if(row.type==='async_operation_processed_event') {
+      assert(typeof row.operationId==='string'&&executionIdPattern.test(row.operationId))
+      assert(['SUCCEEDED','FAILED'].includes(row.outcome))
+    } else assert(row.operationId===null&&row.outcome===null)
+  }
+  return value
+}
 const defaults = (command, args, options) => ({stdout: execFileSync(command, args, {encoding: 'utf8', timeout: 20000, maxBuffer: 32 * 1024 * 1024, ...options})})
 
 // Same conservative rule as upstream-upgrade-rehearsal: unknown queue types,
@@ -51,7 +78,8 @@ export class AmisSideEffects {
       return result.stdout.trim()
     } catch {
       // Child-process diagnostics can contain row values or credentials.
-      throw new Error(`Read-only observation failed during ${args[0]}; raw transport diagnostics withheld`)
+      const error=new Error(`Read-only observation failed during ${args[0]}; raw transport diagnostics withheld`)
+      error.code='AMIS_OBSERVER_FAILED';throw error
     }
   }
   #owners() {
@@ -119,6 +147,12 @@ export class AmisSideEffects {
   }
   executionInventory() {
     return this.#executions().map(row => row.id)
+  }
+  controlEvents(executionIds) {
+    assert(Array.isArray(executionIds)&&executionIds.length<=256&&executionIds.every(id=>typeof id==='string'&&executionIdPattern.test(id)))
+    const ids=[...new Set(executionIds)].sort(),inventory=this.executionInventory()
+    const rows=ids.length?this.#query(`SELECT coalesce(json_agg(json_build_object('type',type,'offset',"offset"::text,'created',created::text,'tenantId',value->>'tenantId','executionId',CASE WHEN type='async_operation_processed_event' THEN value->>'itemId' ELSE value->>'executionId' END,'operationId',CASE WHEN type='async_operation_processed_event' THEN value->>'operationId' ELSE NULL END,'outcome',CASE WHEN type='async_operation_processed_event' THEN value->>'outcome' ELSE NULL END) ORDER BY "offset"),'[]'::json) FROM public.queues WHERE type IN ('async_operation_processed_event','follow_execution_event','follow_log_event') AND (CASE WHEN type='async_operation_processed_event' THEN value->>'itemId' ELSE value->>'executionId' END) IN (${ids.map(id=>"'"+id+"'").join(',')})`):[]
+    return validateAmisControlEvents({schemaVersion:1,executionIds:ids,inventory,events:rows},ids)
   }
   executionDetails(marker) {
     assert(typeof marker === 'string' && /^[A-Za-z0-9_.-]{1,128}$/.test(marker), 'Invalid execution marker')
@@ -205,10 +239,11 @@ export class AmisSideEffects {
         observation.samples.push({elapsedMs: Math.ceil(performance.now() - start), hash: current.hash, sources: current.sources, queueDiagnostics: current.queueDiagnostics})
         observation.after = current.sources; observation.afterQueueDiagnostics = current.queueDiagnostics
       } while (observation.samples.at(-1).elapsedMs < windowMs)
-      if (immediate.hash !== before.hash || observation.samples.some(sample => sample.hash !== before.hash)) recordFailure(new Error('Denied operation changed database, queue or storage'))
+      if (immediate.hash !== before.hash || observation.samples.some(sample => sample.hash !== before.hash)) {const changed=new Error('Denied operation changed database, queue or storage');changed.code='AMIS_EFFECTS_CHANGED';recordFailure(changed)}
     } catch (error) { observation.observerFailed = true; recordFailure(error) }
     if (failure) {
       const error = new Error('Denied observation failed; response or action error details withheld')
+      error.code = failure.code==='AMIS_EFFECTS_CHANGED'?'AMIS_EFFECTS_CHANGED':observation.observerFailed?'AMIS_OBSERVER_FAILED':failure instanceof assert.AssertionError?'AMIS_RESPONSE_ASSERTION':'AMIS_REQUEST_FAILED'
       error.observation = observation; error.sideEffects = observation
       throw error
     }

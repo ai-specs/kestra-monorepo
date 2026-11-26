@@ -35,7 +35,7 @@ export function assertNamespaceFlowDetailEvidence(detail,{events,base,namespace,
     assert.equal(row.path,path);assert.equal(row.document.path,path)
     assert(row.document.documentId&&Number.isFinite(row.document.timeOrigin))
     assert(!documents.has(row.document.documentId));documents.add(row.document.documentId)
-    assert.equal(row.dom.denied,tab==='overview'?9:1)
+    assert.equal(row.dom.denied,tab==='overview'?9:1,'Flow detail denied block count differs: '+row.name)
     assert.equal(row.dom.errors,0)
     if(tab==='overview')assert.equal(row.dom.description,description)
     assert(Array.isArray(row.eventIds)&&row.eventIds.length>0)
@@ -69,7 +69,9 @@ export function assertNamespaceFlowDetailEvidence(detail,{events,base,namespace,
       assert.equal(responses.filter(response=>response.requestId===request.requestId&&response.url===request.url&&response.method===request.method).length,1,'Flow detail business request has no completed response')
     }
     for(const response of responses) {
-      assert.equal(requests.filter(request=>request.requestId===response.requestId&&request.url===response.url&&request.method===response.method).length,1)
+      const matches=requests.filter(request=>request.requestId===response.requestId&&request.url===response.url&&request.method===response.method)
+      try {assert.equal(matches.length,1,'Flow detail response has no unique request: '+row.name+' '+response.id+' '+response.requestId+' '+response.method+' '+response.url)}
+      catch(error) {error.evidence={flowDetailResponse:{phase:row.name,response,matchingRequests:matches}};throw error}
       assert(response.status<400,'Flow detail issued a denied business request')
     }
     assert(!selected.some(event=>observedKinds.has(event.kind)&&forbidden(new URL(event.url).pathname)),'Flow detail issued a forbidden runtime request')
@@ -84,7 +86,10 @@ export function assertNamespaceFlowDetailEvidence(detail,{events,base,namespace,
 
 export async function runNamespaceFlowDetailBrowser(page,{base,namespace,flowId,description}) {
   const detail={transport:'production-ui',namespace,flowId,phases:[]}
+  let phase,stage,lastDom
+  try {
   for(const name of namespaceFlowDetailPhases) {
+    phase=name;stage='navigation';lastDom=undefined
     const tab=name==='executions-direct'?'executions':'overview'
     const path='/ui/main/flows/edit/'+namespace+'/'+flowId+'/'+tab
     const previousOrigin=await page.evaluate(()=>performance.timeOrigin)
@@ -110,15 +115,26 @@ export async function runNamespaceFlowDetailBrowser(page,{base,namespace,flowId,
         if(settled?.documentId===navigation.documentId&&await page.evaluate(previous=>performance.timeOrigin===previous,origin))break
       }
     }
-    const dom=await page.evaluate(({description})=>{
+    stage='stable-dom-and-document'
+    let dom,diagnostics,navigation
+    const snapshotDeadline=Date.now()+60000
+    for(;;) {
+    await page.waitForFunction(namespaceFlowDetailReady,{path,description,tab})
+    dom=await page.evaluate(({description})=>{
       const visible=node=>Boolean(node.getClientRects().length)&&getComputedStyle(node).visibility!=='hidden'
       return {denied:[...document.querySelectorAll('[data-flow-capability-state="unavailable"]')].filter(visible).length,
         errors:[...document.querySelectorAll('[data-flow-capability-state="error"],[data-flow-capability-state="unsupported"]')].filter(visible).length,
-        description:document.body.innerText.includes(description)?description:null,path:location.pathname,timeOrigin:performance.timeOrigin}
+        description:document.body?.innerText.includes(description)?description:null,path:location.pathname,timeOrigin:performance.timeOrigin}
     },{description})
-    let diagnostics=await page.diagnostics()
-    const navigation=diagnostics.events.filter(event=>event.kind==='document-navigation'&&new URL(event.url).origin===base&&new URL(event.url).pathname===path).at(-1)
+    lastDom=dom
+    diagnostics=await page.diagnostics()
+    navigation=diagnostics.events.filter(event=>event.kind==='document-navigation'&&new URL(event.url).origin===base&&new URL(event.url).pathname===path).at(-1)
     assert(navigation?.documentId,'Production Flow detail document missing')
+    if(dom.path===path&&dom.denied===(tab==='overview'?9:1)&&dom.errors===0&&(tab!=='overview'||dom.description===description)
+      &&await page.evaluate(origin=>performance.timeOrigin===origin,dom.timeOrigin))break
+    assert(Date.now()<snapshotDeadline,'Production Flow detail DOM did not remain ready in its document')
+    }
+    stage='completed-document-requests'
     const deadline=Date.now()+60000
     for(;;) {
       const current=diagnostics.events.filter(event=>event.documentId===navigation.documentId)
@@ -130,6 +146,12 @@ export async function runNamespaceFlowDetailBrowser(page,{base,namespace,flowId,
     }
     detail.phases.push({name,path,document:{path:dom.path,timeOrigin:dom.timeOrigin,documentId:navigation.documentId},dom,eventIds:diagnostics.events.filter(event=>event.documentId===navigation.documentId).map(event=>event.id)})
   }
+  stage='assert-complete-evidence'
   assertNamespaceFlowDetailEvidence(detail,{events:(await page.diagnostics()).events,base,namespace,flowId,description})
   return detail
+  } catch(error) {
+    const failure={phase,stage,dom:lastDom??null,assertion:{name:error.name,message:error.message,stack:error.stack},detail:structuredClone(detail)}
+    error.evidence={...(error.evidence??{}),flowDetailFailure:failure}
+    throw error
+  }
 }

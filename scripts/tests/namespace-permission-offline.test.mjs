@@ -1,7 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import {namespacePermissionCaseIds,initialNamespacePermissionReport,assertNamespacePermissionReport,runNamespacePermissionBrowser,redactNamespacePermissionError,namespacePickerState,markExactNativeNamespaceOption,waitNamespacePermissionResponse,namespaceFlowLandingReady,namespaceKvTargetReady,dismissNamespaceInstallPrompt} from '../namespace-permission-browser.mjs'
-import {namespaceFlowDetailCanonicalQueryReady} from '../namespace-flow-detail-browser.mjs'
+import {namespaceFlowDetailCanonicalQueryReady,runNamespaceFlowDetailBrowser} from '../namespace-flow-detail-browser.mjs'
 
 export function completeNamespacePermissionReport() {
   const report=initialNamespacePermissionReport()
@@ -183,4 +183,72 @@ test('control-plane epoch preparation uses the real static login page and redact
  assert.equal(await unloadNamespaceControlPlanePage(page,'http://localhost:18128'),'test-csrf')
  assert.deepEqual(actions,[['redact',['test-csrf']],['goto','http://localhost:18128/oidc/login'],['wait']])
  await assert.rejects(unloadNamespaceControlPlanePage({...page,evaluate:async()=>undefined},'http://localhost:18128'),/CSRF token missing/)
+})
+
+function flowDetailPage({transient=false,orphan=false,domFailure=false}={}) {
+  const base='http://localhost:8080',events=[]
+  let generation=0,path='',snapshots=0
+  const emit=value=>events.push({...value,id:'detail-event-'+events.length})
+  function navigate(url) {
+    generation++;path=new URL(url).pathname
+    const documentId='detail-document-'+generation
+    emit({kind:'document-navigation',url,documentId})
+    const pair=(suffix,method='GET')=>{
+      const source={documentId,requestId:'detail-request-'+events.length,url:base+suffix,method,documentUrl:url}
+      emit({...source,kind:'request'});emit({...source,kind:'http-response',status:200})
+    }
+    pair('/api/v1/main/ui/flows/execution-capabilities','POST')
+    if(path.endsWith('/overview'))pair('/api/v1/main/dashboards/charts/preview','POST')
+    pair('/favicon.ico')
+    if(orphan&&generation===3)emit({kind:'http-response',documentId,requestId:'orphan-favicon',url:base+'/favicon.ico',method:'GET',status:200})
+  }
+  return {events,get snapshots(){return snapshots},goto:async url=>navigate(url),reload:async()=>navigate(base+path),
+    waitForFunction:async()=>{},diagnostics:async()=>({events:structuredClone(events)}),
+    evaluate:async(fn,argument)=>{
+      if(fn.toString().includes('getClientRects')) {
+        if(domFailure)throw Error('synthetic DOM snapshot failed')
+        snapshots++
+        return {denied:transient&&snapshots===1?0:path.endsWith('/overview')?9:1,errors:0,description:'saved',path,timeOrigin:generation}
+      }
+      if(typeof argument==='number')return argument===generation
+      return generation
+    }}
+}
+
+test('Flow detail retries a transient readiness snapshot without narrowing document events',async()=>{
+  const page=flowDetailPage({transient:true})
+  const result=await runNamespaceFlowDetailBrowser(page,{base:'http://localhost:8080',namespace:'company.sub',flowId:'one',description:'saved'})
+  assert.equal(page.snapshots,4);assert.equal(result.phases.length,3)
+  for(const phase of result.phases)assert.deepEqual(phase.eventIds,page.events.filter(event=>event.documentId===phase.document.documentId).map(event=>event.id))
+})
+
+test('Flow detail pairs nonbusiness favicon responses with full document requests',async()=>{
+  const page=flowDetailPage()
+  const result=await runNamespaceFlowDetailBrowser(page,{base:'http://localhost:8080',namespace:'company.sub',flowId:'one',description:'saved'})
+  assert.equal(result.phases.length,3)
+  assert(page.events.some(event=>event.kind==='http-response'&&event.url.endsWith('/favicon.ico')))
+})
+
+test('Flow detail retains orphan response failure with exact phase DOM and assertion stack',async()=>{
+  const page=flowDetailPage({orphan:true})
+  await assert.rejects(runNamespaceFlowDetailBrowser(page,{base:'http://localhost:8080',namespace:'company.sub',flowId:'one',description:'saved'}),error=>{
+    assert.match(error.message,/response has no unique request: executions-direct.*orphan-favicon/)
+    const failure=error.evidence.flowDetailFailure
+    assert.equal(failure.phase,'executions-direct');assert.equal(failure.stage,'assert-complete-evidence')
+    assert.equal(failure.dom.denied,1);assert.equal(failure.detail.phases.length,3)
+    assert.match(failure.assertion.stack,/assertNamespaceFlowDetailEvidence/)
+    assert.equal(error.evidence.flowDetailResponse.response.requestId,'orphan-favicon')
+    assert.deepEqual(error.evidence.flowDetailResponse.matchingRequests,[])
+    return true
+  })
+})
+
+test('Flow detail snapshot exceptions preserve completed phases and explicit missing DOM',async()=>{
+  await assert.rejects(runNamespaceFlowDetailBrowser(flowDetailPage({domFailure:true}),{base:'http://localhost:8080',namespace:'company.sub',flowId:'one',description:'saved'}),error=>{
+    const failure=error.evidence.flowDetailFailure
+    assert.equal(failure.phase,'overview-direct');assert.equal(failure.stage,'stable-dom-and-document')
+    assert.equal(failure.dom,null);assert.deepEqual(failure.detail.phases,[])
+    assert.match(failure.assertion.stack,/synthetic DOM snapshot failed/)
+    return true
+  })
 })

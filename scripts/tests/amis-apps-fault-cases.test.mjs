@@ -14,6 +14,7 @@ function setup(mode='B',problem) {
   const statusFor = name => ['missing-extension','disabled-extension','missing-route-provider'].includes(name) ? mode==='A'?404:403 : name==='missing-authorization'?401:503
   const fault=()=>{const selected=amisFaultVariants(mode).find(row=>JSON.stringify(row.variant)===JSON.stringify(variant));return selected?{...selected,status:statusFor(selected.name)}:undefined}
   const effects={
+    controlEvents(executionIds){return {schemaVersion:1,executionIds:[...executionIds].sort(),inventory:[...executionIds].sort(),events:[]}},
     async waitForIdle(){return {active:0}},
     async waitForStable(){return {windowMs:5000,samples:[{elapsedMs:5000,hash,sources:source}]}},
     async observeDenied(send,verify,options){assert.equal(options.windowMs,5000);events.push('observe');const response=await send();await verify(response);const value=observation();if(problem==='effects')delete value.beforeSources.database;return {response,observation:value}},
@@ -230,3 +231,28 @@ for(const [field,value]of [['location','https://foreign.invalid/oidc/logout'],['
     await assert.rejects(runAmisFaultCases(options))
     assert.deepEqual(events,[])
   })
+
+test('known positive control event additions are retained but cannot excuse strict effects failure',async()=>{
+  const {options}=setup('B');let offset=0
+  options.env.current.effects.controlEvents=executionIds=>({schemaVersion:1,executionIds:[...executionIds].sort(),inventory:[...executionIds].sort(),events:executionIds.length?[{type:'async_operation_processed_event',offset:String(++offset),created:'2026-11-26T12:00:00Z',tenantId:null,executionId:executionIds[0],operationId:'operation_1',outcome:'SUCCEEDED'}]:[]})
+  options.env.current.effects.observeDenied=async(send,verify)=>{
+    await verify(await send())
+    const error=new Error('private payload password=never-publish');error.code='AMIS_EFFECTS_CHANGED';error.sideEffects={windowMs:5000};throw error
+  }
+  await assert.rejects(runAmisFaultCases(options),error=>{
+    const fault=error.report.cases[0].faults[0],check=fault.checks[0]
+    assert.equal(fault.status,'failed');assert.equal(fault.safeError,'AMIS_EFFECTS_CHANGED')
+    assert(check.controlEventChanges.added.length>0);assert(check.controlEventChanges.removed.length>0)
+    assert(check.eventSourcesBefore.executionIds.includes(check.controlEventChanges.added[0].executionId))
+    assert(!JSON.stringify(error.report).includes('never-publish'))
+    assert.equal(fault.restoration.status,'passed');return true
+  })
+})
+
+test('malformed positive event metadata fails closed and never serializes the rejected field',async()=>{
+  const {options}=setup('A')
+  options.env.current.effects.controlEvents=executionIds=>({schemaVersion:1,executionIds:[...executionIds].sort(),inventory:[],events:[],payload:'private-never-publish'})
+  await assert.rejects(runAmisFaultCases(options),error=>{
+    assert.equal(error.report.completed,false);assert(!JSON.stringify(error.report).includes('private-never-publish'));return true
+  })
+})
