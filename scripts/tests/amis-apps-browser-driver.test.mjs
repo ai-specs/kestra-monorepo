@@ -51,3 +51,19 @@ test('missing explicit Ego page and inline credentials fail without browser comm
   f.options.driver='ego';await assert.rejects(runAmisBrowserDriver(f.options,f.dependencies),/existing Ego/)
   assert(!f.calls.some(call=>call.command==='ego-browser'))
 })
+
+test('driver preserves private zero-account switch inputs and real browser partial denial failure',async t=>{
+  const f=await setup(t)
+  await writeFile(f.privateFile,JSON.stringify({account:{username:'actor',password:'private-never-output'},
+    nextAccount:{username:'zero',password:'private-zero-never-output',access:'zero',denialText:'Access denied'}}),{mode:0o600})
+  f.dependencies.runBrowser=async(adapter,args)=>{
+    assert.equal(args.nextAccount.access,'zero')
+    assert.equal(args.nextAccount.password,'private-zero-never-output')
+    await args.record({completed:false,checks:[{id:'submit-result',status:'passed'},
+      {id:'next-production-login',status:'failed'},{id:'next-zero-authority-denial',status:'not_run'}],
+      failure:{phase:'next-production-login',message:'Native return-to-login button missing'}})
+    throw new Error('Native return-to-login button missing')
+  }
+  await assert.rejects(runAmisBrowserDriver(f.options,f.dependencies),/return-to-login/)
+  assert(f.calls.includes('context-close')&&f.calls.includes('browser-close'))
+})

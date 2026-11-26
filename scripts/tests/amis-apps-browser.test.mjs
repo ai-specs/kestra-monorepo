@@ -37,7 +37,9 @@ function fakeAdapter(settings = {}) {
       if (selector === 'button') return business ? [node('Submit')] : login ? [node('Sign in')] : []
       if (selector === '[role="alert"]') return state.alert ? [node(state.alert)] : []
       if (selector === 'main .cxd-TplField, main .dark-TplField') return business && state.result ? [node(state.result)] : []
-      if (selector === 'a[href="/oidc/logout"]') return !settings.missingLogout && !state.missingLogout && (business || denied) ? [node('Sign out / switch account')] : []
+      if (selector === 'a[href="/oidc/logout"]') return !settings.missingLogout && !state.missingLogout && business ? [node('Sign out / switch account')] : []
+      if (selector === 'button[data-testid="return-to-login"]') return denied && !settings.missingLogout && !state.missingLogout && !settings.missingReturnToLogin
+        ? [node('Login'), ...(settings.duplicateReturnToLogin ? [node('Login')] : [])] : []
       throw new Error(`FAKE adapter has no DOM selector: ${selector}`)
     }
     const sandbox = {
@@ -76,7 +78,9 @@ function fakeAdapter(settings = {}) {
         if (settings.submitError) throw new Error(settings.submitError)
         if (settings.errorAlert) state.alert = 'Execution failed'
         if (!settings.noResult) state.result = `Result: ${state.input}`
-      } else if (selector === 'a[href="/oidc/logout"]') {
+      } else if (selector === 'a[href="/oidc/logout"]' || selector === 'button[data-testid="return-to-login"]') {
+        assert.equal(new URL(state.href).pathname === '/ui/access-denied', selector === 'button[data-testid="return-to-login"]', 'Exit control must come from the actual source page')
+        if (selector === 'button[data-testid="return-to-login"]') assert(!settings.missingReturnToLogin)
         if (!settings.logoutDoesNotClear) state.session = null
         navigate(base + '/oidc/login')
       } else throw new Error(`FAKE unsupported common selector: ${selector}`)
@@ -131,7 +135,8 @@ for (const access of ['allowed', 'zero']) test(`FAKE adapter only: native logout
   assert.equal(report.summary.passed, access === 'zero' ? 13 : 16)
   assert(report.checks.some(row => row.id === 'next-production-login' && row.evidence.observation.performed))
   assert.equal(fixture.calls.filter(row => row[0] === 'click' && row[1] === 'button:text-is("Submit")').length, access === 'zero' ? 1 : 2)
-  assert.equal(fixture.calls.filter(row => row[0] === 'click' && row[1] === 'a[href="/oidc/logout"]').length, 2)
+  assert.equal(fixture.calls.filter(row => row[0] === 'click' && row[1] === 'a[href="/oidc/logout"]').length, access === 'zero' ? 1 : 2)
+  assert.equal(fixture.calls.filter(row => row[0] === 'click' && row[1] === 'button[data-testid="return-to-login"]').length, access === 'zero' ? 1 : 0)
   assert(!JSON.stringify(fixture.recorded).includes(nextPassword))
   if (access === 'zero') assert.match(report.checks.find(row => row.id === 'next-zero-authority-denial').evidence.observation.note, /separate production evidence/)
 })
@@ -291,4 +296,19 @@ test('denial readiness waits through null body navigation and only accepts final
   fixture.state.denialText = 'Different failure'
   assert.equal(fixture.evaluate(amisDeniedPageReady,denied),false)
   assert.equal(fixture.evaluate(amisLoginOrPageReady,login),false)
+})
+
+for (const settings of [{missingReturnToLogin:true},{duplicateReturnToLogin:true}]) test('native denial page requires exactly one return-to-login button '+JSON.stringify(settings),async()=>{
+  const fixture=fakeAdapter(settings)
+  fixture.state.href=base+'/ui/access-denied'
+  assert.equal(fixture.evaluate(amisDeniedPageReady,{origin:base,path:'/ui/access-denied',denialText:'Access denied: no grants'}),false)
+  assert.equal(fixture.evaluate(amisLoginOrPageReady,{origin:base,path,access:'zero',deniedPath:'/ui/access-denied',denialText:'Access denied: no grants'}),false)
+  fixture.state.href='about:blank'
+  fixture.options.nextAccount={username:'zero-test',password:nextPassword,access:'zero',denialText:'Access denied: no grants'}
+  await assert.rejects(runAmisAppsBrowser(fixture.adapter,fixture.options),error=>{
+    assert.equal(error.report.completed,false)
+    assert.equal(error.report.checks.find(row=>row.id==='next-zero-authority-denial').status,'not_run')
+    assert.equal(error.report.checks.find(row=>row.id==='submit-result').status,'passed')
+    return true
+  })
 })

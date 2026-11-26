@@ -13,7 +13,7 @@ export function amisLoginOrPageReady({origin, path, access, deniedPath, denialTe
   const visible = node => Boolean(node?.getClientRects().length) && getComputedStyle(node).visibility !== 'hidden'
   if (!document.body) return false
   if (location.origin !== origin) return false
-  if (access === 'zero' && location.pathname === deniedPath) return typeof denialText === 'string' && Boolean(denialText.trim()) && document.body.innerText.includes(denialText) && [...document.querySelectorAll('a[href="/oidc/logout"]')].filter(visible).length === 1 && ![...document.querySelectorAll('input[name="name"]')].some(visible)
+  if (access === 'zero' && location.pathname === deniedPath) return typeof denialText === 'string' && Boolean(denialText.trim()) && document.body.innerText.includes(denialText) && [...document.querySelectorAll('button[data-testid="return-to-login"]')].filter(visible).length === 1 && ![...document.querySelectorAll('input[name="name"]')].some(visible)
   if (location.pathname === '/oidc/login') return visible(document.querySelector('input[name="username"]')) && visible(document.querySelector('input[name="password"]')) && visible(document.querySelector('button[type="submit"]'))
   return location.pathname === path && !location.search && !location.hash && visible(document.querySelector('input[name="name"]')) && [...document.querySelectorAll('.cxd-Page-title, .dark-Page-title')].some(node => visible(node) && node.textContent.trim())
 }
@@ -35,7 +35,7 @@ export function amisResultReady({origin, path, resultText}) {
 export function amisDeniedPageReady({origin, path, denialText}) {
   const visible = node => Boolean(node?.getClientRects().length) && getComputedStyle(node).visibility !== 'hidden'
   if (!document.body) return false
-  return location.origin === origin && location.pathname === path && document.body.innerText.includes(denialText) && [...document.querySelectorAll('a[href="/oidc/logout"]')].filter(visible).length === 1 && ![...document.querySelectorAll('input[name="name"]')].some(visible)
+  return location.origin === origin && location.pathname === path && document.body.innerText.includes(denialText) && [...document.querySelectorAll('button[data-testid="return-to-login"]')].filter(visible).length === 1 && ![...document.querySelectorAll('input[name="name"]')].some(visible)
 }
 
 function redact(value, secrets) {
@@ -133,9 +133,9 @@ export async function runAmisAppsBrowser(adapter, options) {
     else await adapter.waitForFunction(amisCanonicalPageReady, {origin: base, path: targetPath, title: configuredTitle, submitText})
     return {performed: true, replacedExistingSession, method: 'Native production login form', account: selected.username}
   }
-  const logout = async prefix => {
+  const logout = async (prefix, denied = false) => {
     await phase(`${prefix}logout`, async () => {
-      await adapter.click(logoutSelector)
+      await adapter.click(denied ? 'button[data-testid="return-to-login"]' : logoutSelector)
       await adapter.waitForFunction(amisLoginOrPageReady, {origin: base, path: '/__amis_no_business_target__'})
       assert.equal((await adapter.evaluate(amisBrowserDocument)).path, '/oidc/login', 'Logout did not reach login form')
       return {clicked: true, target: '/oidc/logout'}
@@ -159,7 +159,7 @@ export async function runAmisAppsBrowser(adapter, options) {
         await adapter.waitForFunction(amisDeniedPageReady, {origin: base, path: selected.deniedPath ?? '/ui/access-denied', denialText: selected.denialText})
         return {denied: true, note: 'UI denial only; runtime zero grants and side effects require separate production evidence'}
       })
-      return logout(prefix)
+      return logout(prefix, true)
     }
     const target = {origin: base, path, title: configuredTitle, submitText}
     await phase(`${prefix}canonical-page`, async () => {await adapter.waitForFunction(amisCanonicalPageReady, target); return {title: configuredTitle}})
