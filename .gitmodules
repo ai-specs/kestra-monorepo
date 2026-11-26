@@ -4,3 +4,6 @@
 [submodule "kestra-plugin-rbac"]
 	path = kestra-plugin-rbac
 	url = git@github.com:ai-specs/kestra-plugin-rbac.git
+[submodule "kestra-plugin-amis-apps"]
+	path = kestra-plugin-amis-apps
+	url = git@github.com:ai-specs/kestra-plugin-amis-apps.git

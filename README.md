@@ -141,6 +141,129 @@ kestra-monorepo/
 
 ---
 
+## AMIS Apps：正式产物部署（P0 组合验收中）
+
+AMIS Apps 当前仍处于 P0 组合验收阶段，尚未通过本仓完整 44 项生产组合门，
+不列为已验收接入。独立宿主、插件 CI 或产物核验通过不能代替本仓组合通过。
+以下步骤用于消费已经发布的正式产物，不使用候选值兜底；阶段交付仍须本仓组合验收。
+
+文档按三层分工：本节负责镜像、jar、Compose 和更新；宿主
+[扩展接入指南](https://github.com/ai-specs/kestra-overlay/blob/main/README.md#通用扩展接入指南)
+负责公开承载机制；[AMIS Apps README](kestra-plugin-amis-apps/README.md)
+负责 Flow、页面/schema、API 及权限契约。本节不复制权限模型或业务声明。
+
+### 1. 核验正式选择并下载
+
+正式选择由 `deployment/amis-apps-release.json` 维护，包含三个独立项目的提交、
+不可变宿主和 AMIS artifact 镜像 digest、宿主 executable 与两个 jar 的 SHA-256，
+以及精确 Java 测试数。缺失或与 root 已提交 gitlink、
+`.env.example` 不一致时，预备器必须失败，不得手填示例 hash 绕过。
+
+在本仓根目录执行。需要 Node.js 24、Python 3、JDK 25、Git、GitHub CLI、Docker
+及 probe 编译脚本所需的 `curl`、`sha256sum`；公开 overlay/RBAC Actions 下载使用
+已有 GitHub CLI 登录权限。私有 AMIS 只从正式 OCI 包下载，须先配置 GHCR
+`read:packages` 访问权限（本地可执行 `docker login ghcr.io`），不克隆私有 AMIS 源码。
+
+```bash
+# macOS / Linux；每次使用尚不存在的输出目录，保留旧证据。
+mkdir -p .work
+node --input-type=module <<'JS'
+import {writeFileSync} from 'node:fs';
+import {resolve} from 'node:path';
+writeFileSync('.work/amis-install-options.json', JSON.stringify({
+  directory: resolve('.work/amis-install-inputs'),
+  selectionFile: resolve('deployment/amis-apps-release.json')
+}), {mode: 0o600, flag: 'wx'});
+JS
+node scripts/prepare-amis-apps-acceptance.mjs .work/amis-install-options.json
+```
+
+预备器核对正式 OCI 的 source/publisher 和完整报告，下载并核对公开 RBAC 产物，
+拉取固定宿主镜像，仅创建未启动容器提取 executable，随后移除该容器并编译根仓 probe。
+它不启动 PostgreSQL 或 Kestra，不创建业务数据。成功结果保存在
+`.work/amis-install-inputs/runner-options.json`；`prepared: true` 只表示输入准备通过。
+
+### 2. 安装已核验 jar 并启用
+
+首次部署先按快速开始准备 `.env` 的数据库密码及 UI client secret。下列命令再次核对
+实际下载字节，将 AMIS jar 放入 Compose 已挂载的 `deployment/libs/`，并打印所选宿主：
+
+```bash
+node --input-type=module <<'JS'
+import assert from 'node:assert/strict';
+import {createHash} from 'node:crypto';
+import {readFileSync, mkdirSync, copyFileSync} from 'node:fs';
+const prepared = JSON.parse(readFileSync('.work/amis-install-inputs/runner-options.json'));
+assert.equal(prepared.prepared, true);
+const selected = prepared.selected;
+const selection = JSON.parse(readFileSync('deployment/amis-apps-release.json'));
+assert.equal(selected.hostImage, selection.hostImage);
+assert.equal(selected.amisJarSha256, selection.amisJarSha256);
+assert.equal(createHash('sha256').update(readFileSync(selected.amisJar)).digest('hex'), selection.amisJarSha256);
+mkdirSync('deployment/libs', {recursive: true});
+copyFileSync(selected.amisJar, 'deployment/libs/kestra-amis-apps.jar');
+console.log('KESTRA_IMAGE=' + selected.hostImage);
+JS
+```
+
+将打印的完整 `KESTRA_IMAGE=…@sha256:…` 写入 `.env`，设置
+`KESTRA_AMIS_APPS_ENABLED=true`（默认 `false`）。不要使用 `latest` 或复用旧版本标签。
+Compose 将 `deployment/libs/` 只读挂载到 `/app/libs`；AMIS jar 必须位于
+`deployment/libs/kestra-amis-apps.jar`，不能放进任务插件目录。
+
+| 模式 | jar 与配置 | 登录和授权准备 |
+|---|---|---|
+| A | `KESTRA_RBAC_ENABLED=false`；不安装、也不保留可装载的 RBAC jar | 使用宿主生产登录，仍执行认证和 CSRF 检查 |
+| B | `KESTRA_RBAC_ENABLED=true`；安装同一 selection 对应的 RBAC jar | 通过既有 `kestra-ui` 运行时权限表，显式授予 AMIS entry 与目标 Flow 所需权限并关联用户 scope；按插件 README 配置 |
+
+模式 B 使用上一步预备器取得的对应 RBAC jar，不能混用其他版本：
+
+```bash
+node --input-type=module <<'JS'
+import assert from 'node:assert/strict';
+import {createHash} from 'node:crypto';
+import {readFileSync, copyFileSync} from 'node:fs';
+const {prepared, selected} = JSON.parse(readFileSync('.work/amis-install-inputs/runner-options.json'));
+const selection = JSON.parse(readFileSync('deployment/amis-apps-release.json'));
+assert.equal(prepared, true);
+assert.equal(selected.hostImage, selection.hostImage);
+assert.equal(selected.rbacJarSha256, selection.rbacJarSha256);
+assert.equal(createHash('sha256').update(readFileSync(selected.rbacJar)).digest('hex'), selection.rbacJarSha256);
+copyFileSync(selected.rbacJar, 'deployment/libs/kestra-rbac-authorizer.jar');
+JS
+```
+
+模式 A 不执行上述 RBAC 复制命令；从模式 B 切换时，先将原 RBAC jar 移出挂载目录保存，
+再更新配置。首装管理员不会自动获得 AMIS 入口能力，不能用管理员登录成功推断授权已配置。
+按插件 README 保存 Flow 和 schema 后，使用其规范页面书签，经生产登录访问并验证提交结果。
+
+```bash
+docker compose pull kestra
+docker compose up -d
+```
+
+变更 `.env` 或挂载配置后使用 `docker compose up -d` 更新容器；仅替换 jar 时必须执行
+`docker compose restart kestra` 重启 JVM，才能装载新字节。保留所用 selection、provenance
+和 hash；关闭 AMIS 时设置 `KESTRA_AMIS_APPS_ENABLED=false` 并更新容器。
+
+### 3. 根仓组合验收入口
+
+`scripts/run-amis-apps-p0.mjs` 消费 0600 options JSON：从预备器结果取得 `selected`、
+`probeJar` 和 `rootDirectory`，另指定新的 `.work` 输出目录、端口 `18129`、
+正式 `scripts/amis-apps-expected-http.json` 的 `expected`，以及真实浏览器适配参数。
+CI 使用 Playwright 1.61.1 的绝对 module 路径，零授权拒绝文案取
+`expected.zeroGrantDenialText`。expected 文件以宿主公开行为和独立基线调查固定预期，
+不得从本次被测响应自动生成通过条件。
+预备器的 `runner-options.json` 是输入准备结果，不能直接当作完整 runner 配置执行。
+
+runner 创建自身独占的单个 PostgreSQL，串行验证 A/B，并在 `finally` 清理所创建资源；
+不要让它与已有测试 Compose 并行运行。它不是用户部署启动命令。
+根仓验收检查生产登录、真实保存读回、授权/撤权、拒绝无副作用及故障恢复；
+独立插件负责主题/语言/窄屏等浏览器矩阵，本仓核验其正式报告，不重复完整视觉矩阵。
+只有最终正式输入对应的 44 项真实组合报告通过，才能更新本节阶段结论。
+
+---
+
 ## 选择是否启用 RBAC
 
 本仓支持两种部署模式，通过 `.env` 中的 `KESTRA_RBAC_ENABLED` 切换。
@@ -167,14 +290,14 @@ Compose 默认关闭上游匿名用量与 UI 事件上报，使用
 `kestra.anonymous-usage-report.enabled: false` 和
 `kestra.ui-anonymous-usage-report.enabled: false`。这两个配置不影响 RBAC 授权或生产登录。
 
-本仓当前选定插件提交 `71ec20c`，成功 CI run `45576881132`，正式 jar SHA-256：
-`455e2b91d865add5b110d0fbfc6a74a617675e2a03e8e05a775d7c53290018d7`。
+本仓当前选定插件提交 `2b1c02c`，成功 CI run `45744222200`，正式 jar SHA-256：
+`f549f3d66bd94169e2c828d4022e941f43fbfa73b312d2e7c05b240deb23849e`。
 先安装并登录 GitHub CLI（`gh auth login`），账号须能读取插件仓 Actions artifact：
 
 ```bash
 # macOS / Linux；在本仓根目录执行
 mkdir -p .work/rbac-release deployment/libs
-gh run download 45576881132 -R ai-specs/kestra-plugin-rbac \
+gh run download 45744222200 -R ai-specs/kestra-plugin-rbac \
   --name kestra-rbac-authorizer --dir .work/rbac-release
 cp .work/rbac-release/build/libs/kestra-rbac-authorizer.jar deployment/libs/kestra-rbac-authorizer.jar
 # macOS
@@ -186,7 +309,7 @@ sha256sum deployment/libs/kestra-rbac-authorizer.jar
 ```powershell
 # Windows PowerShell；在本仓根目录执行
 New-Item -ItemType Directory -Force .work/rbac-release, deployment/libs | Out-Null
-gh run download 45576881132 -R ai-specs/kestra-plugin-rbac `
+gh run download 45744222200 -R ai-specs/kestra-plugin-rbac `
   --name kestra-rbac-authorizer --dir .work/rbac-release
 Copy-Item .work/rbac-release/build/libs/kestra-rbac-authorizer.jar deployment/libs/kestra-rbac-authorizer.jar
 (Get-FileHash deployment/libs/kestra-rbac-authorizer.jar -Algorithm SHA256).Hash.ToLower()
@@ -213,10 +336,9 @@ RBAC 首装授权、权限表达式、账号生命周期和管理页面行为由
 
 已经完成安装的数据库不会再次开放首装或自动补授管理员。不得删除安装凭据或清空用户来重复首装；已有部署按插件公开维护流程处理，先保护原数据。
 
-> 当前选定宿主 `feb817c` 的 CI `45568995024` 五个 job 成功，镜像 digest
-> `91d6726df4d13535af22b16937e7e6ee21a5f5a4058534d31d3dfd64b6981c7e` 已推广并下载审计。
-> 插件 `71ec20c` 消费该正式宿主输入，CI `45576881132` 成功且实际 artifact 已下载审计；
-> 后端332、PostgreSQL115、生命周期30、声明升级9、页面960均通过，部署前核对 jar 哈希。
+> 当前正式宿主 `8f7b7b8` 的 CI `45737090391` 五个 job 成功，镜像由 `.env.example` 固定。
+> 插件 `2b1c02c` 消费该正式宿主输入，CI `45744222200` 成功且实际 artifact 已下载审计；
+> 后端337、PostgreSQL115（含声明升级9）、生命周期30、页面960均通过，部署前核对 jar 哈希。
 > 根仓 CI 独立验证正式组合的生产流程、授权范围与副作用；不能用独立仓 CI 代替。
 > AI 入口需要显式租户 READ/EXECUTE；普通资源的全域读取不隐含执行、输出或租户级功能授权。
 
@@ -281,8 +403,8 @@ macOS 长时间本地验收时，在验收命令前加 `caffeinate -dimsu`，使
 运行入口、正式产物验证和模式 A/B 输入见
 [上游升级组合验收](docs/upstream-upgrade-acceptance.md)。该入口使用已有 PostgreSQL
 中的独立测试数据库，不修改用户部署，不把只更换旧镜像称为回滚。
-本次组合使用 v2.0.13 正式宿主 `feb817c`（CI `45568995024`）与对应正式插件
-`71ec20c`（CI `45576881132`）。根仓 CI 分别执行生产组合 job 和独立升级 job；
+当前 v2.0.13 正式宿主由 `.env.example` 固定，插件采用上方模式 B 的正式输入。
+历史 `feb817c` / `71ec20c` 升级记录不作为本轮版本锁。根仓 CI 分别执行生产组合 job 和独立升级 job；
 升级 job 以已发布的 v2.0.11 组合为起点，串行执行模式 A、B 的真实升级与一致恢复。
 必须核对对应最终提交下载报告中的19阶段、发布输入和资源清理；脚本或离线测试
 存在不能替代真实结果。升级前已有的全部适用 CI 门必须通过，新增 bug 回归不能

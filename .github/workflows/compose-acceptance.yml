@@ -518,3 +518,272 @@ jobs:
           include-hidden-files: true
           if-no-files-found: error
           path: .work/ci/upstream-upgrade/
+
+  amis-p0:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 65
+    permissions:
+      contents: read
+      actions: read
+      packages: read
+    env:
+      GH_TOKEN: ${{ github.token }}
+    # One runner owns one PostgreSQL and serial A/B modes; its finally owns cleanup.
+    # Requires committed formal selection + explicit HTTP expectations. No candidate defaults.
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          submodules: false
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '25'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Check AMIS formal consumer inputs and workflow regression
+        run: |
+          set -euo pipefail
+          test -f deployment/amis-apps-release.json
+          test -f scripts/amis-apps-expected-http.json
+          node --test scripts/tests/prepare-amis-apps-acceptance.test.mjs scripts/tests/amis-p0-workflow.test.mjs
+      - name: Install fixed Chromium driver
+        run: |
+          set -euo pipefail
+          npm install --prefix .work/amis-ci-browser --no-audit --no-fund playwright@1.61.1
+          "$PWD/.work/amis-ci-browser/node_modules/.bin/playwright" install --with-deps chromium
+      - name: Authenticate read-only artifact pulls
+        run: |
+          set -euo pipefail
+          test -n "$GH_TOKEN"
+          printf '%s' "$GH_TOKEN" | docker login ghcr.io --username "$GITHUB_ACTOR" --password-stdin
+      - name: Prepare formal AMIS OCI and public host RBAC inputs
+        run: |
+          set -euo pipefail
+          node --input-type=module <<'AMIS_PREPARE_JS'
+          import {mkdirSync, writeFileSync} from 'node:fs';
+          import {resolve} from 'node:path';
+          mkdirSync('.work', {recursive: true});
+          writeFileSync('.work/amis-p0-prepare-options.json', JSON.stringify({
+            directory: resolve('.work/amis-p0-inputs'),
+            selectionFile: resolve('deployment/amis-apps-release.json')
+          }), {mode: 0o600, flag: 'wx'});
+          AMIS_PREPARE_JS
+          node scripts/prepare-amis-apps-acceptance.mjs .work/amis-p0-prepare-options.json
+      - name: Build exact AMIS runner options
+        run: |
+          set -euo pipefail
+          node --input-type=module <<'AMIS_OPTIONS_JS'
+          import assert from 'node:assert/strict';
+          import {readFileSync, realpathSync, writeFileSync} from 'node:fs';
+          import {resolve, join} from 'node:path';
+          const root = process.cwd();
+          const prepared = JSON.parse(readFileSync('.work/amis-p0-inputs/runner-options.json', 'utf8'));
+          const expected = JSON.parse(readFileSync('scripts/amis-apps-expected-http.json', 'utf8'));
+          assert.equal(prepared.prepared, true);
+          assert.equal(prepared.rootDirectory, root);
+          assert(prepared.selected.amisReleaseDirectory && prepared.probeJar);
+          assert.equal(prepared.selected.expectedTests, prepared.selected.expectedJavaTests);
+          assert(typeof expected.zeroGrantDenialText === 'string' && expected.zeroGrantDenialText.trim());
+          for (const mode of ['A', 'B']) {
+            assert(Array.isArray(expected.nativeCases?.[mode]) && expected.nativeCases[mode].length === 9);
+            assert(expected.faultStatuses?.[mode] && expected.faultNativeCases?.[mode]);
+          }
+          const playwrightModule = realpathSync(resolve('.work/amis-ci-browser/node_modules/playwright/index.mjs'));
+          const options = {
+            rootDirectory: root, directory: join(root, '.work/amis-p0-run'), port: 18129,
+            selected: prepared.selected, probeJar: prepared.probeJar,
+            expected, zeroGrantDenialText: expected.zeroGrantDenialText,
+            browser: {driver: 'playwright', playwrightModule}
+          };
+          writeFileSync('.work/amis-p0-run-options.json', JSON.stringify(options), {mode: 0o600, flag: 'wx'});
+          AMIS_OPTIONS_JS
+      - name: Execute real AMIS P0 production matrix
+        run: |
+          set -euo pipefail
+          node scripts/run-amis-apps-p0.mjs "$GITHUB_WORKSPACE/.work/amis-p0-run-options.json"
+      - name: Stage only sanitized AMIS evidence
+        id: amis-evidence
+        if: always()
+        run: |
+          set -euo pipefail
+          python3 - <<'AMIS_EVIDENCE_PY'
+          import hashlib, json, pathlib, re, shutil
+          root = pathlib.Path.cwd()
+          source = root / '.work/amis-p0-run'
+          target = root / '.work/amis-p0-public'
+          assert target.parent.resolve() == target.parent.absolute(), 'Unsafe staging parent'
+          target.mkdir(parents=True, exist_ok=False)
+          # Only inspect known report/evidence locations. Private downloads, raw
+          # inputs and raw browser directories never enter the publication set.
+          names = ['report.json', 'bootstrap-report.json', 'execution-order.json', 'driver-failure.json']
+          issues, candidates, staged, secrets = [], {}, {}, set()
+          summary_path = 'evidence/staging-summary.json'
+          def safe_path(relative):
+              if relative in names or relative in ('evidence', 'browser-assets/screenshots', 'browser-assets/diagnostics', '<runner-output-directory>'):
+                  return relative
+              if re.fullmatch(r'browser-assets/(?:screenshots/[a-f0-9]{64}\.png|diagnostics/[a-f0-9]{64}\.json)', relative):
+                  return relative
+              # Untrusted filenames can themselves contain secrets. Publish only
+              # a stable hash locator for these paths, never an arbitrary basename.
+              return 'evidence/[name-sha256-' + hashlib.sha256(relative.encode()).hexdigest()[:24] + ']'
+          def quarantine(relative, reason):
+              item = {'path': safe_path(relative), 'reason': reason}
+              if item not in issues:
+                  issues.append(item)
+          paths = []
+          if source.exists() or source.is_symlink():
+              if source.is_symlink() or source.resolve() != source.absolute() or not source.is_dir():
+                  quarantine('<runner-output-directory>', 'unsafe-output-directory')
+              else:
+                  paths = [source / name for name in names if (source / name).exists() or (source / name).is_symlink()]
+                  for directory, pattern in [('evidence', '*.json'), ('browser-assets/screenshots', '*.png'), ('browser-assets/diagnostics', '*.json')]:
+                      folder = source / directory
+                      if folder.exists() or folder.is_symlink():
+                          if folder.is_symlink() or folder.resolve() != folder.absolute() or not folder.is_dir():
+                              quarantine(directory, 'unsafe-evidence-directory')
+                          else:
+                              paths.extend(sorted(folder.glob(pattern)))
+          forbidden = {'password', 'temporarypassword', 'secret', 'clientsecret', 'token', 'accesstoken', 'idtoken', 'refreshtoken', 'sessiontoken', 'csrftoken', 'apikey', 'privatekey', 'cookie', 'cookies', 'setcookie', 'authorization'}
+          credential = re.compile(r'Bearer\s+[A-Za-z0-9._~+/=-]+|eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+|(?:gh[pousr]_|github_pat_)[A-Za-z0-9_]+', re.I)
+          def sensitive(key):
+              return re.sub('[^a-z]', '', key.lower()) in forbidden
+          def collect(value, private=False):
+              if isinstance(value, dict):
+                  for key, item in value.items():
+                      collect(key)
+                      collect(item, private or sensitive(key))
+              elif isinstance(value, list):
+                  for item in value:
+                      collect(item, private)
+              elif isinstance(value, str):
+                  if private and len(value) >= 4 and value.lower() != '[redacted]':
+                      secrets.add(value)
+                  for match in credential.finditer(value):
+                      secrets.add(match.group())
+                      if match.group().lower().startswith('bearer '):
+                          secrets.add(match.group().split(None, 1)[1])
+          def inspect(value):
+              if isinstance(value, dict):
+                  for key, item in value.items():
+                      reason = inspect(key)
+                      if reason:
+                          return reason
+                      if sensitive(key) and item not in (None, '', False, '[redacted]', '[REDACTED]'):
+                          return 'credential-field'
+                      reason = inspect(item)
+                      if reason:
+                          return reason
+              elif isinstance(value, list):
+                  for item in value:
+                      reason = inspect(item)
+                      if reason:
+                          return reason
+              elif isinstance(value, str):
+                  if credential.search(value):
+                      return 'credential-shaped-value'
+                  if any(secret in value for secret in secrets):
+                      return 'credential-value-reused'
+              return None
+          # Collect known secrets first, so a leaked value reused without a key
+          # in another matrix report is quarantined too. Never log those values.
+          for path in paths:
+              relative = path.relative_to(source).as_posix()
+              collect(relative)
+              try:
+                  if not path.is_file() or path.is_symlink() or path.resolve() != path.absolute():
+                      quarantine(relative, 'nonregular-file'); continue
+                  if path.name.endswith('.private.json') or relative == summary_path:
+                      quarantine(relative, 'private-or-reserved-file'); continue
+                  if path.stat().st_size > 32 * 1024 * 1024:
+                      quarantine(relative, 'oversize-file'); continue
+                  data = path.read_bytes()
+                  value = json.loads(data) if path.suffix == '.json' else None
+                  if value is not None:
+                      collect(value)
+                  candidates[relative] = {'data': data, 'value': value, 'sha256': hashlib.sha256(data).hexdigest()}
+              except (OSError, ValueError, UnicodeError):
+                  quarantine(relative, 'unreadable-or-invalid-file')
+          for relative, item in candidates.items():
+              reason = inspect(relative) or inspect(item['value'])
+              if relative.endswith('.png') and any(secret.encode() in item['data'] for secret in secrets):
+                  reason = reason or 'credential-value-reused'
+              if relative.endswith('.png') and not item['data'].startswith(b'\x89PNG\r\n\x1a\n'):
+                  reason = 'invalid-png'
+              if relative.startswith('browser-assets/') and pathlib.PurePosixPath(relative).stem != item['sha256']:
+                  reason = reason or 'browser-hash-mismatch'
+              if reason:
+                  quarantine(relative, reason); continue
+              destination = target / relative
+              destination.parent.mkdir(parents=True, exist_ok=True)
+              shutil.copyfile(source / relative, destination)
+              staged[relative] = item['sha256']
+          original = candidates.get('report.json')
+          report = original['value'] if original and isinstance(original['value'], dict) else None
+          if report:
+              references = [ref for row in report.get('cases', []) if isinstance(row, dict) for ref in row.get('evidence', [])]
+              references += report.get('browserAttachments', [])
+              references += list(report.get('verifiedTransportEvidence', {}).values())
+              for ref in references:
+                  if not isinstance(ref, dict) or not isinstance(ref.get('path'), str) or not isinstance(ref.get('sha256'), str) or not re.fullmatch(r'[a-f0-9]{64}', ref['sha256']) or staged.get(ref['path']) != ref['sha256']:
+                      quarantine(ref['path'] if isinstance(ref, dict) and isinstance(ref.get('path'), str) else 'report.json', 'missing-or-changed-reference')
+          def redact(value):
+              if isinstance(value, dict):
+                  result = {}
+                  for key, item in value.items():
+                      safe_key = key if not inspect(key) else '[redacted-key-' + hashlib.sha256(key.encode()).hexdigest()[:16] + ']'
+                      result[safe_key] = '[redacted]' if sensitive(key) else redact(item)
+                  return result
+              if isinstance(value, list):
+                  return [redact(item) for item in value]
+              if isinstance(value, str):
+                  for secret in sorted(secrets, key=len, reverse=True):
+                      value = value.replace(secret, '[redacted]')
+                  return credential.sub('[redacted]', value)
+              return value
+          summary = {'schemaVersion': 1, 'scope': 'Artifact isolation only; not a business acceptance result',
+                     'status': 'failed' if issues else 'passed', 'quarantined': issues,
+                     'safeFiles': sorted(staged), 'sourceReportSha256': original['sha256'] if original else None}
+          if issues:
+              # Preserve every parsed matrix row and its actual status. The public
+              # report is explicitly a failed/redacted projection; absent evidence
+              # references remain visible and are explained by the safe summary.
+              projected = redact(report) if report else {'stage': 'P0', 'cases': [], 'note': 'Original report unavailable; no business completion inferred.'}
+              projected.update({'status': 'failed', 'completed': False, 'artifactSanitization': summary})
+              assert inspect(projected) is None, 'Unsafe failure projection'
+              (target / 'report.json').write_text(json.dumps(projected, ensure_ascii=True) + '\n')
+          if not paths:
+              (target / 'bootstrap-report.json').write_text(json.dumps({
+                  'stage': 'P0', 'status': 'failed', 'completed': False,
+                  'note': 'No runner report was produced; inspect input preparation or setup step. No business case is counted as executed.'
+              }) + '\n')
+          (target / 'evidence').mkdir(exist_ok=True)
+          (target / summary_path).write_text(json.dumps(summary, ensure_ascii=True) + '\n')
+          AMIS_EVIDENCE_PY
+          echo "safe_ready=true" >> "$GITHUB_OUTPUT"
+      - name: Upload sanitized AMIS P0 evidence
+        uses: actions/upload-artifact@v4
+        if: always() && steps.amis-evidence.outputs.safe_ready == 'true'
+        with:
+          name: amis-p0-${{ github.run_id }}-${{ github.run_attempt }}
+          include-hidden-files: true
+          if-no-files-found: error
+          path: |
+            .work/amis-p0-public/report.json
+            .work/amis-p0-public/bootstrap-report.json
+            .work/amis-p0-public/execution-order.json
+            .work/amis-p0-public/driver-failure.json
+            .work/amis-p0-public/evidence/*.json
+            .work/amis-p0-public/browser-assets/screenshots/*.png
+            .work/amis-p0-public/browser-assets/diagnostics/*.json
+      - name: Fail AMIS job when evidence required isolation
+        if: always() && steps.amis-evidence.outputs.safe_ready == 'true'
+        run: |
+          set -euo pipefail
+          node --input-type=module <<'AMIS_ENFORCE_JS'
+          import assert from 'node:assert/strict';
+          import {readFileSync} from 'node:fs';
+          const summary = JSON.parse(readFileSync('.work/amis-p0-public/evidence/staging-summary.json', 'utf8'));
+          assert.equal(summary.status, 'passed', 'AMIS evidence required isolation; safe failure artifact has been retained');
+          AMIS_ENFORCE_JS

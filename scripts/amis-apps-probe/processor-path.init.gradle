@@ -1,0 +1,1 @@
+allprojects { afterEvaluate { if (path == ':webserver') { tasks.register('amisProbeProcessorPath') { doLast { new File(System.getenv('AMIS_PROBE_CP_FILE')).text = configurations.annotationProcessor.asPath } } } } }

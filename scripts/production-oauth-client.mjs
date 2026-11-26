@@ -1,5 +1,6 @@
 import {createHash, createPublicKey, randomBytes, verify} from 'node:crypto'
 import assert from 'node:assert/strict'
+import {productionStreamingRequest} from './production-streaming-request.mjs'
 
 const redirects = new Set([301, 302, 303, 307, 308])
 const form = body => ({method: 'POST', headers: {'Content-Type': 'application/x-www-form-urlencoded'}, body: new URLSearchParams(body)})
@@ -14,6 +15,14 @@ export class ProductionOAuthClient {
   #discovery
   constructor(base) { this.#base = new URL(base).origin }
   get origin() { return this.#base }
+  async requestStreaming(path, {chunks, signal, timeoutMs = 45000} = {}) {
+    assert(typeof path === 'string' && /^\/[a-z0-9][a-z0-9_.-]*\/[A-Za-z0-9][A-Za-z0-9._-]*\/apis\/[A-Za-z0-9_][A-Za-z0-9_-]*$/.test(path))
+    const url = new URL(path, this.#base)
+    assert.equal(url.origin, this.#base)
+    assert(this.#cookies.size > 0 && this.#csrf, 'Existing production login and CSRF state required')
+    return productionStreamingRequest(url, {chunks, signal, timeoutMs, headers: {'Content-Type': 'application/json',
+      Cookie: [...this.#cookies].map(([name, value]) => `${name}=${value}`).join('; '), 'X-CSRF-TOKEN': this.#csrf}})
+  }
   sessionTimingEvidence() {
     const jwt=this.#cookies.get('JWT');let claims={},jwtMetadataMalformed=false
     try{claims=jwt?JSON.parse(Buffer.from(jwt.split('.')[1],'base64url').toString('utf8')):{}}catch{jwtMetadataMalformed=true}

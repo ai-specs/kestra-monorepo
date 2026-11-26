@@ -3,7 +3,9 @@
 /.env.bak-*
 .work/
 deployment/libs/*.jar
+deployment/libs/releases/
 deployment/plugins/*.jar
 # AI：必须保留此规则；交接文件不得跟踪、提交或推送。下一主控完整阅读后立即删除。不得改回仅本地排除。
 /HANDOFF-NEXT-SESSION.md
 scripts/__pycache__/
+scripts/tests/__pycache__/

@@ -1,0 +1,888 @@
+{
+  "schemaVersion": 1,
+  "stage": "P0",
+  "status": "fixed-source-and-main-observed-expectations",
+  "zeroGrantDenialText": "Access denied",
+  "nativeCases": {
+    "A": [
+      {
+        "path": "/ui/main/page/x",
+        "status": 200,
+        "contentType": "text/html",
+        "marker": "id=\"app\""
+      },
+      {
+        "path": "/ui-extensions/app/pages/x",
+        "status": 400,
+        "contentType": "application/problem+json"
+      },
+      {
+        "path": "/api/v1/api/x",
+        "status": 404,
+        "contentType": "application/problem+json"
+      },
+      {
+        "path": "/oidc/app/pages/x",
+        "status": 404,
+        "contentType": "application/problem+json"
+      },
+      {
+        "path": "/oauth/app/pages/x",
+        "status": 404,
+        "contentType": "application/problem+json"
+      },
+      {
+        "path": "/.well-known/app/pages/x",
+        "status": 404,
+        "contentType": "application/problem+json"
+      },
+      {
+        "path": "/static/app/pages/x",
+        "status": 404,
+        "contentType": "application/problem+json"
+      },
+      {
+        "path": "/swagger/app/pages/x",
+        "status": 404,
+        "contentType": "application/problem+json"
+      },
+      {
+        "path": "/ping",
+        "status": 200,
+        "contentType": "application/json"
+      }
+    ],
+    "B": [
+      {
+        "path": "/ui/main/page/x",
+        "status": 200,
+        "contentType": "text/html",
+        "marker": "id=\"app\""
+      },
+      {
+        "path": "/ui-extensions/app/pages/x",
+        "status": 400,
+        "contentType": "application/problem+json"
+      },
+      {
+        "path": "/api/v1/api/x",
+        "status": 403,
+        "contentType": "application/problem+json"
+      },
+      {
+        "path": "/oidc/app/pages/x",
+        "status": 403,
+        "contentType": "application/problem+json"
+      },
+      {
+        "path": "/oauth/app/pages/x",
+        "status": 403,
+        "contentType": "application/problem+json"
+      },
+      {
+        "path": "/.well-known/app/pages/x",
+        "status": 403,
+        "contentType": "application/problem+json"
+      },
+      {
+        "path": "/static/app/pages/x",
+        "status": 403,
+        "contentType": "application/problem+json"
+      },
+      {
+        "path": "/swagger/app/pages/x",
+        "status": 403,
+        "contentType": "application/problem+json"
+      },
+      {
+        "path": "/ping",
+        "status": 200,
+        "contentType": "application/json"
+      }
+    ]
+  },
+  "faultStatuses": {
+    "A": {
+      "missing-extension": 404,
+      "disabled-extension": 404,
+      "missing-route-provider": 404,
+      "overlap": 503,
+      "duplicate-id": 503,
+      "throw-match": 503
+    },
+    "B": {
+      "missing-extension": 403,
+      "disabled-extension": 403,
+      "missing-route-provider": 403,
+      "overlap": 503,
+      "duplicate-id": 503,
+      "throw-match": 503,
+      "missing-authorization": 401,
+      "duplicate-authorization": 503,
+      "unavailable-authorization": 503
+    }
+  },
+  "faultNativeCases": {
+    "A": {
+      "missing-extension": [
+        {
+          "path": "/ui/main/page/x",
+          "status": 200,
+          "contentType": "text/html",
+          "marker": "id=\"app\""
+        },
+        {
+          "path": "/ui-extensions/app/pages/x",
+          "status": 400,
+          "contentType": "application/problem+json"
+        },
+        {
+          "path": "/api/v1/api/x",
+          "status": 404,
+          "contentType": "application/problem+json"
+        },
+        {
+          "path": "/oidc/app/pages/x",
+          "status": 404,
+          "contentType": "application/problem+json"
+        },
+        {
+          "path": "/oauth/app/pages/x",
+          "status": 404,
+          "contentType": "application/problem+json"
+        },
+        {
+          "path": "/.well-known/app/pages/x",
+          "status": 404,
+          "contentType": "application/problem+json"
+        },
+        {
+          "path": "/static/app/pages/x",
+          "status": 404,
+          "contentType": "application/problem+json"
+        },
+        {
+          "path": "/swagger/app/pages/x",
+          "status": 404,
+          "contentType": "application/problem+json"
+        },
+        {
+          "path": "/ping",
+          "status": 200,
+          "contentType": "application/json"
+        }
+      ],
+      "disabled-extension": [
+        {
+          "path": "/ui/main/page/x",
+          "status": 200,
+          "contentType": "text/html",
+          "marker": "id=\"app\""
+        },
+        {
+          "path": "/ui-extensions/app/pages/x",
+          "status": 400,
+          "contentType": "application/problem+json"
+        },
+        {
+          "path": "/api/v1/api/x",
+          "status": 404,
+          "contentType": "application/problem+json"
+        },
+        {
+          "path": "/oidc/app/pages/x",
+          "status": 404,
+          "contentType": "application/problem+json"
+        },
+        {
+          "path": "/oauth/app/pages/x",
+          "status": 404,
+          "contentType": "application/problem+json"
+        },
+        {
+          "path": "/.well-known/app/pages/x",
+          "status": 404,
+          "contentType": "application/problem+json"
+        },
+        {
+          "path": "/static/app/pages/x",
+          "status": 404,
+          "contentType": "application/problem+json"
+        },
+        {
+          "path": "/swagger/app/pages/x",
+          "status": 404,
+          "contentType": "application/problem+json"
+        },
+        {
+          "path": "/ping",
+          "status": 200,
+          "contentType": "application/json"
+        }
+      ],
+      "missing-route-provider": [
+        {
+          "path": "/ui/main/page/x",
+          "status": 200,
+          "contentType": "text/html",
+          "marker": "id=\"app\""
+        },
+        {
+          "path": "/ui-extensions/app/pages/x",
+          "status": 400,
+          "contentType": "application/problem+json"
+        },
+        {
+          "path": "/api/v1/api/x",
+          "status": 404,
+          "contentType": "application/problem+json"
+        },
+        {
+          "path": "/oidc/app/pages/x",
+          "status": 404,
+          "contentType": "application/problem+json"
+        },
+        {
+          "path": "/oauth/app/pages/x",
+          "status": 404,
+          "contentType": "application/problem+json"
+        },
+        {
+          "path": "/.well-known/app/pages/x",
+          "status": 404,
+          "contentType": "application/problem+json"
+        },
+        {
+          "path": "/static/app/pages/x",
+          "status": 404,
+          "contentType": "application/problem+json"
+        },
+        {
+          "path": "/swagger/app/pages/x",
+          "status": 404,
+          "contentType": "application/problem+json"
+        },
+        {
+          "path": "/ping",
+          "status": 200,
+          "contentType": "application/json"
+        }
+      ],
+      "overlap": [
+        {
+          "path": "/ui/main/page/x",
+          "status": 200,
+          "contentType": "text/html",
+          "marker": "id=\"app\""
+        },
+        {
+          "path": "/ui-extensions/app/pages/x",
+          "status": 400,
+          "contentType": "application/problem+json"
+        },
+        {
+          "path": "/api/v1/api/x",
+          "status": 404,
+          "contentType": "application/problem+json"
+        },
+        {
+          "path": "/oidc/app/pages/x",
+          "status": 404,
+          "contentType": "application/problem+json"
+        },
+        {
+          "path": "/oauth/app/pages/x",
+          "status": 404,
+          "contentType": "application/problem+json"
+        },
+        {
+          "path": "/.well-known/app/pages/x",
+          "status": 404,
+          "contentType": "application/problem+json"
+        },
+        {
+          "path": "/static/app/pages/x",
+          "status": 404,
+          "contentType": "application/problem+json"
+        },
+        {
+          "path": "/swagger/app/pages/x",
+          "status": 404,
+          "contentType": "application/problem+json"
+        },
+        {
+          "path": "/ping",
+          "status": 200,
+          "contentType": "application/json"
+        }
+      ],
+      "duplicate-id": [
+        {
+          "path": "/ui/main/page/x",
+          "status": 200,
+          "contentType": "text/html",
+          "marker": "id=\"app\""
+        },
+        {
+          "path": "/ui-extensions/app/pages/x",
+          "status": 400,
+          "contentType": "application/problem+json"
+        },
+        {
+          "path": "/api/v1/api/x",
+          "status": 404,
+          "contentType": "application/problem+json"
+        },
+        {
+          "path": "/oidc/app/pages/x",
+          "status": 404,
+          "contentType": "application/problem+json"
+        },
+        {
+          "path": "/oauth/app/pages/x",
+          "status": 404,
+          "contentType": "application/problem+json"
+        },
+        {
+          "path": "/.well-known/app/pages/x",
+          "status": 404,
+          "contentType": "application/problem+json"
+        },
+        {
+          "path": "/static/app/pages/x",
+          "status": 404,
+          "contentType": "application/problem+json"
+        },
+        {
+          "path": "/swagger/app/pages/x",
+          "status": 404,
+          "contentType": "application/problem+json"
+        },
+        {
+          "path": "/ping",
+          "status": 200,
+          "contentType": "application/json"
+        }
+      ],
+      "throw-match": [
+        {
+          "path": "/ui/main/page/x",
+          "status": 200,
+          "contentType": "text/html",
+          "marker": "id=\"app\""
+        },
+        {
+          "path": "/ui-extensions/app/pages/x",
+          "status": 400,
+          "contentType": "application/problem+json"
+        },
+        {
+          "path": "/api/v1/api/x",
+          "status": 404,
+          "contentType": "application/problem+json"
+        },
+        {
+          "path": "/oidc/app/pages/x",
+          "status": 404,
+          "contentType": "application/problem+json"
+        },
+        {
+          "path": "/oauth/app/pages/x",
+          "status": 404,
+          "contentType": "application/problem+json"
+        },
+        {
+          "path": "/.well-known/app/pages/x",
+          "status": 404,
+          "contentType": "application/problem+json"
+        },
+        {
+          "path": "/static/app/pages/x",
+          "status": 404,
+          "contentType": "application/problem+json"
+        },
+        {
+          "path": "/swagger/app/pages/x",
+          "status": 404,
+          "contentType": "application/problem+json"
+        },
+        {
+          "path": "/ping",
+          "status": 200,
+          "contentType": "application/json"
+        }
+      ]
+    },
+    "B": {
+      "missing-extension": [
+        {
+          "path": "/ui/main/page/x",
+          "status": 200,
+          "contentType": "text/html",
+          "marker": "id=\"app\""
+        },
+        {
+          "path": "/ui-extensions/app/pages/x",
+          "status": 400,
+          "contentType": "application/problem+json"
+        },
+        {
+          "path": "/api/v1/api/x",
+          "status": 403,
+          "contentType": "application/problem+json"
+        },
+        {
+          "path": "/oidc/app/pages/x",
+          "status": 403,
+          "contentType": "application/problem+json"
+        },
+        {
+          "path": "/oauth/app/pages/x",
+          "status": 403,
+          "contentType": "application/problem+json"
+        },
+        {
+          "path": "/.well-known/app/pages/x",
+          "status": 403,
+          "contentType": "application/problem+json"
+        },
+        {
+          "path": "/static/app/pages/x",
+          "status": 403,
+          "contentType": "application/problem+json"
+        },
+        {
+          "path": "/swagger/app/pages/x",
+          "status": 403,
+          "contentType": "application/problem+json"
+        },
+        {
+          "path": "/ping",
+          "status": 200,
+          "contentType": "application/json"
+        }
+      ],
+      "disabled-extension": [
+        {
+          "path": "/ui/main/page/x",
+          "status": 200,
+          "contentType": "text/html",
+          "marker": "id=\"app\""
+        },
+        {
+          "path": "/ui-extensions/app/pages/x",
+          "status": 400,
+          "contentType": "application/problem+json"
+        },
+        {
+          "path": "/api/v1/api/x",
+          "status": 403,
+          "contentType": "application/problem+json"
+        },
+        {
+          "path": "/oidc/app/pages/x",
+          "status": 403,
+          "contentType": "application/problem+json"
+        },
+        {
+          "path": "/oauth/app/pages/x",
+          "status": 403,
+          "contentType": "application/problem+json"
+        },
+        {
+          "path": "/.well-known/app/pages/x",
+          "status": 403,
+          "contentType": "application/problem+json"
+        },
+        {
+          "path": "/static/app/pages/x",
+          "status": 403,
+          "contentType": "application/problem+json"
+        },
+        {
+          "path": "/swagger/app/pages/x",
+          "status": 403,
+          "contentType": "application/problem+json"
+        },
+        {
+          "path": "/ping",
+          "status": 200,
+          "contentType": "application/json"
+        }
+      ],
+      "missing-route-provider": [
+        {
+          "path": "/ui/main/page/x",
+          "status": 200,
+          "contentType": "text/html",
+          "marker": "id=\"app\""
+        },
+        {
+          "path": "/ui-extensions/app/pages/x",
+          "status": 400,
+          "contentType": "application/problem+json"
+        },
+        {
+          "path": "/api/v1/api/x",
+          "status": 403,
+          "contentType": "application/problem+json"
+        },
+        {
+          "path": "/oidc/app/pages/x",
+          "status": 403,
+          "contentType": "application/problem+json"
+        },
+        {
+          "path": "/oauth/app/pages/x",
+          "status": 403,
+          "contentType": "application/problem+json"
+        },
+        {
+          "path": "/.well-known/app/pages/x",
+          "status": 403,
+          "contentType": "application/problem+json"
+        },
+        {
+          "path": "/static/app/pages/x",
+          "status": 403,
+          "contentType": "application/problem+json"
+        },
+        {
+          "path": "/swagger/app/pages/x",
+          "status": 403,
+          "contentType": "application/problem+json"
+        },
+        {
+          "path": "/ping",
+          "status": 200,
+          "contentType": "application/json"
+        }
+      ],
+      "overlap": [
+        {
+          "path": "/ui/main/page/x",
+          "status": 200,
+          "contentType": "text/html",
+          "marker": "id=\"app\""
+        },
+        {
+          "path": "/ui-extensions/app/pages/x",
+          "status": 400,
+          "contentType": "application/problem+json"
+        },
+        {
+          "path": "/api/v1/api/x",
+          "status": 403,
+          "contentType": "application/problem+json"
+        },
+        {
+          "path": "/oidc/app/pages/x",
+          "status": 403,
+          "contentType": "application/problem+json"
+        },
+        {
+          "path": "/oauth/app/pages/x",
+          "status": 403,
+          "contentType": "application/problem+json"
+        },
+        {
+          "path": "/.well-known/app/pages/x",
+          "status": 403,
+          "contentType": "application/problem+json"
+        },
+        {
+          "path": "/static/app/pages/x",
+          "status": 403,
+          "contentType": "application/problem+json"
+        },
+        {
+          "path": "/swagger/app/pages/x",
+          "status": 403,
+          "contentType": "application/problem+json"
+        },
+        {
+          "path": "/ping",
+          "status": 200,
+          "contentType": "application/json"
+        }
+      ],
+      "duplicate-id": [
+        {
+          "path": "/ui/main/page/x",
+          "status": 200,
+          "contentType": "text/html",
+          "marker": "id=\"app\""
+        },
+        {
+          "path": "/ui-extensions/app/pages/x",
+          "status": 400,
+          "contentType": "application/problem+json"
+        },
+        {
+          "path": "/api/v1/api/x",
+          "status": 403,
+          "contentType": "application/problem+json"
+        },
+        {
+          "path": "/oidc/app/pages/x",
+          "status": 403,
+          "contentType": "application/problem+json"
+        },
+        {
+          "path": "/oauth/app/pages/x",
+          "status": 403,
+          "contentType": "application/problem+json"
+        },
+        {
+          "path": "/.well-known/app/pages/x",
+          "status": 403,
+          "contentType": "application/problem+json"
+        },
+        {
+          "path": "/static/app/pages/x",
+          "status": 403,
+          "contentType": "application/problem+json"
+        },
+        {
+          "path": "/swagger/app/pages/x",
+          "status": 403,
+          "contentType": "application/problem+json"
+        },
+        {
+          "path": "/ping",
+          "status": 200,
+          "contentType": "application/json"
+        }
+      ],
+      "throw-match": [
+        {
+          "path": "/ui/main/page/x",
+          "status": 200,
+          "contentType": "text/html",
+          "marker": "id=\"app\""
+        },
+        {
+          "path": "/ui-extensions/app/pages/x",
+          "status": 400,
+          "contentType": "application/problem+json"
+        },
+        {
+          "path": "/api/v1/api/x",
+          "status": 403,
+          "contentType": "application/problem+json"
+        },
+        {
+          "path": "/oidc/app/pages/x",
+          "status": 403,
+          "contentType": "application/problem+json"
+        },
+        {
+          "path": "/oauth/app/pages/x",
+          "status": 403,
+          "contentType": "application/problem+json"
+        },
+        {
+          "path": "/.well-known/app/pages/x",
+          "status": 403,
+          "contentType": "application/problem+json"
+        },
+        {
+          "path": "/static/app/pages/x",
+          "status": 403,
+          "contentType": "application/problem+json"
+        },
+        {
+          "path": "/swagger/app/pages/x",
+          "status": 403,
+          "contentType": "application/problem+json"
+        },
+        {
+          "path": "/ping",
+          "status": 200,
+          "contentType": "application/json"
+        }
+      ],
+      "unavailable-authorization": [
+        {
+          "path": "/ui/main/page/x",
+          "status": 200,
+          "contentType": "text/html",
+          "marker": "id=\"app\""
+        },
+        {
+          "path": "/ui-extensions/app/pages/x",
+          "status": 400,
+          "contentType": "application/problem+json"
+        },
+        {
+          "path": "/api/v1/api/x",
+          "status": 403,
+          "contentType": "application/problem+json"
+        },
+        {
+          "path": "/oidc/app/pages/x",
+          "status": 403,
+          "contentType": "application/problem+json"
+        },
+        {
+          "path": "/oauth/app/pages/x",
+          "status": 403,
+          "contentType": "application/problem+json"
+        },
+        {
+          "path": "/.well-known/app/pages/x",
+          "status": 403,
+          "contentType": "application/problem+json"
+        },
+        {
+          "path": "/static/app/pages/x",
+          "status": 403,
+          "contentType": "application/problem+json"
+        },
+        {
+          "path": "/swagger/app/pages/x",
+          "status": 403,
+          "contentType": "application/problem+json"
+        },
+        {
+          "path": "/ping",
+          "status": 200,
+          "contentType": "application/json"
+        }
+      ],
+      "missing-authorization": [
+        {
+          "path": "/ui/main/page/x",
+          "status": 307,
+          "contentType": null,
+          "location": "/oidc/logout"
+        },
+        {
+          "path": "/ui-extensions/app/pages/x",
+          "status": 400,
+          "contentType": "application/problem+json",
+          "location": null
+        },
+        {
+          "path": "/api/v1/api/x",
+          "status": 401,
+          "contentType": "application/problem+json",
+          "location": null
+        },
+        {
+          "path": "/oidc/app/pages/x",
+          "status": 401,
+          "contentType": "application/problem+json",
+          "location": null
+        },
+        {
+          "path": "/oauth/app/pages/x",
+          "status": 403,
+          "contentType": "application/problem+json",
+          "location": null
+        },
+        {
+          "path": "/.well-known/app/pages/x",
+          "status": 403,
+          "contentType": "application/problem+json",
+          "location": null
+        },
+        {
+          "path": "/static/app/pages/x",
+          "status": 401,
+          "contentType": "application/problem+json",
+          "location": null
+        },
+        {
+          "path": "/swagger/app/pages/x",
+          "status": 401,
+          "contentType": "application/problem+json",
+          "location": null
+        },
+        {
+          "path": "/ping",
+          "status": 401,
+          "contentType": "application/problem+json",
+          "location": null
+        }
+      ],
+      "duplicate-authorization": [
+        {
+          "path": "/ui/main/page/x",
+          "status": 200,
+          "contentType": "text/html",
+          "marker": "id=\"app\""
+        },
+        {
+          "path": "/ui-extensions/app/pages/x",
+          "status": 400,
+          "contentType": "application/problem+json"
+        },
+        {
+          "path": "/api/v1/api/x",
+          "status": 403,
+          "contentType": "application/problem+json"
+        },
+        {
+          "path": "/oidc/app/pages/x",
+          "status": 403,
+          "contentType": "application/problem+json"
+        },
+        {
+          "path": "/oauth/app/pages/x",
+          "status": 403,
+          "contentType": "application/problem+json"
+        },
+        {
+          "path": "/.well-known/app/pages/x",
+          "status": 403,
+          "contentType": "application/problem+json"
+        },
+        {
+          "path": "/static/app/pages/x",
+          "status": 403,
+          "contentType": "application/problem+json"
+        },
+        {
+          "path": "/swagger/app/pages/x",
+          "status": 403,
+          "contentType": "application/problem+json"
+        },
+        {
+          "path": "/ping",
+          "status": 200,
+          "contentType": "application/json"
+        }
+      ]
+    }
+  },
+  "evidenceBasis": {
+    "healthyA": "p0-native-baseline/native-A-observations.json (main-reported actual observation)",
+    "healthyB": "p0-mode-b-final/native-B-observations.json (main-reported actual allow-a observation)",
+    "hostCommit": "8f7b7b85e6ab35cc6a3862ae92d64332af145d58",
+    "zeroGrantDenialText": {
+      "path": "kestra-overlay/scripts/auth-i18n-expectations.json",
+      "locale": "en",
+      "key": "errors.403.title"
+    },
+    "faultScope": "Fixed source-backed and main-adjudicated expectations; bounded side effects/restoration acceptance not established by these status observations",
+    "faultObservations": {
+      "path": ".work/amis-delivery/p0-mode-b-final/fault-http-observations.json",
+      "sha256": "1932aaac6ab1567924b16c130fade1b8dd84163ee2aa2004f05d2fd78ac05137",
+      "scope": "source-backed expectation investigation; not full effects acceptance",
+      "observedScenarios": [
+        "missing-extension",
+        "disabled-extension",
+        "overlap",
+        "duplicate-authorization",
+        "unavailable-authorization",
+        "missing-authorization"
+      ],
+      "derivedScenarios": [
+        "missing-route-provider reuses disabled-extension variant",
+        "duplicate-id and throw-match use published dispatcher failure semantics"
+      ]
+    }
+  },
+  "pendingAdjudication": []
+}

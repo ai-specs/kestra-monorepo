@@ -8,7 +8,7 @@
 | 扩展功能集 | 仓库 | 接入通道 | 当前状态 | 详细说明 |
 |---|---|---|---|---|
 | RBAC / 应用组授权 | `kestra-plugin-rbac` | classpath jar、宿主管理 UI SDK | 已接入并通过当前正式组合验收 | [插件 README](../kestra-plugin-rbac/README.md)、[应用组模型](../kestra-plugin-rbac/docs/application-groups.md) |
-| AMIS Apps | `kestra-plugin-amis-apps`（尚未创建） | 待裁决的扩展入口 + classpath jar | 需求已定稿，待宿主契约探针和实施 | [需求基线](amis-apps-requirements.md) |
+| AMIS Apps | `kestra-plugin-amis-apps` | 通用 HTTP 扩展入口 + classpath jar | 正式阶段产物已发布；P0 组合验收中，尚未交付完整阶段 | [需求基线](amis-apps-requirements.md)、[部署与验收入口](../README.md#amis-apps正式产物部署p0-组合验收中) |
 
 当前没有其他已发布扩展功能集。未来项目必须在独立仓完成自身 CI、正式产物和公开
 契约后，才可以加入“已接入”状态；候选项目应标为“候选”或“调查中”，不得写成

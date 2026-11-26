@@ -49,6 +49,10 @@ services:
           plugins:
             auto-install:
               enabled: false   # 加固基线：静态插件集
+          amis-apps:
+            enabled: ${KESTRA_AMIS_APPS_ENABLED:-false}
+            max-sync-concurrency: ${KESTRA_AMIS_APPS_MAX_SYNC_CONCURRENCY:-4}
+            request-body-timeout: ${KESTRA_AMIS_APPS_REQUEST_BODY_TIMEOUT:-PT30S}
           rbac:
             enabled: ${KESTRA_RBAC_ENABLED:-false}
             typed:
