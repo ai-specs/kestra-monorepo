@@ -1,6 +1,6 @@
 {
-  "overlayCommit": "8f7b7b85e6ab35cc6a3862ae92d64332af145d58",
-  "provenance": "Reviewed downloaded host CI45737090391 native list21/detail37 reports with original and root checkers, zero failures/skips/notRun; detail source snapshot and 29 diagnostic regressions verified. BASE and UI patches unchanged from feb817c; all list18/detail37 source hashes independently matched final source and prior locks. Hash inventory retained unchanged; no matrix or diagnostic reductions. Local review: .work/amis-delivery/root-ci-fdccfeb-compose/native-lock-review/.",
+  "overlayCommit": "1765441f3b6ff24a4b2250ade82877e2d5d28f3b",
+  "provenance": "Reviewed downloaded host CI45795525445 native list21/detail37 reports with original host and root checkers, zero failures/skips/notRun; detail source snapshot, build-input patch hashes and 29 diagnostic regressions verified. Artifact ZIP digests, extracted bytes and run/head binding checked. BASE and UI patches unchanged from reviewed 8f7b7b8; all list18/detail37 source hashes matched final source and prior locks. Hash inventory retained unchanged; no matrix or diagnostic reductions. Local review: .work/amis-delivery/native-lock-1765441-review/.",
   "hashes": {
     "../../src/components/flows/Flows.vue": "7743748b9953506a169e48543297f1a1bdaa127a23ed1add38ad1bc3a62cfe64",
     "../../src/components/flows/useFlowListIdentity.ts": "750a9938cc9762a7f9c00fdf924e8670dd8c4b81e1a9e6ccca64fe0def542e4b",

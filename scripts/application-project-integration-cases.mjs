@@ -34,7 +34,13 @@ export async function runIntegration(base,fixture,adapter,report,persist) {
   await runApplicationProjectRest(base,fixture.rest,async fragment=>{
     report.fragments.rest=fragment;report.matrix=fragment.matrix;await persist()
   })
-  if(fixture.runSecurity)await fixture.runSecurity(async fragment=>{report.fragments.security=fragment;mergeChecks(fragment);await persist()})
+  assert.equal(report.fragments.rest?.completed,true,'REST fragment failed or incomplete; remaining integration checks stay not_run')
+  assert.equal(report.fragments.rest?.failures,0,'REST fragment has failures; remaining integration checks stay not_run')
+  if(fixture.runSecurity) {
+    await fixture.runSecurity(async fragment=>{report.fragments.security=fragment;mergeChecks(fragment);await persist()})
+    assert.equal(report.fragments.security?.completed,true,'Security fragment failed or incomplete; remaining integration checks stay not_run')
+    assert.equal(report.fragments.security?.failures,0,'Security fragment has failures; remaining integration checks stay not_run')
+  }
   if(fixture.checkHostHealth)await fixture.checkHostHealth('after-security')
   if(fixture.runMigration)await fixture.runMigration(async fragment=>{report.fragments.migration=fragment;mergeChecks(fragment);await persist()},async row=>{report.fragments.migrationStorageRecovery=row;await persist()})
   if(fixture.checkHostHealth)await fixture.checkHostHealth('after-migration')

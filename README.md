@@ -69,7 +69,7 @@ Copy-Item .env.example .env
 
 `KESTRA_IMAGE` 使用镜像 digest（`@sha256:...`）而非 tag，确保每次部署可复现。
 
-`.env.example` 中固定的是本仓选定、已完成组合验收的正式宿主 digest，不自动跟随
+`.env.example` 中固定的是本仓选定的正式宿主 digest，不自动跟随
 宿主最新发布。更新前必须核对所有已启用扩展的公开契约、正式编译输入及组合结果：
 
 ```bash
@@ -290,14 +290,14 @@ Compose 默认关闭上游匿名用量与 UI 事件上报，使用
 `kestra.anonymous-usage-report.enabled: false` 和
 `kestra.ui-anonymous-usage-report.enabled: false`。这两个配置不影响 RBAC 授权或生产登录。
 
-本仓当前选定插件提交 `2b1c02c`，成功 CI run `45744222200`，正式 jar SHA-256：
+本仓当前选定插件提交 `3dc9999`，成功 CI run `45807161173`，正式 jar SHA-256：
 `f549f3d66bd94169e2c828d4022e941f43fbfa73b312d2e7c05b240deb23849e`。
 先安装并登录 GitHub CLI（`gh auth login`），账号须能读取插件仓 Actions artifact：
 
 ```bash
 # macOS / Linux；在本仓根目录执行
 mkdir -p .work/rbac-release deployment/libs
-gh run download 45744222200 -R ai-specs/kestra-plugin-rbac \
+gh run download 45807161173 -R ai-specs/kestra-plugin-rbac \
   --name kestra-rbac-authorizer --dir .work/rbac-release
 cp .work/rbac-release/build/libs/kestra-rbac-authorizer.jar deployment/libs/kestra-rbac-authorizer.jar
 # macOS
@@ -309,7 +309,7 @@ sha256sum deployment/libs/kestra-rbac-authorizer.jar
 ```powershell
 # Windows PowerShell；在本仓根目录执行
 New-Item -ItemType Directory -Force .work/rbac-release, deployment/libs | Out-Null
-gh run download 45744222200 -R ai-specs/kestra-plugin-rbac `
+gh run download 45807161173 -R ai-specs/kestra-plugin-rbac `
   --name kestra-rbac-authorizer --dir .work/rbac-release
 Copy-Item .work/rbac-release/build/libs/kestra-rbac-authorizer.jar deployment/libs/kestra-rbac-authorizer.jar
 (Get-FileHash deployment/libs/kestra-rbac-authorizer.jar -Algorithm SHA256).Hash.ToLower()
@@ -336,8 +336,8 @@ RBAC 首装授权、权限表达式、账号生命周期和管理页面行为由
 
 已经完成安装的数据库不会再次开放首装或自动补授管理员。不得删除安装凭据或清空用户来重复首装；已有部署按插件公开维护流程处理，先保护原数据。
 
-> 当前正式宿主 `8f7b7b8` 的 CI `45737090391` 五个 job 成功，镜像由 `.env.example` 固定。
-> 插件 `2b1c02c` 消费该正式宿主输入，CI `45744222200` 成功且实际 artifact 已下载审计；
+> 当前正式宿主 `1765441` 的 CI `45795525445` 五个 job 成功，镜像由 `.env.example` 固定。
+> 插件 `3dc9999` 消费该正式宿主输入，CI `45807161173` 成功且实际 artifact 已下载审计；
 > 后端337、PostgreSQL115（含声明升级9）、生命周期30、页面960均通过，部署前核对 jar 哈希。
 > 根仓 CI 独立验证正式组合的生产流程、授权范围与副作用；不能用独立仓 CI 代替。
 > AI 入口需要显式租户 READ/EXECUTE；普通资源的全域读取不隐含执行、输出或租户级功能授权。

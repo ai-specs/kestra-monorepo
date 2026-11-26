@@ -18,6 +18,25 @@ import {loggedOutCapabilityDenials} from './zero-grant-logout-diagnostics.mjs'
 export {frozenBaselinePlan,prepareFrozenBaseline,runPreparedFrozenBaselineUi} from './access-control-v3-frozen.mjs'
 
 const api='/api/v1/main/extensions/rbac'
+export async function verifyFreshZeroUiIdentity({base,client,account}) {
+  const logout=await client.request('/oidc/logout')
+  try {
+    assert([302,303,307].includes(logout.status),'Zero-account preparation logout must redirect')
+    const location=logout.headers.get('location')
+    assert(location,'Zero-account preparation logout location required')
+    assert.equal(new URL(location,base).href,new URL('/ui/',base).href,'Zero-account preparation logout must return to the same UI')
+  } finally {await logout.body?.cancel()}
+  const login=await client.login(account.username,account.password)
+  assert.equal(login.authenticated,true,'Fresh zero-account production login required')
+  assert.equal(login.credentialsSubmitted,true,'Zero-account preparation must submit credentials after directory changes')
+  const identity=await client.verifiedUiIdentity({applicationGroupId:applicationProject,subject:account.subject,audience:'kestra-ui'})
+  assert.deepEqual(identity.applicationGroupScopes,[])
+  const denied=await client.request('/api/v1/main/flows/search?size=1')
+  try {assert.equal(denied.status,403,'Fresh zero-account business request must be forbidden, not unauthenticated')}
+  finally {await denied.body?.cancel()}
+  return {subject:account.subject,applicationGroupScopes:identity.applicationGroupScopes,businessStatus:403,
+    credentialsSubmitted:true,logoutStatus:logout.status,firstPasswordChange:'http-form-preparation-not-T5'}
+}
 const key=value=>'~'+Buffer.from(value).toString('base64url')
 const copy=value=>structuredClone(value)
 const sha=value=>createHash('sha256').update(value).digest('hex')
@@ -328,9 +347,8 @@ async function prepareUiData({base,management,planned,completedFragments,isolati
     const seeded=await adminClient.request('/api/v1/main/flows',{method:'POST',headers:{'Content-Type':'application/x-yaml'},body:flowSource(uiNamespaces.reference,'ui-reference-row')})
     assert(seeded.ok,'reference flow creation denied with status '+seeded.status)
     await seeded.body?.cancel()
-    const actualZero=await zeroClient.verifiedUiIdentity({applicationGroupId:applicationProject,subject:zero.subject,audience:'kestra-ui'});assert.deepEqual(actualZero.applicationGroupScopes,[])
-    const zeroDenied=await zeroClient.request('/api/v1/main/flows/search?size=1');assert.equal(zeroDenied.status,403);await zeroDenied.body?.cancel()
-    await emit({kind:'zero-account-production-identity',subject:zero.subject,applicationGroupScopes:actualZero.applicationGroupScopes,businessStatus:403,firstPasswordChange:'http-form-preparation-not-T5'})
+    const actualZero=await verifyFreshZeroUiIdentity({base,client:zeroClient,account:zero})
+    await emit({kind:'zero-account-production-identity',...actualZero})
     await management.login()
     const all=async path=>{
       const items=[];let total,revision
