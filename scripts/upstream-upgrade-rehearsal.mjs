@@ -60,12 +60,24 @@ const identifier = value => { requireValue(/^[a-z][a-z0-9_]{0,62}$/.test(value),
 const root = fileURLToPath(new URL('..', import.meta.url))
 
 // External errors and argv are never emitted: database/HTTP secrets may be present.
+export function upgradeGhFailureCategory(failure) {
+  const text=String(failure.code??'')+' '+String(failure.stderr??'')
+  if(/HTTP 401|HTTP 403|unauthorized|forbidden|authentication/i.test(text))return 'authorization'
+  if(/rate limit|HTTP 429/i.test(text))return 'rate-limit'
+  if(/EOF|ETIMEDOUT|ECONNRESET|TLS handshake timeout|connection reset|502 Bad Gateway|503 Service Unavailable|context deadline exceeded|Client\.Timeout|i\/o timeout|net\/http:.*timeout/i.test(text))return 'transient-network'
+  return 'unclassified'
+}
 function command(program, args, {input, binary = false, env} = {}, attempt = 0) {
   try { return execFileSync(program, args, {input, encoding: binary ? undefined : 'utf8', env, timeout: 180000, maxBuffer: 128 * 1024 * 1024, stdio: ['pipe', 'pipe', 'pipe']}) }
   catch (failure) {
     const readOnly = program === 'gh' && (args[0] === 'api' && !args.some(arg => ['-X','--method','-f','--raw-field','-F','--field','--input'].includes(arg)) || args[0] === 'run' && ['view','download'].includes(args[1]))
-    if (readOnly && attempt < 2 && /EOF|ETIMEDOUT|ECONNRESET|TLS handshake timeout|connection reset|502 Bad Gateway|503 Service Unavailable/i.test(String(failure.code)+' '+String(failure.stderr))) return command(program,args,{input,binary,env},attempt+1)
+    const category=upgradeGhFailureCategory(failure)
+    if (readOnly && attempt < 2 && category==='transient-network') return command(program,args,{input,binary,env},attempt+1)
     const error = new Error('External operation failed'); error.safeReason = 'External operation failed: ' + program
+    if(readOnly) {
+      const endpoint=args[0]==='api'&&/^repos\/ai-specs\/kestra-(?:overlay|plugin-rbac)\/actions\/runs\/[0-9]+$/.test(args[1])?args[1]:'read-only-actions-query'
+      error.safeReason+=' ('+category+'; endpoint='+endpoint+'; attempts='+String(attempt+1)+'; exit='+String(Number.isInteger(failure.status)?failure.status:'unavailable')+')'
+    }
     if(program==='docker' && args[0]==='pull') {
       const diagnostic=String(failure.stderr??'')
       const kind=/denied|unauthorized|forbidden/i.test(diagnostic)?'registry authorization':/no matching manifest/i.test(diagnostic)?'platform manifest':/no space left/i.test(diagnostic)?'disk space':/manifest unknown|not found/i.test(diagnostic)?'missing image':/timeout|TLS|EOF|connection|resolve|network/i.test(diagnostic)?'registry network':'unclassified registry error'

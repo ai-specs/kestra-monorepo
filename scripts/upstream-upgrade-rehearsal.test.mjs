@@ -134,3 +134,11 @@ test('identity preservation excludes only volatile login timestamps, not authori
   assert(source.includes("- 'updated_at' - 'last_login_at'"))
   assert(!source.includes("- 'last_login'"))
 })
+
+test('read-only GitHub failure categories preserve authorization and bounded network retry distinctions',async()=>{
+  const {upgradeGhFailureCategory}=await import('./upstream-upgrade-rehearsal.mjs')
+  for(const stderr of ['context deadline exceeded','Client.Timeout exceeded while awaiting headers','net/http: TLS handshake timeout','i/o timeout','HTTP 502 Bad Gateway'])assert.equal(upgradeGhFailureCategory({stderr}),'transient-network')
+  for(const stderr of ['HTTP 401','HTTP 403 forbidden','authentication required'])assert.equal(upgradeGhFailureCategory({stderr}),'authorization')
+  assert.equal(upgradeGhFailureCategory({stderr:'HTTP 429 rate limit'}),'rate-limit')
+  assert.equal(upgradeGhFailureCategory({stderr:'unknown private message'}),'unclassified')
+})

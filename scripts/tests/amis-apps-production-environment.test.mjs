@@ -92,6 +92,7 @@ function setup(t, config = {}) {
         queueDiagnostics:[{type:'flow_event',count:1,minOffset:'1',maxOffset:'1',
           minCreated:'2026-11-26T00:00:00Z',maxCreated:'2026-11-26T00:00:00Z',digest:'a'.repeat(64)}]}
     }
+    else if(sql.includes('idle_queue_inventory'))result=config.queueInventory?.()??[]
     else result=0
     return {stdout:JSON.stringify({database:wrongDb?'kestra':db,result})}
   }
@@ -218,4 +219,34 @@ test('first Compose escaped client-secret placeholder is normalized exactly once
   verify((await f.env.useMode('A')).deployment)
   assert.equal(f.env.privateInputs.clientSecret,expectedSecret)
   await f.env.manager.cleanup()
+})
+
+
+test('seed waits for existing dispatch queue inventory to drain before stability and completion',async t=>{
+  let inventory=[{type:'trigger_event',count:3}],observed
+  const inventoryRead=new Promise(resolve=>{observed=resolve})
+  const f=setup(t,{queueInventory:()=>{observed();return inventory}})
+  let stableCalls=0,completed=false
+  t.mock.method(AmisSideEffects.prototype,'waitForStable',async function(){
+    stableCalls++
+    assert.deepEqual(inventory,[],'Seed must not observe stability before dispatch drains')
+    return {snapshot:this.snapshot()}
+  })
+  await f.env.startPostgres()
+  const pending=f.env.useMode('A').then(value=>{completed=true;return value})
+  try {
+    await inventoryRead
+    await new Promise(resolve=>setImmediate(resolve))
+    assert.equal(f.flows.size,9,'Flow seed writes completed before the idle barrier')
+    assert.equal(completed,false,'Existing dispatch must block seed completion')
+    assert.equal(stableCalls,0,'Existing dispatch must block stability observation')
+  } finally {
+    inventory=[]
+    await pending
+    await f.env.manager.cleanup()
+  }
+  assert.equal(completed,true)
+  assert.equal(stableCalls,1)
+  assert(f.queries.filter(query=>query.sql.includes('idle_queue_inventory')).length>=2,
+    'Idle must query inventory again after dispatch drains')
 })

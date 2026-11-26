@@ -7,6 +7,10 @@ import {setTimeout as wait} from 'node:timers/promises'
 // 2.0.02-queue-postgres.sql. Missing tables/columns are unsupported, never empty.
 const tables = ['flows', 'executions', 'execution_queued', 'namespace_file_metadata', 'kv_metadata', 'execution_outputs']
 const required = [...tables, 'queues']
+// Published host176 JdbcQueueFactory; AbstractQueue maps class simple names to
+// lower_underscore. VNode and keyed dispatch are consumed/deleted too.
+export const amisDispatchQueueTypes=Object.freeze(['execution','execution_command','execution_event','subflow_execution_result','subflow_execution_end','multiple_condition_event','trigger_event','metric_entry','execution_statistic','log_entry','worker_job_event','worker_task_result','loop_execution_event'])
+const broadcastQueueTypes=['execution_killed','flow_interface','scheduler_event','follow_execution_event','async_operation_processed_event','follow_log_event','mcp_session_event','cluster_event']
 const hash = value => createHash('sha256').update(value).digest('hex')
 const sha256 = /^[a-f0-9]{64}$/
 const executionIdPattern = /^[A-Za-z0-9_][A-Za-z0-9_-]{0,99}$/
@@ -195,7 +199,16 @@ export class AmisSideEffects {
       this.#owners(); this.#schema()
       const active = this.#query("SELECT (SELECT count(*) FROM public.executions WHERE value->'state'->>'current' IS NULL OR value->'state'->>'current' NOT IN ('SUCCESS','WARNING','FAILED','KILLED','CANCELLED','SKIPPED')) + (SELECT count(*) FROM public.execution_queued)")
       assert(Number.isSafeInteger(active) && active >= 0)
-      if (active === 0) return {waitedMs: Math.ceil(performance.now() - started), active}
+      const queues=this.#query("SELECT coalesce(json_agg(json_build_object('type',type,'count',count) ORDER BY type),'[]'::json) FROM (SELECT type,count(*) AS count FROM public.queues GROUP BY type) idle_queue_inventory")
+      assert(Array.isArray(queues),'Invalid idle queue inventory')
+      const seen=new Set();let dispatch=0
+      for(const row of queues) {
+        assert.deepEqual(Object.keys(row).sort(),['count','type'])
+        assert(typeof row.type==='string'&&!seen.has(row.type)&&Number.isSafeInteger(row.count)&&row.count>0,'Invalid idle queue type/count');seen.add(row.type)
+        assert(amisDispatchQueueTypes.includes(row.type)||broadcastQueueTypes.includes(row.type),'Unsupported queue type prevents idle')
+        if(amisDispatchQueueTypes.includes(row.type))dispatch+=row.count
+      }
+      if (active === 0&&dispatch===0) return {waitedMs: Math.ceil(performance.now() - started), active,dispatch,queueInventory:queues}
       assert(performance.now() - started < timeoutMs, 'Isolated database did not become idle')
       await wait(intervalMs)
     }

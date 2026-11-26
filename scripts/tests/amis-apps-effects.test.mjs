@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import {createHash} from 'node:crypto'
-import {AmisSideEffects, amisQueuePredicate,validateAmisControlEvents} from '../amis-apps-effects.mjs'
+import {AmisSideEffects, amisQueuePredicate,validateAmisControlEvents,amisDispatchQueueTypes} from '../amis-apps-effects.mjs'
 
 const controlSample=()=>({schemaVersion:1,executionIds:['execution_1'],inventory:['execution_1'],events:[{type:'async_operation_processed_event',offset:'1',created:'2026-11-26T12:00:00Z',tenantId:null,executionId:'execution_1',operationId:'operation_1',outcome:'SUCCEEDED'}]})
 test('control event query returns only published binding metadata and inventory',()=>{
@@ -88,6 +88,9 @@ function fixture(options = {}) {
       assert(!sql.includes('strpos') && !sql.includes(' WHERE '))
       result = state.executionRows ?? []
       if (state.badExecutionJson) return {stdout:'not-json'}
+    } else if(sql.includes('idle_queue_inventory')) {
+      result=state.idleQueues??[]
+      if(state.drainAfterRead){state.idleQueues=[];state.drainAfterRead=false}
     } else result = state.idle
     return {stdout:JSON.stringify({database:state.actualDatabase,result})}
   }
@@ -277,4 +280,20 @@ test('denied observation preserves queue diagnostics at baseline, immediate resu
       assert(!JSON.stringify(o).includes('private-'));return true
     })
   }))
+})
+
+for(const type of amisDispatchQueueTypes)test('idle cannot complete with pending published dispatch '+type,async()=>{
+ const f=fixture();f.state.idleQueues=[{type,count:1}]
+ let finished=false;const promise=f.observer.waitForIdle({intervalMs:10}).then(value=>{finished=true;return value})
+ await new Promise(resolve=>setTimeout(resolve,25));assert.equal(finished,false)
+ f.state.idleQueues=[];const value=await promise;assert.equal(value.active,0);assert.equal(value.dispatch,0);assert.deepEqual(value.queueInventory,[])
+})
+for(const rows of [[{type:'future_dispatch',count:1}],[{type:null,count:1}],[{type:'trigger_event',count:0}],[{type:'trigger_event',count:1},{type:'trigger_event',count:1}],null])test('unknown or malformed idle inventory fails closed '+JSON.stringify(rows),async()=>{
+ const f=fixture();f.state.idleQueues=rows
+ if(rows===null)f.state.idleQueues={}
+ await assert.rejects(f.observer.waitForIdle())
+})
+test('retained broadcast rows do not require deletion but remain in strict queue hashes',async()=>{
+ const f=fixture();f.state.idleQueues=[{type:'follow_execution_event',count:4},{type:'async_operation_processed_event',count:1}]
+ const value=await f.observer.waitForIdle();assert.equal(value.dispatch,0);assert.deepEqual(value.queueInventory,f.state.idleQueues)
 })
