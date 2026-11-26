@@ -21,3 +21,32 @@ test('duration field presence remains exact; states without durations remain val
  assert(assertEquivalentExecutionState({current:'RUNNING'},{current:'RUNNING'}))
  assert.throws(()=>assertEquivalentExecutionState({current:'RUNNING',duration:0},{current:'RUNNING'}))
 })
+
+test('known UTC state dates accept trailing zeros and preserve original evidence',()=>{
+ const native=state('PT0.212911S'),db=state(0.212911)
+ native.histories[1].date='2026-11-26T22:55:24.075Z';db.histories[1].date='2026-11-26T22:55:24.075000Z'
+ native.startDate='2026-11-26T22:55:24Z';db.startDate='2026-11-26T22:55:24.000000000Z'
+ native.endDate='2026-11-26T22:55:24.123456780Z';db.endDate='2026-11-26T22:55:24.12345678Z'
+ const original=structuredClone({native,db})
+ assert(assertEquivalentExecutionState(native,db));assert.deepEqual({native,db},original)
+})
+for(const field of ['startDate','endDate','history'])test(field+' rejects one nanosecond difference',()=>{
+ const first=state(1),second=state('PT1S')
+ if(field==='history'){first.histories[0].date='2026-11-27T01:00:00.123456789Z';second.histories[0].date='2026-11-27T01:00:00.123456788Z'}
+ else {first[field]='2026-11-27T01:00:00.123456789Z';second[field]='2026-11-27T01:00:00.123456788Z'}
+ assert.throws(()=>assertEquivalentExecutionState(first,second))
+})
+for(const date of ['2026-02-29T00:00:00Z','1900-02-29T00:00:00Z','2026-04-31T00:00:00Z','2026-00-01T00:00:00Z','2026-13-01T00:00:00Z','2026-01-00T00:00:00Z','2026-01-01T24:00:00Z','2026-01-01T00:60:00Z','2026-01-01T00:00:60Z','2026-01-01T00:00:00','2026-01-01T00:00:00+00:00','2026-01-01T00:00:00.1234567890Z','0000-01-01T00:00:00Z'])test('invalid or unsupported UTC date rejects even identical values: '+date,()=>{
+ const first=state(1),second=state(1);first.startDate=date;second.startDate=date
+ assert.throws(()=>assertEquivalentExecutionState(first,second))
+})
+test('valid leap-day and nullable end date remain supported',()=>{
+ const first=state(1),second=state(1);first.startDate='2000-02-29T00:00:00Z';second.startDate='2000-02-29T00:00:00.000Z';first.endDate=null;second.endDate=null
+ assert(assertEquivalentExecutionState(first,second))
+})
+test('history count and unrecognized date-like fields remain exact',()=>{
+ const first=state(1),second=state(1);first.histories.push({...first.histories[0]})
+ assert.throws(()=>assertEquivalentExecutionState(first,second))
+ first.histories.pop();first.customDate='2026-01-01T00:00:00Z';second.customDate='2026-01-01T00:00:00.000Z'
+ assert.throws(()=>assertEquivalentExecutionState(first,second))
+})

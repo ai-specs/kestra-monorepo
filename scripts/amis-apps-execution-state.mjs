@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 
-// JSON state remains unchanged in evidence. Only the top-level duration has two
-// published serialization forms: numeric seconds and Java ISO seconds (PT#S).
+// Original JSON evidence is never mutated. Normalize only known State timestamps
+// and top-level numeric/ISO-seconds duration serialization.
 function secondsFraction(value) {
   let decimal
   if (typeof value === 'number') {
@@ -21,15 +21,46 @@ function secondsFraction(value) {
     : {numerator: coefficient, denominator: 10n ** BigInt(-exponent)}
 }
 
-/** Exact state tuple/histories comparison, allowing only duration <=1 ns drift.
+// UTC has no offset ambiguity: validated calendar components plus exactly nine
+// fractional digits identify the instant without Date's millisecond truncation.
+function utcNanosecondKey(value) {
+  if (value === null) return null // Absent endDate on an active State may be null.
+  assert(typeof value === 'string', 'State timestamp must be strict UTC ISO text')
+  const match = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.(\d{1,9}))?Z$/.exec(value)
+  assert(match, 'State timestamp must be strict UTC ISO text')
+  const [year, month, day, hour, minute, second] = match.slice(1, 7).map(Number)
+  const leap = year % 4 === 0 && (year % 100 !== 0 || year % 400 === 0)
+  const days = [31, leap ? 29 : 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
+  assert(year >= 1 && month >= 1 && month <= 12 && day >= 1 && day <= days[month - 1]
+    && hour <= 23 && minute <= 59 && second <= 59, 'Invalid UTC State calendar timestamp')
+  return match.slice(1, 7).join(':') + ':' + (match[7] ?? '').padEnd(9, '0')
+}
+function comparableFields(state) {
+  const {duration, ...fields} = state
+  for (const key of ['startDate', 'endDate']) if (Object.hasOwn(fields, key)) fields[key] = utcNanosecondKey(fields[key])
+  if (Object.hasOwn(fields, 'histories')) {
+    assert(Array.isArray(fields.histories), 'State histories must be an array')
+    fields.histories = fields.histories.map(history => {
+      assert(history && typeof history === 'object' && !Array.isArray(history), 'State history must be an object')
+      const copy = {...history}
+      if (Object.hasOwn(copy, 'date')) {
+        assert(copy.date !== null, 'State history date cannot be null')
+        copy.date = utcNanosecondKey(copy.date)
+      }
+      return copy
+    })
+  }
+  return fields
+}
+
+/** Exact State tuple comparison, accepting UTC fractional trailing zeros and duration <=1 ns drift.
  * No input mutation; callers must retain both original DB/native state objects.
- * Nested history values and every other field remain strictly equal.
+ * Only startDate/endDate/histories[].date are UTC-normalized; all other fields stay exact.
  */
 export function assertEquivalentExecutionState(actual, expected, message = 'Execution state differs') {
   for (const value of [actual, expected]) assert(value && typeof value === 'object' && !Array.isArray(value), 'Execution state object required')
-  const {duration: actualDuration, ...actualFields} = actual
-  const {duration: expectedDuration, ...expectedFields} = expected
-  assert.deepEqual(actualFields, expectedFields, message)
+  const actualDuration = actual.duration, expectedDuration = expected.duration
+  assert.deepEqual(comparableFields(actual), comparableFields(expected), message)
   assert.equal(Object.hasOwn(actual, 'duration'), Object.hasOwn(expected, 'duration'), 'State duration presence differs')
   if (!Object.hasOwn(actual, 'duration')) return true
   const first = secondsFraction(actualDuration), second = secondsFraction(expectedDuration)

@@ -308,7 +308,29 @@ export async function runAmisP1BrowserCase(adapter, options) {
       return {confirmedBeforeReload:true,recovery:value}
     })
     await step('refresh',async()=>{const before=await adapter.evaluate(amisBrowserDocument);await adapter.reload();await wait({path:pathFor(active),selector:'main'});const after=await adapter.evaluate(amisBrowserDocument);assert.notEqual(before.timeOrigin,after.timeOrigin,'Reload must replace document');return {before,after}})
-    await step('leave-and-reenter',async()=>{await adapter.goto(base+'/');await adapter.goto(base+pathFor(active));await wait({path:pathFor(active),selector:'main'});return {reentered:true}})
+    await step('leave-and-reenter',async()=>{
+      const before=await adapter.evaluate(amisBrowserDocument)
+      const initial=await adapter.diagnostics(),eventStart=initial.events.length
+      const beforeId=initial.documents.filter(row=>row.url===before.url).at(-1)?.id
+      assert(beforeId,'Original adapter document identity missing')
+      await adapter.goto(base+'/ping');await wait({path:'/ping'})
+      const away=await adapter.evaluate(amisBrowserDocument)
+      assert.equal(away.url,base+'/ping');assert.equal(away.path,'/ping')
+      assert.notEqual(away.timeOrigin,before.timeOrigin,'Leaving must replace original document')
+      const departed=await adapter.diagnostics()
+      const awayId=departed.documents.filter(row=>row.url===away.url).at(-1)?.id
+      assert(awayId&&awayId!==beforeId,'Health navigation must replace original adapter document')
+      const health=departed.events.slice(eventStart).filter(row=>row.kind==='request'&&row.method==='GET'&&row.url===base+'/ping'&&row.documentId===awayId)
+      assert.equal(health.length,1,'Exact native health document request required')
+      const response=departed.events.find(row=>row.kind==='http-response'&&row.status===200&&row.requestId===health[0].requestId&&row.documentId===awayId&&row.url===health[0].url)
+      assert(response,'Public health document must return actual HTTP 200')
+      await adapter.goto(base+pathFor(active));await wait({path:pathFor(active),selector:'main'})
+      const after=await adapter.evaluate(amisBrowserDocument),returned=await adapter.diagnostics()
+      const afterId=returned.documents.filter(row=>row.url===after.url).at(-1)?.id
+      assert.equal(after.url,base+pathFor(active));assert.notEqual(after.timeOrigin,away.timeOrigin)
+      assert(afterId&&afterId!==awayId&&afterId!==beforeId,'Reentry must create a fresh business document')
+      return {reentered:true,before,away,after,beforeDocumentId:beforeId,awayDocumentId:awayId,documentId:afterId,healthRequest:health[0],healthResponse:response}
+    })
   }
   await step('baseline',async()=>{start=(await adapter.diagnostics()).events.length;previous=start;return {start}})
   const main = suffix.includes('sync-expiry')?'p1-sync-expiry':suffix==='sync-success-and-failure'?'p1-sync':suffix.startsWith('dialog')?'p1-dialog':suffix.startsWith('list')?'p1-query':suffix.startsWith('conditional')?'p1-init':'p1-async'

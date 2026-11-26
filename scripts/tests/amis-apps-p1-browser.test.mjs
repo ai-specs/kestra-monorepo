@@ -165,19 +165,19 @@ test('mode B identity receipt requires actual application group and version',asy
 })
 
 function syntheticCasePage(flow,{loading=true,pending=true}={}) {
- const adapter=fake(),events=[],actions=[];let doc=0,posts=0
+ const adapter=fake(),events=[],actions=[],documents=[];let doc=0,posts=0,currentUrl
  const url=base+'/company.p1/'+flow+'/apis/run',path='/company.p1/'+flow+'/pages/home'
  const addPost=()=>{const requestId='post-'+(++posts),documentId='doc-'+doc,pollId='poll-'+posts
   events.push({id:requestId,kind:'request',requestId,documentId,method:'POST',url},{id:requestId+'-response',kind:'http-response',requestId,documentId,method:'POST',url,status:202},
    {id:pollId,kind:'request',requestId:pollId,documentId,method:'GET',url:url+'/executions/original'}, {id:pollId+'-response',kind:'http-response',requestId:pollId,documentId,method:'GET',url:url+'/executions/original',status:200})
  }
- adapter.goto=async target=>{doc++;actions.push('goto');if(flow==='p1-query'&&target.includes('/p1-query/')&&posts===0)addPost()}
- adapter.reload=async()=>{actions.push('reload');doc++}
+ adapter.goto=async target=>{doc++;currentUrl=target;documents.push({id:'doc-'+doc,url:target});actions.push('goto');actions.push('goto:'+target);if(target===base+'/ping')events.push({id:'health-request',kind:'request',requestId:'health',documentId:'doc-'+doc,method:'GET',url:target},{id:'health-response',kind:'http-response',requestId:'health',documentId:'doc-'+doc,status:200,method:'GET',url:target});if(flow==='p1-query'&&target.includes('/p1-query/')&&posts===0)addPost()}
+ adapter.reload=async()=>{actions.push('reload');doc++;documents.push({id:'doc-'+doc,url:currentUrl})}
  adapter.waitForFunction=async(fn,arg)=>{actions.push(arg?.recoveryPending?'wait-pending':'wait');if(arg?.recoveryPending&&!pending)throw new Error('Recovery is submitting, not pending')}
  adapter.evaluate=async(fn,arg)=>{
   if(fn.name==='p1LocaleState')return {selected:'en',actualLocale:'en',values:['en','zh_CN']}
   if(fn.name==='p1SubmitState')return {present:false,visible:false,disabled:null,busy:true}
-  if(fn.name==='amisBrowserDocument')return {url:base+path,path,timeOrigin:doc}
+  if(fn.name==='amisBrowserDocument')return {url:currentUrl??base+path,path:currentUrl?new URL(currentUrl).pathname:path,timeOrigin:doc}
   if(fn.name==='p1PageObservation')return {login:false,text:'Saved: unique-marker',alert:[],busy:'false',recovery:[{value:{phase:pending?'pending':'submitting',apiUrl:new URL(url).pathname,executionId:'original',executionUrl:new URL(url).pathname+'/executions/original'}}]}
   if(fn.name==='p1ControlSelector') {
    actions.push('resolve:'+arg.kind+':'+arg.text)
@@ -190,7 +190,7 @@ function syntheticCasePage(flow,{loading=true,pending=true}={}) {
   return false
  }
  adapter.click=async selector=>{actions.push('click:'+selector);if(['submit-button','dialog-confirm','next-page'].includes(selector)&& (posts===0||flow==='p1-query'))addPost()}
- adapter.diagnostics=async()=>({events,documents:[{id:'doc-'+doc,url:base+path}]})
+ adapter.diagnostics=async()=>({events,documents})
  return {adapter,actions,scenario:{scenarios:[{...scenario,id:flow,flowId:flow},...(flow==='p1-async'?[]:[scenario])]}}
 }
 test('dialog submits through visible native Confirm, never hidden inner form actions',async()=>{
@@ -420,3 +420,26 @@ test('switch refuses fully hidden input and label',()=>withSyntheticSwitchDom(({
  input.hidden=true;label.hidden=true
  assert.throws(()=>p1ControlSelector({kind:'switch'}),/Expected one live control.*count.*0/)
 }))
+test('least-privileged B leaves through public ping and reenters without requesting management root',async()=>{
+ const page=syntheticCasePage('p1-async')
+ const report=await runAmisP1BrowserCase(page.adapter,{...options,id:'B-double-submit-refresh-and-reentry-do-not-replay',scenario:page.scenario})
+ assert(report.completed);assert(page.actions.includes('goto:'+base+'/ping'));assert(!page.actions.includes('goto:'+base+'/'))
+ const observation=report.checks.find(row=>row.id==='leave-and-reenter').observation
+ assert.equal(observation.healthResponse.status,200);assert.equal(observation.away.path,'/ping')
+ assert.notEqual(observation.beforeDocumentId,observation.awayDocumentId);assert.notEqual(observation.documentId,observation.beforeDocumentId)
+ assert.equal(report.trace.filter(row=>row.method==='POST').length,1);assert.deepEqual(report.executionIds,['original'])
+})
+for(const [name,change]of [
+ ['health returns forbidden',value=>{for(const event of value.events)if(event.id==='health-response'){event.status=403;event.kind='http-error'}}],
+ ['health response wrong request',value=>{for(const event of value.events)if(event.id==='health-response')event.requestId='foreign'}],
+ ['health request wrong document',value=>{for(const event of value.events)if(event.id==='health-request')event.documentId='foreign'}],
+])test('leave-and-reenter rejects '+name,async()=>{
+ const page=syntheticCasePage('p1-async'),diagnostics=page.adapter.diagnostics
+ page.adapter.diagnostics=async()=>{const value=await diagnostics();change(value);return value}
+ await assert.rejects(runAmisP1BrowserCase(page.adapter,{...options,id:'B-double-submit-refresh-and-reentry-do-not-replay',scenario:page.scenario}),error=>{assert.equal(error.report.failure.phase,'leave-and-reenter');return true})
+})
+test('leaving must replace source timeOrigin rather than only return to business URL',async()=>{
+ const page=syntheticCasePage('p1-async'),evaluate=page.adapter.evaluate;let previous
+ page.adapter.evaluate=async(fn,arg)=>{const value=await evaluate(fn,arg);if(fn.name==='amisBrowserDocument'){if(value.path==='/ping')value.timeOrigin=previous;else previous=value.timeOrigin}return value}
+ await assert.rejects(runAmisP1BrowserCase(page.adapter,{...options,id:'B-double-submit-refresh-and-reentry-do-not-replay',scenario:page.scenario}),/Leaving must replace original document/)
+})
