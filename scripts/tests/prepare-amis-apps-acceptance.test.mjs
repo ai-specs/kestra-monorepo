@@ -1,7 +1,8 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
+import {execFileSync as runFile} from 'node:child_process'
 import {createHash} from 'node:crypto'
-import {mkdirSync,mkdtempSync,readFileSync,writeFileSync,rmSync,existsSync,symlinkSync} from 'node:fs'
+import {mkdirSync,mkdtempSync,readFileSync,writeFileSync,rmSync,readdirSync as __readdir,existsSync,symlinkSync,chmodSync} from 'node:fs'
 import {dirname,join,resolve} from 'node:path'
 import {fileURLToPath} from 'node:url'
 import {prepareAmisAppsAcceptance} from '../prepare-amis-apps-acceptance.mjs'
@@ -82,7 +83,7 @@ function fixture(t,fault={}) {
     assert.equal(extra.env.AMIS_PROBE_HOST_SHA256,selection.hostExecutableSha256)
     assert.equal(hash(readFileSync(extra.env.AMIS_PROBE_HOST_JAR)),selection.hostExecutableSha256)
     assert.equal(extra.env.AMIS_PROBE_COMPILER_JAR,join(options.directory,'micronaut-inject-java-4.10.33.jar'))
-    if(fault.compile)throw new Error('synthetic compile failure')
+    if(fault.compile){const error=new Error('synthetic compile failure');if(fault.compileDiagnostic)Object.assign(error,fault.compileDiagnostic);throw error}
     const out=extra.env.AMIS_PROBE_OUT
     put(join(out,'amis-apps-probe.jar'),probe)
     put(join(out,'compile-report.json'),{hostSha256:selection.hostExecutableSha256,jdk:'25',runtimeHost:false,compiler:'micronaut-inject-java:4.10.33',compilerSha256:'01e63084f1b466f5202aee78f3b7a7a19a1900c1bc8b35985284a21e741784f0',sourceHash:'1'.repeat(64),probeJarSha256:fault.probeHash?'0'.repeat(64):hash(probe),selfTest:'PASS: synthetic only',readiness:Object.fromEntries(['flowRepositoryListener','flowMetaStoreListener','namespaceFactoryListener','storageListener','authorizationListener'].map(key=>[key,fault.probeReadiness?'missing':'present']))})
@@ -166,4 +167,74 @@ test('SYNTHETIC P1 selection reaches OCI with P1 and rejects a P0 audit',async t
   f.dependencies.downloadAmis=async(...args)=>{actual=structuredClone(args[2]);args[2]={...args[2],stage:'P0',expectedTests:355};return fixtureDownload(...args)}
   await assert.rejects(prepareAmisAppsAcceptance(f.options,f.dependencies),error=>{assert.equal(error.cause?.actual,'P0');assert.equal(error.cause?.expected,'P1');return true})
   assert.equal(actual.stage,'P1');assert.equal(actual.expectedTests,375)
+})
+
+
+test('SYNTHETIC probe failure preserves safe controlled compiler output and original cause',async t=>{
+ const diagnostic={code:22,signal:'SIGTERM',stdout:'javac: failed at Probe.java:42\nBearer abcSecret\npassword=not-public\n',stderr:'curl: HTTP 503\nghp_privatevalue\n{"client_secret":"hidden-value"}\n'}
+ const f=fixture(t,{compile:true,compileDiagnostic:diagnostic})
+ await assert.rejects(prepareAmisAppsAcceptance(f.options,f.dependencies),error=>{assert.equal(error.cause.code,22);assert.equal(error.report.prepared,false);return true})
+ const r=JSON.parse(readFileSync(join(f.options.directory,'probe-build-failure.json')))
+ assert.equal(r.category,'process-exit');assert.equal(r.exit,22);assert.equal(r.signal,'SIGTERM')
+ assert.match(r.stdout,/Probe.java:42/);assert.match(r.stderr,/HTTP 503/)
+ for(const value of ['abcSecret','not-public','ghp_privatevalue','hidden-value'])assert(!JSON.stringify(r).includes(value))
+ assert.equal(r.command,undefined);assert.equal(r.env,undefined)
+})
+for(const [name,diagnostic,category]of [['timeout',{code:'ETIMEDOUT',killed:true},'timeout'],['signal',{signal:'SIGKILL'},'process-signal'],['unknown',{code:'untrusted-secret'},'external-command']])test('SYNTHETIC probe diagnostic category '+name,async t=>{
+ const f=fixture(t,{compile:true,compileDiagnostic:diagnostic});await assert.rejects(prepareAmisAppsAcceptance(f.options,f.dependencies))
+ const r=JSON.parse(readFileSync(join(f.options.directory,'probe-build-failure.json')));assert.equal(r.category,category);assert.equal(r.exit,null)
+})
+
+// Offline fake curl exercises only the fixed compiler download helper.
+for(const scenario of ['first-503','first-timeout','always-timeout','bad-hash','cache-good','cache-bad'])test('OFFLINE compiler cache '+scenario,t=>{
+ const parent=mkdtempSync(join(root,'.work/compiler-download-test-'));t.after(()=>rmSync(parent,{recursive:true,force:true}))
+ const bin=join(parent,'bin');mkdirSync(bin);const cache=join(parent,'compiler.jar'),count=join(parent,'calls'),payload=join(parent,'payload')
+ // Explicit hash-command test double maps only these known synthetic bytes to
+ // the fixed digest. No local compiler cache or network is required.
+ writeFileSync(payload,'SYNTHETIC compiler artifact')
+ const shaCommand=join(bin,'sha256sum')
+ writeFileSync(shaCommand,`#!/usr/bin/env bash
+set -eu
+if [[ "$(cat "$1")" == 'SYNTHETIC compiler artifact' ]]; then
+ echo "01e63084f1b466f5202aee78f3b7a7a19a1900c1bc8b35985284a21e741784f0  $1"
+else
+ echo "0000000000000000000000000000000000000000000000000000000000000000  $1"
+fi
+`);chmodSync(shaCommand,0o700)
+ const curl=join(bin,'curl')
+ writeFileSync(curl,`#!/usr/bin/env bash
+set -eu
+n=0; [[ ! -f "$FAKE_COUNT" ]] || n=$(cat "$FAKE_COUNT"); n=$((n+1)); echo "$n" > "$FAKE_COUNT"
+args="$*"
+[[ "$args" == *"--connect-timeout 10"* && "$args" == *"--max-time 30"* && "$args" == *"https://repo.maven.apache.org/maven2/io/micronaut/micronaut-inject-java/4.10.33/micronaut-inject-java-4.10.33.jar"* ]]
+while [[ "$1" != --output ]]; do shift; done; dest="$2"
+if [[ "$FAKE_SCENARIO" == always-timeout || "$FAKE_SCENARIO" == first-timeout && "$n" == 1 ]]; then echo partial > "$dest"; exit 28; fi
+if [[ "$FAKE_SCENARIO" == first-503 && "$n" == 1 ]]; then echo partial > "$dest"; exit 22; fi
+if [[ "$FAKE_SCENARIO" == bad-hash ]]; then echo malicious > "$dest"; else cp "$FAKE_PAYLOAD" "$dest"; fi
+`);chmodSync(curl,0o700)
+ if(scenario==='cache-good')writeFileSync(cache,readFileSync(payload))
+ if(scenario==='cache-bad')writeFileSync(cache,'bad existing cache')
+ const run=()=>runFile('bash',[join(root,'scripts/amis-apps-probe/download-compiler.sh'),cache],{env:{...process.env,PATH:bin+':'+process.env.PATH,FAKE_COUNT:count,FAKE_SCENARIO:scenario,FAKE_PAYLOAD:payload},stdio:'pipe',timeout:10000})
+ if(['always-timeout','bad-hash','cache-bad'].includes(scenario))assert.throws(run);else run()
+ if(['first-503','first-timeout','cache-good'].includes(scenario))assert.deepEqual(readFileSync(cache),readFileSync(payload))
+ if(['always-timeout','bad-hash'].includes(scenario))assert(!existsSync(cache))
+ assert(!__readdir(parent).some(name=>name.includes('.download.')))
+ if(scenario.startsWith('first-'))assert.equal(readFileSync(count,'utf8').trim(),'2')
+ if(scenario==='always-timeout')assert.equal(readFileSync(count,'utf8').trim(),'3')
+ if(scenario.startsWith('cache-'))assert(!existsSync(count))
+})
+
+test('OFFLINE real SHA256 rejects fake curl malicious bytes without installing compiler cache',t=>{
+ const parent=mkdtempSync(join(root,'.work/compiler-real-sha-test-'));t.after(()=>rmSync(parent,{recursive:true,force:true}))
+ const bin=join(parent,'bin');mkdirSync(bin);const cache=join(parent,'compiler.jar'),curl=join(bin,'curl')
+ writeFileSync(curl,`#!/usr/bin/env bash
+set -eu
+while [[ "$1" != --output ]]; do shift; done
+printf '%s' 'malicious compiler bytes, not the published artifact' > "$2"
+`);chmodSync(curl,0o700)
+ // Only curl is substituted; sha256sum is the real system implementation.
+ assert.throws(()=>runFile('bash',[join(root,'scripts/amis-apps-probe/download-compiler.sh'),cache],{env:{...process.env,PATH:bin+':'+process.env.PATH},stdio:'pipe',timeout:10000}),error=>{
+  assert.equal(error.status,2);assert.match(String(error.stderr),/Micronaut compiler jar SHA-256 mismatch/);return true
+ })
+ assert(!existsSync(cache));assert(!__readdir(parent).some(name=>name.includes('.download.')))
 })

@@ -33,3 +33,13 @@ test('P0 selection does not claim P1 execution or create P1 options',t=>{
  const f=setup(t,'P0');f.run();assert(!existsSync(join(f.area,'.work/amis-p1-run-options.json')));assert.equal(readFileSync(f.output,'utf8'),'')
 })
 test('unknown stage fails closed before production options',t=>{const f=setup(t,'P5');assert.throws(f.run);assert(!existsSync(join(f.area,'.work/amis-p1-run-options.json')))})
+
+test('input preparation failure publishes only bounded diagnostic receipts, never raw downloads or private configuration',()=>{
+ const start=text.indexOf('      - name: Preserve bounded AMIS input preparation diagnostics')
+ assert(start>=0)
+ const block=text.slice(start,text.indexOf('      - name:',start+20))
+ assert(block.includes('if: always()'))
+ assert(block.includes('.work/amis-p0-inputs/preparation-report.json'))
+ assert(block.includes('.work/amis-p0-inputs/probe-build-failure.json'))
+ assert(!block.includes('inputs.private')&&!block.includes('**')&&!block.includes('host-executable')&&!block.includes('commands.json'))
+})

@@ -571,6 +571,16 @@ jobs:
           }), {mode: 0o600, flag: 'wx'});
           AMIS_PREPARE_JS
           node scripts/prepare-amis-apps-acceptance.mjs .work/amis-p0-prepare-options.json
+      - name: Preserve bounded AMIS input preparation diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: amis-input-preparation-${{ github.run_id }}-${{ github.run_attempt }}
+          include-hidden-files: true
+          if-no-files-found: warn
+          path: |
+            .work/amis-p0-inputs/preparation-report.json
+            .work/amis-p0-inputs/probe-build-failure.json
       - name: Build exact AMIS runner options
         run: |
           set -euo pipefail

@@ -13,6 +13,22 @@ const repository=resolve(dirname(fileURLToPath(import.meta.url)),'..')
 const execute=promisify(execFile),hex=/^[a-f0-9]{64}$/,commit=/^[a-f0-9]{40}$/
 const digest=bytes=>createHash('sha256').update(bytes).digest('hex')
 const defaultRunner=(command,args,{cwd,env}={})=>execute(command,args,{cwd,env:{...process.env,...env},encoding:'buffer',timeout:1200000,maxBuffer:32*1024*1024})
+function safeProbeFailure(error) {
+  const scrub=value=>{
+    const text=Buffer.isBuffer(value)?value.toString('utf8'):typeof value==='string'?value:''
+    return text.replace(/\x1b\[[0-9;]*[A-Za-z]/g,'')
+      .replace(/Bearer\s+[^\s"']+/gi,'Bearer [REDACTED]')
+      .replace(/eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+/g,'[REDACTED-JWT]')
+      .replace(/(?:gh[pousr]_[A-Za-z0-9_]+|github_pat_[A-Za-z0-9_]+)/g,'[REDACTED-TOKEN]')
+      .replace(/((?:password|client[_-]?secret|access[_-]?token|refresh[_-]?token|id[_-]?token|csrf[_-]?token|authorization|cookie|secret|token)["']?\s*[:=]\s*)(?:"[^"\n]*"|'[^'\n]*'|[^\s,;]+)/gi,'$1[REDACTED]')
+      .replace(/https?:\/\/[^\s/@]+:[^\s/@]+@/g,'https://[REDACTED]@')
+      .slice(0,65536)
+  }
+  const exit=Number.isInteger(error?.code)?error.code:Number.isInteger(error?.status)?error.status:null
+  const signal=['SIGTERM','SIGKILL','SIGABRT','SIGINT','SIGSEGV'].includes(error?.signal)?error.signal:null
+  const category=error?.code==='ETIMEDOUT'||error?.killed===true?'timeout':error instanceof assert.AssertionError?'validation':exit!==null?'process-exit':signal?'process-signal':'external-command'
+  return {schemaVersion:1,stage:'compile-root-probe',category,exit,signal,stdout:scrub(error?.stdout),stderr:scrub(error?.stderr),scope:'Known probe compilation command output only; no environment, command line or arbitrary exception message'}
+}
 const repositories={hostCommit:'kestra-overlay',amisCommit:'kestra-plugin-amis-apps',rbacCommit:'kestra-plugin-rbac'}
 const fields=['stage','hostCommit','amisCommit','rbacCommit','hostImage','hostExecutableSha256','amisArtifactImage','amisJarSha256','rbacJarSha256','expectedJavaTests']
 function regular(path) {
@@ -156,6 +172,7 @@ export async function prepareAmisAppsAcceptance(options,{runner=defaultRunner,do
     })
     const probe=await step('compile-root-probe',async()=>{
       const out=join(area,'probe-build')
+      try {
       await run('bash',[join(repository,'scripts/amis-apps-probe/compile.sh')],{cwd:repository,env:{AMIS_PROBE_HOST_JAR:hostPath,AMIS_PROBE_HOST_SHA256:selection.hostExecutableSha256,AMIS_PROBE_OUT:out,
         AMIS_PROBE_COMPILER_JAR:join(area,'micronaut-inject-java-4.10.33.jar')}})
       const compile=json(join(out,'compile-report.json')),probeJar=join(out,'amis-apps-probe.jar')
@@ -167,6 +184,7 @@ export async function prepareAmisAppsAcceptance(options,{runner=defaultRunner,do
       for(const name of ['flowRepositoryListener','flowMetaStoreListener','namespaceFactoryListener','storageListener','authorizationListener'])assert.equal(compile.readiness?.[name],'present')
       assert(hex.test(compile.probeJarSha256));assert.equal(digest(regular(probeJar)),compile.probeJarSha256)
       return {probeJar,probeJarSha256:compile.probeJarSha256,compileReport:join(out,'compile-report.json'),sourceHash:compile.sourceHash}
+      } catch(error) {write('probe-build-failure.json',safeProbeFailure(error));throw error}
     })
     selected={...selection,rootCommit,expectedTests:selection.expectedJavaTests,amisReleaseDirectory:amis.releaseDirectory,amisJar:join(amis.releaseDirectory,'kestra-amis-apps.jar'),rbacJar:publication.rbacJar,
       hostExecutable:hostPath,probeJar:probe.probeJar,probeJarSha256:probe.probeJarSha256}

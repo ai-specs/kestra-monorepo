@@ -11,10 +11,7 @@ OUT="${AMIS_PROBE_OUT:-}"
 [[ -n "$OUT" && "$OUT" == "$ROOT/.work/"* ]] || { echo 'AMIS_PROBE_OUT must be a new directory under root .work' >&2; exit 2; }
 [[ ! -e "$OUT" ]] || { echo "AMIS_PROBE_OUT already exists: $OUT" >&2; exit 2; }
 ACTUAL_HOST_SHA="$(sha256sum "$HOST" | awk '{print $1}')"; [[ "$ACTUAL_HOST_SHA" = "$HOST_SHA" ]] || { echo 'formal host jar SHA-256 mismatch' >&2; exit 2; }
-if [[ ! -f "$CACHE" ]]; then
-  mkdir -p "$(dirname "$CACHE")"
-  curl -fsSL https://repo1.maven.org/maven2/io/micronaut/micronaut-inject-java/4.10.33/micronaut-inject-java-4.10.33.jar -o "$CACHE"
-fi
+bash "$ROOT/scripts/amis-apps-probe/download-compiler.sh" "$CACHE"
 ACTUAL_COMPILER_SHA="$(sha256sum "$CACHE" | awk '{print $1}')"; [[ "$ACTUAL_COMPILER_SHA" = "$EXPECTED_COMPILER_SHA" ]] || { echo 'Micronaut compiler jar SHA-256 mismatch' >&2; exit 2; }
 if [[ -n "${JAVA_HOME:-}" ]]; then JAVA="$JAVA_HOME/bin/java"; JAVAC="$JAVA_HOME/bin/javac"; JAR="$JAVA_HOME/bin/jar"; else JAVA="$(command -v java)"; JAVAC="$(command -v javac)"; JAR="$(command -v jar)"; fi
 for tool in "$JAVA" "$JAVAC" "$JAR"; do [[ -x "$tool" ]] || { echo "missing JDK tool: $tool" >&2; exit 2; }; done
