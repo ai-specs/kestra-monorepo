@@ -44,8 +44,8 @@ test('input preparation failure publishes only bounded diagnostic receipts, neve
  assert(!block.includes('inputs.private')&&!block.includes('**')&&!block.includes('host-executable')&&!block.includes('commands.json'))
 })
 
-test('a newer final commit queues without cancelling in-progress production acceptance',()=>{
+test('a newer commit cancels older acceptance in the same single concurrency group',()=>{
  assert(text.includes('group: compose-acceptance-${{ github.head_ref || github.ref_name }}'))
- assert(text.includes('cancel-in-progress: false'))
- assert(!text.includes('cancel-in-progress: true'))
+ assert(text.includes('cancel-in-progress: true'))
+ assert(!text.includes('cancel-in-progress: false'))
 })
