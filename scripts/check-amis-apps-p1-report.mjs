@@ -3,7 +3,7 @@ import {createHash} from 'node:crypto'
 import {readFileSync,realpathSync,lstatSync} from 'node:fs'
 import {resolve,sep} from 'node:path'
 import {pathToFileURL} from 'node:url'
-import {classifyP1PollDiagnostics} from './amis-apps-p1-poll-diagnostics.mjs'
+import {classifyP1PollDiagnostics,classifyP1SchemaUnloadDiagnostics} from './amis-apps-p1-poll-diagnostics.mjs'
 import {classifyAccessControlDiagnostics} from './access-control-browser-diagnostics.mjs'
 import {assertEquivalentExecutionState} from './amis-apps-execution-state.mjs'
 import {validateP1DiagnosticBinding} from './amis-apps-p1-diagnostic-binding.mjs'
@@ -173,6 +173,7 @@ export function validateAmisP1Report(report,expected,{directory}={}) {
         }
         const classified=classifyAccessControlDiagnostics({events:diagnostics.events,base,requests})
         const polls=classifyP1PollDiagnostics({events:diagnostics.events,base,browser:evidence.browser})
+        polls.classifications.push(...classifyP1SchemaUnloadDiagnostics({events:diagnostics.events,base,browser:evidence.browser}).classifications)
         const pollIds=new Set(polls.classifications.map(x=>x.id))
         classified.errors=classified.errors.filter(x=>!pollIds.has(x.id));classified.classifications.push(...polls.classifications)
         assert.deepEqual(classified.errors,[],'Retained collector has unexpected errors')

@@ -4,7 +4,7 @@ import {resolve,join,isAbsolute,relative,dirname} from 'node:path'
 import {spawn,execFileSync} from 'node:child_process'
 import {pathToFileURL,fileURLToPath} from 'node:url'
 import {createHash,createPublicKey,verify} from 'node:crypto'
-import {classifyP1PollDiagnostics} from './amis-apps-p1-poll-diagnostics.mjs'
+import {classifyP1PollDiagnostics,classifyP1SchemaUnloadDiagnostics} from './amis-apps-p1-poll-diagnostics.mjs'
 import {classifyAccessControlDiagnostics} from './access-control-browser-diagnostics.mjs'
 import {createEgoApplicationProjectAdapter,createPlaywrightApplicationProjectAdapter} from './application-project-browser-adapters.mjs'
 import {verifyAmisBrowserRuntime} from './amis-apps-browser-driver.mjs'
@@ -107,6 +107,7 @@ export async function runAmisP1OnPage(page,options,kind) {
   }
   const classified=classifyAccessControlDiagnostics({events:diagnostics.events,base:options.base,requests:expected})
   const polls=classifyP1PollDiagnostics({events:diagnostics.events,base:options.base,browser:report})
+  polls.classifications.push(...classifyP1SchemaUnloadDiagnostics({events:diagnostics.events,base:options.base,browser:report}).classifications)
   const pollIds=new Set(polls.classifications.map(x=>x.id))
   classified.errors=classified.errors.filter(x=>!pollIds.has(x.id));classified.classifications.push(...polls.classifications)
   const finalEvidence=await adapter.diagnosticEvidenceReference()
