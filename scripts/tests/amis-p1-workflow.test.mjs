@@ -43,3 +43,9 @@ test('input preparation failure publishes only bounded diagnostic receipts, neve
  assert(block.includes('.work/amis-p0-inputs/probe-build-failure.json'))
  assert(!block.includes('inputs.private')&&!block.includes('**')&&!block.includes('host-executable')&&!block.includes('commands.json'))
 })
+
+test('a newer final commit queues without cancelling in-progress production acceptance',()=>{
+ assert(text.includes('group: compose-acceptance-${{ github.head_ref || github.ref_name }}'))
+ assert(text.includes('cancel-in-progress: false'))
+ assert(!text.includes('cancel-in-progress: true'))
+})

@@ -20,7 +20,8 @@ permissions:
 
 concurrency:
   group: compose-acceptance-${{ github.head_ref || github.ref_name }}
-  cancel-in-progress: true
+  # Keep the running production acceptance; queue a newer commit behind it.
+  cancel-in-progress: false
 
 jobs:
   compose:
