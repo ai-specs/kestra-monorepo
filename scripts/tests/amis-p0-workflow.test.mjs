@@ -38,9 +38,12 @@ function evidence(t){
 }
 const files=directory=>readdirSync(directory,{withFileTypes:true}).flatMap(entry=>entry.isDirectory()?files(join(directory,entry.name)).map(path=>entry.name+'/'+path):[entry.name]).sort()
 
-test('existing compose and upgrade jobs remain byte-identical; only amis-p0 appended',()=>{
+test('existing compose and upgrade jobs preserve their baseline with explicit noncancelling queue policy',()=>{
   assert(start>0)
-  assert.equal(hash(workflow.slice(0,start)),'7e6e82d091e3ad69fe2abf0410ee98364deb1cbdebb1dcdb41de59dddd77babe')
+  const prefix=workflow.slice(0,start)
+  assert(prefix.includes('  cancel-in-progress: false'))
+  const baselinePrefix=prefix.replace('  # Keep the running production acceptance; queue a newer commit behind it.\n  cancel-in-progress: false','  cancel-in-progress: true')
+  assert.equal(hash(baselinePrefix),'7e6e82d091e3ad69fe2abf0410ee98364deb1cbdebb1dcdb41de59dddd77babe')
   assert.equal((job.match(/^  [a-z][a-z0-9-]+:\s*$/gm)??[]).length,1)
 })
 test('AMIS CI uses root-only checkout, fixed JDK/Node/Playwright and read-only authenticated OCI',()=>{
